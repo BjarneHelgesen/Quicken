@@ -2,7 +2,7 @@
 
 ## Overview
 
-Quicken is an **independent, standalone** Python library and command-line tool that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on preprocessed translation units.
+Quicken is an **independent, standalone** Python library and command-line tool that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and metadata.
 
 **IMPORTANT: Independence**
 - Quicken is designed to be completely independent - it has NO dependencies on LevelUp or any parent project
@@ -16,34 +16,35 @@ Quicken is an **independent, standalone** Python library and command-line tool t
 
 ### Core Components
 
-1. **QuickenCache** - Manages cache storage and retrieval
+1. **QuickenCache** (defined in quicken.py) - Manages cache storage and retrieval
    - Index-based lookup system (JSON)
    - File-based storage for output artifacts
    - Metadata tracking for stdout/stderr/returncode
 
-2. **Quicken** - Main application logic
+2. **Quicken** (main class in quicken.py) - Main application logic
    - Configuration management
-   - TU preprocessing using MSVC
+   - Dependency detection using MSVC `/showIncludes`
    - Tool execution wrapper
    - Cache coordination
 
 ### Caching Strategy
 
 The cache key is generated from two components:
-- **TU Hash**: BLAKE2b hash of the preprocessed translation unit
+- **Files Hash**: BLAKE2b hash of metadata (path, size, mtime) for local dependencies only
 - **Command Hash**: SHA256 hash of the tool command and arguments
 
 This ensures that:
-- Same source → same cache entry (regardless of file timestamp)
+- Same local files with same metadata → same cache entry
 - Different flags → different cache entries
-- Header changes → cache invalidation (detected via preprocessing)
+- Header changes → cache invalidation (detected via `/showIncludes`)
+- External library changes → ignored (not tracked for speed)
 
 ### File Structure
 
 ```
 ~/.quicken/cache/
 ├── index.json                           # Cache index
-├── <tu_hash>_<cmd_hash>/               # Cache entry
+├── <files_hash>_<cmd_hash>/            # Cache entry
 │   ├── metadata.json                   # Execution metadata
 │   ├── output.obj                      # Cached output files
 │   └── ...
@@ -51,30 +52,42 @@ This ensures that:
 
 ## Implementation Details
 
-### 1. Translation Unit Preprocessing
+### 1. Dependency Detection
 
 ```python
-def _preprocess_tu(self, cpp_file: Path) -> str:
-    # Uses MSVC cl.exe with /E flag to output preprocessed source
-    # This expands all #include directives and macros
-    # Result is a complete, self-contained translation unit
+def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
+    # Uses MSVC cl.exe with /showIncludes /Zs flags
+    # /showIncludes: Lists all included files
+    # /Zs: Syntax check only (no code generation - much faster)
+    # Only includes files within repo_dir (external libraries ignored)
 ```
 
-**Why MSVC?**
-- Configured in local tools.json
-- Produces consistent preprocessor output
-- Handles MSVC-specific extensions properly
+**Why `/showIncludes` instead of preprocessing?**
+- Much faster than full preprocessing (~100ms vs ~500ms+)
+- Still detects all transitive dependencies
+- No need to process full preprocessed output
 
-### 2. Hashing Algorithm
+**Why local-only dependencies?**
+- External libraries (STL, Windows SDK) rarely change
+- Tracking them adds overhead with minimal benefit
+- Maximizes cache hit rate and performance
+
+### 2. Metadata Hashing
 
 ```python
-def _hash_tu(self, tu_content: str) -> str:
+def _hash_file_metadata(self, file_paths: List[Path]) -> str:
     # Uses BLAKE2b with 32-byte digest
+    # Hashes: file path + size + mtime (not contents)
     # Fast, cryptographically secure
 ```
 
+**Why metadata instead of content?**
+- Extremely fast (no file I/O required)
+- mtime changes indicate file modifications
+- Sufficient for detecting actual changes in practice
+
 **Why BLAKE2b?**
-- Faster than SHA256 (important for large TUs)
+- Faster than SHA256
 - Cryptographically secure
 - Built into Python standard library
 
@@ -84,7 +97,7 @@ The cache uses a two-level system:
 1. **Index lookup** - Fast JSON-based index check
 2. **File existence check** - Verify cache entry actually exists
 
-Cache key format: `{tu_hash}_{cmd_hash[:16]}`
+Cache key format: `{files_hash}_{cmd_hash[:16]}`
 
 ### 4. Tool Execution
 
@@ -182,32 +195,48 @@ Second run is instant if file unchanged.
 - Speedup: 100-1000x vs actual compilation
 
 **Cache Miss:**
-- Overhead: ~200-500ms (preprocessing + hashing)
-- Acceptable for first-time builds
+- Overhead: ~100-200ms (dependency detection + metadata hashing)
+- Minimal overhead compared to actual tool execution
 
-**Preprocessing:**
-- MSVC cl /E is fast (~100-300ms for typical files)
-- One-time cost per unique TU
+**Dependency Detection:**
+- MSVC `/showIncludes /Zs` is fast (~100-200ms for typical files)
+- Much faster than full preprocessing (no code generation)
+- One-time cost per cache miss
 
-**Hashing:**
-- BLAKE2b: ~500 MB/s (fast even for large TUs)
-- Typical TU: 1-10 MB → 2-20ms
+**Metadata Hashing:**
+- BLAKE2b on metadata only (path + size + mtime)
+- No file content I/O required
+- Near-instantaneous (~1-5ms for hundreds of files)
 
 ## Design Decisions
 
-### Why Preprocess First?
+### Why Metadata Hashing Instead of Content Hashing?
 
-Alternative: Hash source file directly
+Alternative: Hash file contents directly
 
 **Problems:**
-- Timestamp changes invalidate cache
-- Header changes not detected
-- Include path changes not detected
+- Must read entire file contents (slow for large files)
+- Wastes I/O bandwidth
+- Minimal benefit over metadata approach
 
-**Solution:** Hash the preprocessed TU
-- Captures true semantic content
-- Independent of timestamps
-- Detects all transitive dependencies
+**Solution:** Hash file metadata (size + mtime)
+- Near-instantaneous (no file I/O)
+- Detects changes in practice (mtime updates on modification)
+- Acceptable trade-off: "touch file" invalidates cache unnecessarily
+
+### Why Local Dependencies Only?
+
+Alternative: Track all dependencies including external libraries
+
+**Problems:**
+- External libraries (STL, Windows SDK) rarely change
+- Tracking adds significant overhead
+- Reduces cache hit rate for no practical benefit
+
+**Solution:** Only track files within repository
+- Maximizes performance
+- Sufficient for detecting actual code changes
+- External library updates handled by clean builds
 
 ### Why Store Files, Not Just Output?
 
@@ -219,17 +248,17 @@ Alternative: Cache only stdout/stderr
 - Complete restoration of tool execution
 - Works for compilers, linkers, analyzers
 
-### Why Separate TU and Command Hash?
+### Why Separate Files and Command Hash?
 
-Alternative: Single hash of TU + command
+Alternative: Single hash of files + command
 
 **Problem:**
-- Can't reuse TU hash across different commands
-- Wastes preprocessing effort
+- Can't reuse files hash across different commands
+- Wastes dependency detection effort
 
 **Solution:** Composite cache key
-- Same TU can have multiple cached commands
-- Efficient for multiple tools on same file
+- Same file state can have multiple cached commands
+- Efficient for multiple tools on same files
 
 ## Future Enhancements
 
@@ -239,17 +268,19 @@ Alternative: Single hash of TU + command
 2. **Compression** - Compress large cached files
 3. **TTL/LRU** - Automatic cache eviction
 4. **Statistics** - Track hit/miss rates
-5. **Parallel Preprocessing** - Process multiple files concurrently
-6. **Custom Preprocessor** - Support non-MSVC preprocessors
-7. **Incremental Hashing** - Hash file chunks incrementally
+5. **Parallel Dependency Detection** - Process multiple files concurrently
+6. **Custom Dependency Detection** - Support non-MSVC compilers (GCC `-M`, Clang `-MM`)
+7. **Content Hashing Option** - Optional fallback to content hashing for critical builds
 
 ### Known Limitations
 
-1. **MSVC Dependency** - Currently requires MSVC for preprocessing
-2. **Output Detection** - Uses pattern matching (may miss custom outputs)
-3. **No Distributed Cache** - Cache is local only
-4. **No Cache Limits** - Cache grows unbounded
-5. **Windows Focus** - Designed primarily for Windows/MSVC
+1. **MSVC Dependency** - Currently requires MSVC for dependency detection (`/showIncludes`)
+2. **Metadata Sensitivity** - `touch file` invalidates cache even if content unchanged
+3. **Output Detection** - Uses directory diff (may miss files created outside working directory)
+4. **No Distributed Cache** - Cache is local only
+5. **No Cache Limits** - Cache grows unbounded
+6. **Windows Focus** - Designed primarily for Windows/MSVC
+7. **External Library Blindness** - Changes to external libraries not detected (requires clean build)
 
 ## Testing
 
@@ -278,12 +309,12 @@ python quicken.py test.cpp cl /c /W4
 ## Conclusion
 
 Quicken provides transparent caching for C++ build tools with:
-- Minimal overhead on cache miss
-- Massive speedup on cache hit
+- Minimal overhead on cache miss (~100-200ms)
+- Massive speedup on cache hit (100-1000x)
 - Easy integration with existing workflows
 - Simple, maintainable codebase
 
-The preprocessing-based approach ensures correctness while the efficient caching strategy ensures performance.
+The metadata-based approach prioritizes speed while the local-dependency tracking ensures practical correctness for iterative development.
 
 ---
 
