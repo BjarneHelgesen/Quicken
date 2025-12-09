@@ -1,10 +1,17 @@
 # Quicken
 
-A Python command-line caching wrapper for C++ build tools (compilers, analyzers like clang-tidy).
+An **independent**, standalone Python library and command-line caching wrapper for C++ build tools (compilers, analyzers like clang-tidy).
 
 ## Overview
 
-Quicken speeds up repeated builds and analysis runs by caching tool outputs based on the preprocessed translation unit (TU) and the exact tool command. When you run a tool on a C++ file, Quicken:
+**Quicken is a self-contained library** that can be used by any project without external dependencies. It speeds up repeated builds and analysis runs by caching tool outputs based on the preprocessed translation unit (TU) and the exact tool command.
+
+Quicken can be used:
+- As a **command-line tool** for direct invocation in build scripts
+- As a **Python library** for integration into build systems (40-100x faster than subprocess)
+- With **any project** - no dependencies on LevelUp or other tools
+
+When you run a tool on a C++ file, Quicken:
 
 1. **Hashes**: Preprocesses the C++ file using MSVC to get the translation unit, then hashes it using BLAKE2b
 2. **Looks up**: Checks if this exact TU hash + tool command combination exists in the cache
@@ -83,3 +90,23 @@ Cache is stored in `~/.quicken/cache/` by default.
 - Python 3.7+
 - MSVC (for preprocessing)
 - Target tools (cl, clang-tidy, etc.) configured in tools.json
+- pytest (for running tests): `pip install pytest`
+
+## Testing
+
+Run tests from the Quicken directory:
+```bash
+cd Quicken
+pytest
+```
+
+Or from the parent project (if integrated):
+```bash
+pytest Quicken/
+```
+
+Tests verify:
+- Caching behavior for cache misses and hits
+- Multiple tool support (MSVC cl, clang++, clang-tidy)
+- File modification invalidates cache
+- Different flags create different cache entries

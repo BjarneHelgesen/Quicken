@@ -2,7 +2,15 @@
 
 ## Overview
 
-Quicken is a Python command-line caching wrapper for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on preprocessed translation units.
+Quicken is an **independent, standalone** Python library and command-line tool that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on preprocessed translation units.
+
+**IMPORTANT: Independence**
+- Quicken is designed to be completely independent - it has NO dependencies on LevelUp or any parent project
+- Can be used as a command-line tool: `python quicken.py <file> <tool> [args]`
+- Can be used as a Python library: `from quicken import Quicken`
+- Can be integrated into any build system or project
+- Maintains its own configuration (`tools.json`)
+- Should never import or reference LevelUp-specific code
 
 ## Architecture
 
@@ -53,7 +61,7 @@ def _preprocess_tu(self, cpp_file: Path) -> str:
 ```
 
 **Why MSVC?**
-- Configured in tools.json from levelup project
+- Configured in local tools.json
 - Produces consistent preprocessor output
 - Handles MSVC-specific extensions properly
 
