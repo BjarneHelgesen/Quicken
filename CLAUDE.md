@@ -104,12 +104,16 @@ subprocess.run([tool_path] + args)
 
 ### 5. Output Detection
 
-Automatically detects and caches common output file patterns:
-- `.obj` - Object files
-- `.o` - Object files (Unix style)
-- `.exe` - Executables
-- `.pdb` - Debug symbols
-- `.ilk` - Incremental link files
+Automatically detects and caches all files created by tools during execution:
+- Compares directory contents before/after tool execution
+- Caches any new files (excluding the source file itself)
+- Works with arbitrary tool outputs:
+  - `.obj`, `.o` - Object files
+  - `.exe` - Executables
+  - `.pdb` - Debug symbols
+  - `.ilk` - Incremental link files
+  - `.yaml` - clang-tidy fix exports
+  - Any other tool-generated files
 
 ### 6. Cache Storage
 
@@ -164,10 +168,12 @@ Quicken shines in CI environments where:
 
 ```bash
 # Run clang-tidy through cache
-python quicken.py myfile.cpp clang-tidy --checks=modernize-*
+python quicken.py myfile.cpp clang-tidy --checks=modernize-* --export-fixes=fixes.yaml
 ```
 
 Second run is instant if file unchanged.
+
+**Note**: LevelUp's ClangTidyCrawler automatically uses Quicken for caching clang-tidy analysis, providing massive speedups during repeated analysis runs.
 
 ## Performance Characteristics
 

@@ -193,6 +193,10 @@ class Quicken:
         # Build full command - use just filename since we'll set cwd
         cmd = [tool_path] + tool_args + [cpp_file.name]
 
+        # Snapshot files in working directory before tool execution
+        cpp_file_dir = cpp_file.parent
+        files_before = set(cpp_file_dir.iterdir()) if cpp_file_dir.exists() else set()
+
         # Determine if we need vcvarsall environment
         needs_vcvars = tool_name in ["cl", "link"]
 
@@ -219,28 +223,30 @@ class Quicken:
                 cwd=cpp_file.parent
             )
 
-        # Detect output files (common patterns)
+        # Detect output files by comparing directory contents before/after
+        files_after = set(cpp_file_dir.iterdir()) if cpp_file_dir.exists() else set()
+        new_files = files_after - files_before
+
+        # Filter to only include actual output files (not directories, not source file)
         output_files = []
-        cpp_file_stem = cpp_file.stem
-        cpp_file_dir = cpp_file.parent
-
-        # Common output file patterns
-        patterns = [
-            cpp_file_dir / f"{cpp_file_stem}.obj",
-            cpp_file_dir / f"{cpp_file_stem}.o",
-            cpp_file_dir / f"{cpp_file_stem}.exe",
-            cpp_file_dir / f"{cpp_file_stem}.pdb",
-            cpp_file_dir / f"{cpp_file_stem}.ilk",
-        ]
-
-        for pattern in patterns:
-            if pattern.exists():
-                output_files.append(pattern)
+        for file_path in new_files:
+            if file_path.is_file() and file_path != cpp_file:
+                output_files.append(file_path)
 
         return output_files, result.stdout, result.stderr, result.returncode
 
-    def run(self, cpp_file: Path, tool_name: str, tool_args: List[str]) -> int:
-        """Main execution: get dependencies, hash metadata, lookup cache, or run tool."""
+    def run(self, cpp_file: Path, tool_name: str, tool_args: List[str],
+            original_file: Path = None, repo_dir: Path = None) -> int:
+        """
+        Main execution: get dependencies, hash metadata, lookup cache, or run tool.
+
+        Args:
+            cpp_file: C++ file to process (may be a temp copy)
+            tool_name: Tool to run
+            tool_args: Arguments for the tool
+            original_file: Original source file location (for dependency detection)
+            repo_dir: Repository directory (for dependency filtering)
+        """
         if not cpp_file.exists():
             print(f"Error: C++ file not found: {cpp_file}", file=sys.stderr)
             return 1
@@ -248,13 +254,17 @@ class Quicken:
         if self.verbose:
             print(f"[Quicken] Processing {cpp_file} with {tool_name}...", file=sys.stderr)
 
-        # Determine repository directory (assume current working directory)
-        repo_dir = Path.cwd()
+        # Use original file for dependency detection, or cpp_file if not provided
+        dependency_file = original_file if original_file else cpp_file
+
+        # Determine repository directory
+        if not repo_dir:
+            repo_dir = Path.cwd()
 
         # Step 1: Get local dependencies using /showIncludes
         if self.verbose:
             print(f"[Quicken] Finding local dependencies...", file=sys.stderr)
-        local_files = self._get_local_dependencies(cpp_file, repo_dir)
+        local_files = self._get_local_dependencies(dependency_file, repo_dir)
         if self.verbose:
             print(f"[Quicken] Found {len(local_files)} local files", file=sys.stderr)
 
