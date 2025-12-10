@@ -186,15 +186,33 @@ class Quicken:
 
         return hasher.hexdigest()
 
-    def _run_tool(self, tool_name: str, tool_args: List[str], cpp_file: Path) -> Tuple[List[Path], str, str, int]:
-        """Run the specified tool with arguments."""
+    def _run_tool(self, tool_name: str, tool_args: List[str], cpp_file: Path,
+                  work_dir: Path = None) -> Tuple[List[Path], str, str, int]:
+        """Run the specified tool with arguments.
+
+        Args:
+            tool_name: Name of tool to run
+            tool_args: Arguments to pass to tool
+            cpp_file: Path to C++ file (may be temp copy)
+            work_dir: Working directory for tool execution (default: cpp_file.parent)
+        """
         tool_path = self._get_tool_path(tool_name)
 
-        # Build full command - use just filename since we'll set cwd
-        cmd = [tool_path] + tool_args + [cpp_file.name]
+        # Determine working directory (use original location if provided)
+        cpp_file_dir = work_dir if work_dir else cpp_file.parent
+
+        # If work_dir is specified and different from cpp_file location,
+        # use absolute path to cpp_file so tool can find it
+        if work_dir and work_dir != cpp_file.parent:
+            file_arg = str(cpp_file.resolve())
+        else:
+            # Use just filename since we're in the same directory
+            file_arg = cpp_file.name
+
+        # Build full command
+        cmd = [tool_path] + tool_args + [file_arg]
 
         # Snapshot files in working directory before tool execution
-        cpp_file_dir = cpp_file.parent
         files_before = set(cpp_file_dir.iterdir()) if cpp_file_dir.exists() else set()
 
         # Determine if we need vcvarsall environment
@@ -212,7 +230,7 @@ class Quicken:
                 capture_output=True,
                 text=True,
                 check=False,
-                cwd=cpp_file.parent
+                cwd=cpp_file_dir
             )
         else:
             result = subprocess.run(
@@ -220,7 +238,7 @@ class Quicken:
                 capture_output=True,
                 text=True,
                 check=False,
-                cwd=cpp_file.parent
+                cwd=cpp_file_dir
             )
 
         # Detect output files by comparing directory contents before/after
@@ -287,7 +305,10 @@ class Quicken:
             # Step 4a: Cache hit - restore files
             if self.verbose:
                 print(f"[Quicken] Cache HIT! Restoring cached output...", file=sys.stderr)
-            stdout, stderr, returncode = self.cache.restore(cache_entry, cpp_file.parent)
+
+            # Restore to original file's directory if provided, else cpp_file directory
+            output_dir = original_file.parent if original_file else cpp_file.parent
+            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
 
             # Output stdout/stderr as if tool ran
             if stdout:
@@ -300,7 +321,12 @@ class Quicken:
             # Step 4b: Cache miss - run tool
             if self.verbose:
                 print(f"[Quicken] Cache MISS. Running tool...", file=sys.stderr)
-            output_files, stdout, stderr, returncode = self._run_tool(tool_name, tool_args, cpp_file)
+
+            # Use original file's directory as working directory if provided
+            work_dir = original_file.parent if original_file else None
+            output_files, stdout, stderr, returncode = self._run_tool(
+                tool_name, tool_args, cpp_file, work_dir=work_dir
+            )
 
             # Output stdout/stderr
             if stdout:

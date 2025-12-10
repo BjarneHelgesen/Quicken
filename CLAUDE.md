@@ -115,6 +115,28 @@ full_cmd = f'"{vcvarsall}" {msvc_arch} >nul && {tool_cmd}'
 subprocess.run([tool_path] + args)
 ```
 
+**Working Directory Management:**
+
+Quicken supports running tools on temporary copies while preserving relative includes:
+
+```python
+# When using temp copies, pass original_file to preserve relative includes
+quicken.run(
+    cpp_file=temp_copy,           # Temporary copy of source
+    tool_name="clang-tidy",
+    tool_args=["-checks=*"],
+    original_file=original_source, # Original location
+    repo_dir=repo_root
+)
+```
+
+How it works:
+- **Tool runs in**: `original_file.parent` (original source directory)
+- **Tool operates on**: `temp_copy` (passed as absolute path)
+- **Result**: Relative includes like `#include "..\..\tools\mytool.h"` work correctly
+
+This is critical for tools that need to process modified/temporary versions of files while maintaining the original project structure.
+
 ### 5. Output Detection
 
 Automatically detects and caches all files created by tools during execution:
