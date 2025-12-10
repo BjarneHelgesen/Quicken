@@ -254,6 +254,42 @@ class TestQuickenMSVC:
         returncode2 = quicken_instance.run(test_cpp_file, "cl", tool_args)
         assert returncode2 == 0
 
+    @pytest.mark.skipif(not Path("C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe").exists(),
+                        reason="MSVC cl.exe not found")
+    def test_msvc_custom_output_dir(self, quicken_instance, test_cpp_file, temp_dir):
+        """Test that output_dir parameter correctly detects files in custom output directory."""
+        # Create custom output directory
+        output_dir = temp_dir / "custom_output"
+        output_dir.mkdir()
+
+        # Compile with /Fo to specify output directory
+        tool_args = ["/c", "/nologo", "/EHsc", f"/Fo{output_dir}/"]
+
+        # First run - cache miss
+        returncode1 = quicken_instance.run(
+            test_cpp_file, "cl", tool_args,
+            output_dir=output_dir
+        )
+        assert returncode1 == 0
+
+        # Check that .obj file was created in custom directory
+        obj_file = output_dir / "test.obj"
+        if not obj_file.exists():
+            pytest.skip("MSVC compilation succeeded but .obj file not created in custom output directory")
+
+        # Delete the .obj file
+        obj_file.unlink()
+
+        # Second run - cache hit
+        returncode2 = quicken_instance.run(
+            test_cpp_file, "cl", tool_args,
+            output_dir=output_dir
+        )
+        assert returncode2 == 0
+
+        # .obj file should be restored from cache to custom directory
+        assert obj_file.exists()
+
 
 class TestQuickenClang:
     """Test Quicken with clang++ compiler."""

@@ -187,7 +187,7 @@ class Quicken:
         return hasher.hexdigest()
 
     def _run_tool(self, tool_name: str, tool_args: List[str], cpp_file: Path,
-                  work_dir: Path = None) -> Tuple[List[Path], str, str, int]:
+                  work_dir: Path = None, output_dir: Path = None) -> Tuple[List[Path], str, str, int]:
         """Run the specified tool with arguments.
 
         Args:
@@ -195,11 +195,15 @@ class Quicken:
             tool_args: Arguments to pass to tool
             cpp_file: Path to C++ file (may be temp copy)
             work_dir: Working directory for tool execution (default: cpp_file.parent)
+            output_dir: Directory to look for output files (default: work_dir)
         """
         tool_path = self._get_tool_path(tool_name)
 
         # Determine working directory (use original location if provided)
         cpp_file_dir = work_dir if work_dir else cpp_file.parent
+
+        # Determine output directory (where to look for output files)
+        output_directory = output_dir if output_dir else cpp_file_dir
 
         # If work_dir is specified and different from cpp_file location,
         # use absolute path to cpp_file so tool can find it
@@ -212,8 +216,8 @@ class Quicken:
         # Build full command
         cmd = [tool_path] + tool_args + [file_arg]
 
-        # Snapshot files in working directory before tool execution
-        files_before = set(cpp_file_dir.iterdir()) if cpp_file_dir.exists() else set()
+        # Snapshot files in output directory before tool execution
+        files_before = set(output_directory.iterdir()) if output_directory.exists() else set()
 
         # Determine if we need vcvarsall environment
         needs_vcvars = tool_name in ["cl", "link"]
@@ -242,7 +246,7 @@ class Quicken:
             )
 
         # Detect output files by comparing directory contents before/after
-        files_after = set(cpp_file_dir.iterdir()) if cpp_file_dir.exists() else set()
+        files_after = set(output_directory.iterdir()) if output_directory.exists() else set()
         new_files = files_after - files_before
 
         # Filter to only include actual output files (not directories, not source file)
@@ -254,7 +258,8 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def run(self, cpp_file: Path, tool_name: str, tool_args: List[str],
-            original_file: Path = None, repo_dir: Path = None) -> int:
+            original_file: Path = None, repo_dir: Path = None,
+            output_dir: Path = None) -> int:
         """
         Main execution: get dependencies, hash metadata, lookup cache, or run tool.
 
@@ -264,6 +269,7 @@ class Quicken:
             tool_args: Arguments for the tool
             original_file: Original source file location (for dependency detection)
             repo_dir: Repository directory (for dependency filtering)
+            output_dir: Directory where tool creates output files (for detection and cache restoration)
         """
         if not cpp_file.exists():
             print(f"Error: C++ file not found: {cpp_file}", file=sys.stderr)
@@ -306,9 +312,9 @@ class Quicken:
             if self.verbose:
                 print(f"[Quicken] Cache HIT! Restoring cached output...", file=sys.stderr)
 
-            # Restore to original file's directory if provided, else cpp_file directory
-            output_dir = original_file.parent if original_file else cpp_file.parent
-            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+            # Restore to output_dir if provided, else original file's directory, else cpp_file directory
+            restore_dir = output_dir if output_dir else (original_file.parent if original_file else cpp_file.parent)
+            stdout, stderr, returncode = self.cache.restore(cache_entry, restore_dir)
 
             # Output stdout/stderr as if tool ran
             if stdout:
@@ -325,7 +331,7 @@ class Quicken:
             # Use original file's directory as working directory if provided
             work_dir = original_file.parent if original_file else None
             output_files, stdout, stderr, returncode = self._run_tool(
-                tool_name, tool_args, cpp_file, work_dir=work_dir
+                tool_name, tool_args, cpp_file, work_dir=work_dir, output_dir=output_dir
             )
 
             # Output stdout/stderr
@@ -360,12 +366,15 @@ Examples:
     parser.add_argument("tool_args", nargs="*", help="Arguments to pass to the tool")
     parser.add_argument("--config", type=Path, default=Path("tools.json"),
                        help="Path to tools.json config file (default: ./tools.json)")
+    parser.add_argument("--output-dir", type=Path,
+                       help="Directory where tool creates output files (default: source file directory)")
 
     args = parser.parse_args()
 
     try:
         quicken = Quicken(args.config)
-        returncode = quicken.run(args.cpp_file, args.tool, args.tool_args)
+        returncode = quicken.run(args.cpp_file, args.tool, args.tool_args,
+                                 output_dir=args.output_dir)
         sys.exit(returncode)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

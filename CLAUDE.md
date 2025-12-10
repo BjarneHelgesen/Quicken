@@ -142,6 +142,7 @@ This is critical for tools that need to process modified/temporary versions of f
 Automatically detects and caches all files created by tools during execution:
 - Compares directory contents before/after tool execution
 - Caches any new files (excluding the source file itself)
+- Supports custom output directories via `output_dir` parameter
 - Works with arbitrary tool outputs:
   - `.obj`, `.o` - Object files
   - `.exe` - Executables
@@ -149,6 +150,21 @@ Automatically detects and caches all files created by tools during execution:
   - `.ilk` - Incremental link files
   - `.yaml` - clang-tidy fix exports
   - Any other tool-generated files
+
+**Output Directory Detection:**
+- By default, looks in the working directory (where the tool executes)
+- Can specify custom `output_dir` for tools that write to different locations
+- Useful for tools with output flags like `/Fo<dir>` (MSVC) or `-o <path>`
+
+```python
+# Example: Tool writes to a specific output directory
+quicken.run(
+    cpp_file=source_file,
+    tool_name="cl",
+    tool_args=["/c", "/Fooutput/"],  # MSVC writes to output/
+    output_dir=Path("output")         # Tell Quicken where to look
+)
+```
 
 ### 6. Cache Storage
 
@@ -190,6 +206,10 @@ Special keys:
 # Replace compiler calls with Quicken
 # Before: cl /c myfile.cpp
 # After:  python quicken.py myfile.cpp cl /c
+
+# With custom output directory
+# Before: cl /c /Fooutput/ myfile.cpp
+# After:  python quicken.py myfile.cpp cl /c /Fooutput/ --output-dir output
 ```
 
 ### CI/CD Pipelines
@@ -298,7 +318,7 @@ Alternative: Single hash of files + command
 
 1. **MSVC Dependency** - Currently requires MSVC for dependency detection (`/showIncludes`)
 2. **Metadata Sensitivity** - `touch file` invalidates cache even if content unchanged
-3. **Output Detection** - Uses directory diff (may miss files created outside working directory)
+3. **Output Detection** - Uses directory diff; requires `output_dir` parameter if tool writes outside working directory
 4. **No Distributed Cache** - Cache is local only
 5. **No Cache Limits** - Cache grows unbounded
 6. **Windows Focus** - Designed primarily for Windows/MSVC
