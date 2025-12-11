@@ -183,6 +183,23 @@ When cache hit occurs:
 
 Result is indistinguishable from actual tool execution.
 
+### 8. Cache Clearing
+
+Clients can clear the entire cache through:
+
+**Command-line:**
+```bash
+python quicken.py --clear-cache
+```
+
+**Library API:**
+```python
+quicken = Quicken(config_path)
+quicken.clear_cache()  # Clears all cached entries
+```
+
+This removes all cache entries and resets the index.
+
 ## Configuration
 
 `tools.json` format:
@@ -210,6 +227,9 @@ Special keys:
 # With custom output directory
 # Before: cl /c /Fooutput/ myfile.cpp
 # After:  python quicken.py myfile.cpp cl /c /Fooutput/ --output-dir output
+
+# Clear the cache
+python quicken.py --clear-cache
 ```
 
 ### CI/CD Pipelines
@@ -224,6 +244,9 @@ Quicken shines in CI environments where:
 ```bash
 # Run clang-tidy through cache
 python quicken.py myfile.cpp clang-tidy --checks=modernize-* --export-fixes=fixes.yaml
+
+# Clear cache to force re-analysis
+python quicken.py --clear-cache
 ```
 
 Second run is instant if file unchanged.

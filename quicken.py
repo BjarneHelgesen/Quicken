@@ -105,6 +105,20 @@ class QuickenCache:
 
         return metadata["stdout"], metadata["stderr"], metadata["returncode"]
 
+    def clear(self):
+        """Clear all cached entries."""
+        # Remove all cache entry directories
+        if self.cache_dir.exists():
+            for entry in self.cache_dir.iterdir():
+                if entry.is_dir():
+                    shutil.rmtree(entry)
+                elif entry != self.index_file:
+                    entry.unlink()
+
+        # Clear the index
+        self.index = {}
+        self._save_index()
+
 
 class Quicken:
     """Main Quicken application."""
@@ -347,6 +361,12 @@ class Quicken:
 
             return returncode
 
+    def clear_cache(self):
+        """Clear the entire cache."""
+        self.cache.clear()
+        if self.verbose:
+            print(f"[Quicken] Cache cleared", file=sys.stderr)
+
 
 def main():
     """CLI entry point."""
@@ -361,18 +381,30 @@ Examples:
         """
     )
 
-    parser.add_argument("cpp_file", type=Path, help="C++ source file to process")
-    parser.add_argument("tool", help="Tool to run (must be in tools.json)")
+    parser.add_argument("cpp_file", nargs="?", type=Path, help="C++ source file to process")
+    parser.add_argument("tool", nargs="?", help="Tool to run (must be in tools.json)")
     parser.add_argument("tool_args", nargs="*", help="Arguments to pass to the tool")
     parser.add_argument("--config", type=Path, default=Path("tools.json"),
                        help="Path to tools.json config file (default: ./tools.json)")
     parser.add_argument("--output-dir", type=Path,
                        help="Directory where tool creates output files (default: source file directory)")
+    parser.add_argument("--clear-cache", action="store_true",
+                       help="Clear the entire cache and exit")
 
     args = parser.parse_args()
 
     try:
         quicken = Quicken(args.config)
+
+        # Handle cache clearing
+        if args.clear_cache:
+            quicken.clear_cache()
+            sys.exit(0)
+
+        # Validate required arguments for normal operation
+        if not args.cpp_file or not args.tool:
+            parser.error("cpp_file and tool are required unless --clear-cache is used")
+
         returncode = quicken.run(args.cpp_file, args.tool, args.tool_args,
                                  output_dir=args.output_dir)
         sys.exit(returncode)
