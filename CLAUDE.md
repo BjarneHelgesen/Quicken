@@ -29,25 +29,58 @@ Quicken is an **independent, standalone** Python library and command-line tool t
 
 ### Caching Strategy
 
-The cache key is generated from two components:
-- **Files Hash**: BLAKE2b hash of metadata (path, size, mtime) for local dependencies only
-- **Command Hash**: SHA256 hash of the tool command and arguments
+**OPTIMIZED FOR CACHE HITS** - The cache is designed assuming 10-100 cache hits per cache miss.
+
+**Cache Lookup (Fast Path - No Tool Execution):**
+1. Look up source file in index by absolute path
+2. For each cached entry for that file:
+   - Compare tool command string (direct comparison)
+   - Compare metadata (size + mtime) for all dependencies
+   - If all match → Cache HIT!
+
+**Cache Miss (Slow Path - Runs Tool):**
+1. Run MSVC `/showIncludes` to detect dependencies (~100-200ms)
+2. Execute the actual tool
+3. Store output files and dependency metadata for future hits
+
+**Performance Characteristics:**
+- Cache hits only require file stat operations (~1-10ms overhead)
+- `/showIncludes` only runs on cache misses when tool execution dominates anyway
+- Optimized for scenarios with many cache hits per miss
 
 This ensures that:
-- Same local files with same metadata → same cache entry
-- Different flags → different cache entries
-- Header changes → cache invalidation (detected via `/showIncludes`)
+- Same local files with same metadata → instant cache hit
+- Different flags → different cache entries (separate lookup)
+- Header changes → cache invalidation (metadata comparison fails)
 - External library changes → ignored (not tracked for speed)
 
 ### File Structure
 
 ```
 ~/.quicken/cache/
-├── index.json                           # Cache index
-├── <files_hash>_<cmd_hash>/            # Cache entry
-│   ├── metadata.json                   # Execution metadata
+├── index.json                           # Cache index (source file → entries)
+├── entry_000001/                        # Cache entry (simple counter)
+│   ├── metadata.json                   # Execution metadata + dependencies
 │   ├── output.obj                      # Cached output files
 │   └── ...
+├── entry_000002/
+│   └── ...
+```
+
+**Index Structure:**
+```json
+{
+  "C:\\path\\to\\main.cpp": [
+    {
+      "cache_key": "entry_000001",
+      "tool_cmd": "cl /c /W4",
+      "dependencies": [
+        {"path": "C:\\path\\to\\main.cpp", "size": 1234, "mtime_ns": 132456789},
+        {"path": "C:\\path\\to\\header.h", "size": 567, "mtime_ns": 132456790}
+      ]
+    }
+  ]
+}
 ```
 
 ## Implementation Details
@@ -72,32 +105,33 @@ def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
 - Tracking them adds overhead with minimal benefit
 - Maximizes cache hit rate and performance
 
-### 2. Metadata Hashing
+### 2. Metadata Comparison (Cache Hit Fast Path)
 
 ```python
-def _hash_file_metadata(self, file_paths: List[Path]) -> str:
-    # Uses BLAKE2b with 32-byte digest
-    # Hashes: file path + size + mtime (not contents)
-    # Fast, cryptographically secure
+def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
+    # For each cached dependency:
+    #   - Check file exists
+    #   - Compare size (stat.st_size)
+    #   - Compare mtime (stat.st_mtime_ns)
+    # All must match for cache hit
 ```
 
-**Why metadata instead of content?**
-- Extremely fast (no file I/O required)
+**Why metadata comparison?**
+- Extremely fast (~1-10ms for typical files)
+- Direct stat() comparison is simple and efficient
 - mtime changes indicate file modifications
 - Sufficient for detecting actual changes in practice
-
-**Why BLAKE2b?**
-- Faster than SHA256
-- Cryptographically secure
-- Built into Python standard library
+- No need to run `/showIncludes` on cache hits
 
 ### 3. Cache Lookup
 
-The cache uses a two-level system:
-1. **Index lookup** - Fast JSON-based index check
-2. **File existence check** - Verify cache entry actually exists
+The cache uses an optimized lookup system:
+1. **Index lookup by source file path** - Find all cached entries for this file
+2. **Tool command comparison** - Filter to matching tool command
+3. **Dependency metadata check** - Verify all dependencies still match
+4. **File existence check** - Verify cache entry directory exists
 
-Cache key format: `{files_hash}_{cmd_hash[:16]}`
+Cache key format: `entry_{counter:06d}` (simple incrementing counter)
 
 ### 4. Tool Execution
 
@@ -255,39 +289,52 @@ Second run is instant if file unchanged.
 
 ## Performance Characteristics
 
+**Design Goal:** Optimize for cache hits (10-100 hits per miss).
+
 **Cache Hit:**
-- Time: ~10-50ms (file copy + I/O)
-- Speedup: 100-1000x vs actual compilation
+- Time: ~15-60ms total
+  - Index lookup: <1ms
+  - Stat all dependencies (50 files): ~1-10ms
+  - Metadata comparison: <1ms
+  - File copy + I/O: ~10-50ms (dominant cost)
+- Speedup vs actual compilation: 100-1000x
 
 **Cache Miss:**
-- Overhead: ~100-200ms (dependency detection + metadata hashing)
+- Overhead: ~100-200ms (dependency detection)
 - Minimal overhead compared to actual tool execution
+- Dependency info cached for future hits
 
-**Dependency Detection:**
-- MSVC `/showIncludes /Zs` is fast (~100-200ms for typical files)
+**Dependency Detection (Only on Cache Miss):**
+- MSVC `/showIncludes /Zs` (~100-200ms for typical files)
 - Much faster than full preprocessing (no code generation)
 - One-time cost per cache miss
+- Results stored in cache for instant future lookups
 
-**Metadata Hashing:**
-- BLAKE2b on metadata only (path + size + mtime)
-- No file content I/O required
-- Near-instantaneous (~1-5ms for hundreds of files)
+**Metadata Comparison (On Every Cache Hit):**
+- Direct stat() comparison
+- No `/showIncludes` execution needed
+- Near-instantaneous (~1-10ms for 50 files)
 
 ## Design Decisions
 
-### Why Metadata Hashing Instead of Content Hashing?
+### Why Metadata Comparison?
 
-Alternative: Hash file contents directly
+**Approach:** Store dependency metadata in cache, compare directly on lookup
 
-**Problems:**
-- Must read entire file contents (slow for large files)
-- Wastes I/O bandwidth
-- Minimal benefit over metadata approach
-
-**Solution:** Hash file metadata (size + mtime)
-- Near-instantaneous (no file I/O)
-- Detects changes in practice (mtime updates on modification)
+**Benefits:**
+- Near-instantaneous comparison (~1-10ms for 50 files)
+- No `/showIncludes` needed on cache hits
+- Simple stat() calls are sufficient
 - Acceptable trade-off: "touch file" invalidates cache unnecessarily
+
+### Why Store Dependencies in Cache?
+
+**Approach:** Detect dependencies once on cache miss, store for future lookups
+
+**Benefits:**
+- `/showIncludes` only runs on cache misses
+- Cache hits avoid expensive dependency detection
+- Optimal for scenarios with many cache hits per miss
 
 ### Why Local Dependencies Only?
 
@@ -313,17 +360,15 @@ Alternative: Cache only stdout/stderr
 - Complete restoration of tool execution
 - Works for compilers, linkers, analyzers
 
-### Why Separate Files and Command Hash?
+### Why Index by Source File Path?
 
-Alternative: Single hash of files + command
+**Approach:** Use source file absolute path as index key
 
-**Problem:**
-- Can't reuse files hash across different commands
-- Wastes dependency detection effort
-
-**Solution:** Composite cache key
-- Same file state can have multiple cached commands
-- Efficient for multiple tools on same files
+**Benefits:**
+- Direct lookup without any preprocessing
+- Multiple cache entries per source file (different tools/flags)
+- Enables fast path: lookup → compare metadata → done
+- Simple and efficient
 
 ## Future Enhancements
 

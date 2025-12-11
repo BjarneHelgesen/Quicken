@@ -19,16 +19,34 @@ from typing import Dict, List, Optional, Tuple
 
 
 class QuickenCache:
-    """Manages caching of tool outputs based on TU hash and command."""
+    """Manages caching of tool outputs based on source file and dependency metadata."""
 
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.index_file = cache_dir / "index.json"
         self.index = self._load_index()
+        self._next_id = self._get_next_id()
 
     def _load_index(self) -> Dict:
-        """Load the cache index."""
+        """Load the cache index.
+
+        Index structure:
+        {
+            "source_file_path": [
+                {
+                    "cache_key": "entry_001",
+                    "tool_cmd": "cl /c /W4",
+                    "dependencies": [
+                        {"path": "C:\\path\\file.cpp", "size": 1234, "mtime_ns": 132456789},
+                        ...
+                    ]
+                },
+                ...
+            ],
+            ...
+        }
+        """
         if self.index_file.exists():
             with open(self.index_file, 'r') as f:
                 return json.load(f)
@@ -39,24 +57,77 @@ class QuickenCache:
         with open(self.index_file, 'w') as f:
             json.dump(self.index, f, indent=2)
 
-    def _get_cache_key(self, tu_hash: str, tool_cmd: str) -> str:
-        """Generate a cache key from TU hash and tool command."""
-        cmd_hash = hashlib.sha256(tool_cmd.encode()).hexdigest()[:16]
-        return f"{tu_hash}_{cmd_hash}"
+    def _get_next_id(self) -> int:
+        """Get next available cache entry ID."""
+        max_id = 0
+        for entries in self.index.values():
+            for entry in entries:
+                cache_key = entry.get("cache_key", "")
+                if cache_key.startswith("entry_"):
+                    try:
+                        entry_id = int(cache_key.split("_")[1])
+                        max_id = max(max_id, entry_id)
+                    except (ValueError, IndexError):
+                        pass
+        return max_id + 1
 
-    def lookup(self, tu_hash: str, tool_cmd: str) -> Optional[Path]:
-        """Look up cached output for given TU hash and tool command."""
-        cache_key = self._get_cache_key(tu_hash, tool_cmd)
-        if cache_key in self.index:
-            cache_entry_dir = self.cache_dir / cache_key
+    def _get_file_metadata(self, file_path: Path) -> Dict:
+        """Get metadata for a single file."""
+        stat = file_path.stat()
+        return {
+            "path": str(file_path.resolve()),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns
+        }
+
+    def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
+        """Check if all cached dependencies still match their metadata."""
+        for dep in cached_deps:
+            dep_path = Path(dep["path"])
+            if not dep_path.exists():
+                return False
+            stat = dep_path.stat()
+            if stat.st_size != dep["size"] or stat.st_mtime_ns != dep["mtime_ns"]:
+                return False
+        return True
+
+    def lookup(self, source_file: Path, tool_cmd: str) -> Optional[Path]:
+        """Look up cached output for given source file and tool command.
+
+        This is the optimized fast path that doesn't run /showIncludes.
+        It only checks file metadata (size + mtime) against cached values.
+        """
+        source_key = str(source_file.resolve())
+
+        if source_key not in self.index:
+            return None
+
+        # Check each cached entry for this source file
+        for entry in self.index[source_key]:
+            # Check if tool command matches
+            if entry["tool_cmd"] != tool_cmd:
+                continue
+
+            # Check if all dependencies still match their cached metadata
+            if not self._dependencies_match(entry["dependencies"]):
+                continue
+
+            # Cache hit! Return the cache entry directory
+            cache_entry_dir = self.cache_dir / entry["cache_key"]
             if cache_entry_dir.exists():
                 return cache_entry_dir
+
         return None
 
-    def store(self, tu_hash: str, tool_cmd: str, output_files: List[Path],
-              stdout: str, stderr: str, returncode: int) -> Path:
-        """Store tool output in cache."""
-        cache_key = self._get_cache_key(tu_hash, tool_cmd)
+    def store(self, source_file: Path, tool_cmd: str, dependencies: List[Path],
+              output_files: List[Path], stdout: str, stderr: str, returncode: int) -> Path:
+        """Store tool output in cache with dependency metadata."""
+        source_key = str(source_file.resolve())
+
+        # Generate unique cache key
+        cache_key = f"entry_{self._next_id:06d}"
+        self._next_id += 1
+
         cache_entry_dir = self.cache_dir / cache_key
         cache_entry_dir.mkdir(parents=True, exist_ok=True)
 
@@ -68,10 +139,15 @@ class QuickenCache:
                 shutil.copy2(output_file, dest)
                 stored_files.append(output_file.name)
 
+        # Collect dependency metadata
+        dep_metadata = [self._get_file_metadata(dep) for dep in dependencies]
+
         # Store metadata
         metadata = {
-            "tu_hash": tu_hash,
+            "cache_key": cache_key,
+            "source_file": source_key,
             "tool_cmd": tool_cmd,
+            "dependencies": dep_metadata,
             "files": stored_files,
             "stdout": stdout,
             "stderr": stderr,
@@ -81,11 +157,15 @@ class QuickenCache:
         with open(cache_entry_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
 
-        self.index[cache_key] = {
-            "tu_hash": tu_hash,
+        # Update index
+        if source_key not in self.index:
+            self.index[source_key] = []
+
+        self.index[source_key].append({
+            "cache_key": cache_key,
             "tool_cmd": tool_cmd,
-            "files": stored_files
-        }
+            "dependencies": dep_metadata
+        })
         self._save_index()
 
         return cache_entry_dir
@@ -127,6 +207,7 @@ class Quicken:
         self.config = self._load_config(config_path)
         self.cache = QuickenCache(Path.home() / ".quicken" / "cache")
         self.verbose = verbose
+        self._msvc_env = None  # Cached MSVC environment
 
     def _load_config(self, config_path: Path) -> Dict:
         """Load tools configuration."""
@@ -142,20 +223,48 @@ class Quicken:
             raise ValueError(f"Tool '{tool_name}' not found in config")
         return self.config[tool_name]
 
-    def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
-        """Get list of local (repo) file dependencies using MSVC /showIncludes."""
-        cl_path = self._get_tool_path("cl")
+    def _get_msvc_environment(self) -> Dict:
+        """Get MSVC environment variables (cached after first call)."""
+        if self._msvc_env is not None:
+            return self._msvc_env
+
         vcvarsall = self._get_tool_path("vcvarsall")
         msvc_arch = self.config.get("msvc_arch", "x64")
 
+        # Run vcvarsall and capture environment
+        cmd = f'"{vcvarsall}" {msvc_arch} >nul && set'
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        # Parse environment variables from output
+        env = os.environ.copy()
+        for line in result.stdout.splitlines():
+            if '=' in line:
+                key, _, value = line.partition('=')
+                env[key] = value
+
+        self._msvc_env = env
+        return self._msvc_env
+
+    def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
+        """Get list of local (repo) file dependencies using MSVC /showIncludes."""
+        cl_path = self._get_tool_path("cl")
+        env = self._get_msvc_environment()
+
+        # Pre-resolve repo_dir once for faster filtering
+        repo_dir_resolved = repo_dir.resolve()
+
         # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
         # This is much faster than full preprocessing
-        cmd = f'"{vcvarsall}" {msvc_arch} >nul && "{cl_path}" /showIncludes /Zs "{cpp_file}"'
-
         try:
             result = subprocess.run(
-                cmd,
-                shell=True,
+                [cl_path, '/showIncludes', '/Zs', str(cpp_file)],
+                env=env,
                 capture_output=True,
                 text=True,
                 check=False
@@ -173,7 +282,7 @@ class Quicken:
 
                     # Only include files within the repository
                     try:
-                        file_path.resolve().relative_to(repo_dir.resolve())
+                        file_path.resolve().relative_to(repo_dir_resolved)
                         dependencies.append(file_path)
                     except ValueError:
                         # File is outside repo, skip it
@@ -182,23 +291,6 @@ class Quicken:
             return dependencies
         except Exception as e:
             raise RuntimeError(f"Failed to get dependencies: {e}")
-
-    def _hash_file_metadata(self, file_paths: List[Path]) -> str:
-        """Hash file metadata (path, size, mtime) instead of contents for speed."""
-        # Using BLAKE2b for speed
-        hasher = hashlib.blake2b(digest_size=32)
-
-        # Sort paths for consistent ordering
-        sorted_paths = sorted(file_paths, key=lambda p: str(p))
-
-        for file_path in sorted_paths:
-            if file_path.exists():
-                stat = file_path.stat()
-                # Hash: normalized path, size, and modification time
-                metadata = f"{file_path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}"
-                hasher.update(metadata.encode('utf-8'))
-
-        return hasher.hexdigest()
 
     def _run_tool(self, tool_name: str, tool_args: List[str], cpp_file: Path,
                   work_dir: Path = None, output_dir: Path = None) -> Tuple[List[Path], str, str, int]:
@@ -237,14 +329,10 @@ class Quicken:
         needs_vcvars = tool_name in ["cl", "link"]
 
         if needs_vcvars:
-            vcvarsall = self._get_tool_path("vcvarsall")
-            msvc_arch = self.config.get("msvc_arch", "x64")
-            cmd_str = ' '.join(f'"{arg}"' if ' ' in str(arg) else str(arg) for arg in cmd)
-            full_cmd = f'"{vcvarsall}" {msvc_arch} >nul && {cmd_str}'
-
+            env = self._get_msvc_environment()
             result = subprocess.run(
-                full_cmd,
-                shell=True,
+                cmd,
+                env=env,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -275,7 +363,7 @@ class Quicken:
             original_file: Path = None, repo_dir: Path = None,
             output_dir: Path = None) -> int:
         """
-        Main execution: get dependencies, hash metadata, lookup cache, or run tool.
+        Main execution: optimized cache lookup, or get dependencies and run tool.
 
         Args:
             cpp_file: C++ file to process (may be a temp copy)
@@ -292,37 +380,23 @@ class Quicken:
         if self.verbose:
             print(f"[Quicken] Processing {cpp_file} with {tool_name}...", file=sys.stderr)
 
-        # Use original file for dependency detection, or cpp_file if not provided
-        dependency_file = original_file if original_file else cpp_file
+        # Use original file for cache lookup and dependency detection, or cpp_file if not provided
+        source_file = original_file if original_file else cpp_file
 
         # Determine repository directory
         if not repo_dir:
             repo_dir = Path.cwd()
 
-        # Step 1: Get local dependencies using /showIncludes
-        if self.verbose:
-            print(f"[Quicken] Finding local dependencies...", file=sys.stderr)
-        local_files = self._get_local_dependencies(dependency_file, repo_dir)
-        if self.verbose:
-            print(f"[Quicken] Found {len(local_files)} local files", file=sys.stderr)
-
-        # Step 2: Hash file metadata (size + mtime)
-        if self.verbose:
-            print(f"[Quicken] Hashing file metadata...", file=sys.stderr)
-        files_hash = self._hash_file_metadata(local_files)
-        if self.verbose:
-            print(f"[Quicken] Files Hash: {files_hash}", file=sys.stderr)
-
         # Build tool command string for cache key
         tool_cmd = f"{tool_name} {' '.join(tool_args)}"
 
-        # Step 3: Lookup in cache
+        # Step 1: Fast cache lookup (no /showIncludes, just metadata comparison)
         if self.verbose:
             print(f"[Quicken] Looking up in cache...", file=sys.stderr)
-        cache_entry = self.cache.lookup(files_hash, tool_cmd)
+        cache_entry = self.cache.lookup(source_file, tool_cmd)
 
         if cache_entry:
-            # Step 4a: Cache hit - restore files
+            # Cache hit - restore files (fast path!)
             if self.verbose:
                 print(f"[Quicken] Cache HIT! Restoring cached output...", file=sys.stderr)
 
@@ -338,9 +412,18 @@ class Quicken:
 
             return returncode
         else:
-            # Step 4b: Cache miss - run tool
+            # Cache miss - need to detect dependencies and run tool
             if self.verbose:
-                print(f"[Quicken] Cache MISS. Running tool...", file=sys.stderr)
+                print(f"[Quicken] Cache MISS. Finding dependencies...", file=sys.stderr)
+
+            # Get local dependencies using /showIncludes (only on cache miss)
+            local_files = self._get_local_dependencies(source_file, repo_dir)
+            if self.verbose:
+                print(f"[Quicken] Found {len(local_files)} local files", file=sys.stderr)
+
+            # Run the tool
+            if self.verbose:
+                print(f"[Quicken] Running tool...", file=sys.stderr)
 
             # Use original file's directory as working directory if provided
             work_dir = original_file.parent if original_file else None
@@ -354,10 +437,10 @@ class Quicken:
             if stderr:
                 print(stderr, end='', file=sys.stderr)
 
-            # Store in cache
+            # Store in cache with dependency metadata
             if self.verbose:
                 print(f"[Quicken] Storing results in cache...", file=sys.stderr)
-            self.cache.store(files_hash, tool_cmd, output_files, stdout, stderr, returncode)
+            self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
 
             return returncode
 
