@@ -120,8 +120,26 @@ class QuickenCache:
         return None
 
     def store(self, source_file: Path, tool_cmd: str, dependencies: List[Path],
-              output_files: List[Path], stdout: str, stderr: str, returncode: int) -> Path:
-        """Store tool output in cache with dependency metadata."""
+              output_files: List[Path], stdout: str, stderr: str, returncode: int,
+              repo_mode: bool = False, dependency_patterns: List[str] = None,
+              output_base_dir: Path = None) -> Path:
+        """Store tool output in cache with dependency metadata.
+
+        Args:
+            source_file: Source file path (or main file for repo mode)
+            tool_cmd: Tool command string
+            dependencies: List of dependency file paths
+            output_files: List of output file paths
+            stdout: Tool stdout
+            stderr: Tool stderr
+            returncode: Tool exit code
+            repo_mode: If True, this is a repo-level cache entry
+            dependency_patterns: Glob patterns used (for repo mode)
+            output_base_dir: Base directory for preserving relative paths
+
+        Returns:
+            Path to cache entry directory
+        """
         source_key = str(source_file.resolve())
 
         # Generate unique cache key
@@ -131,13 +149,30 @@ class QuickenCache:
         cache_entry_dir = self.cache_dir / cache_key
         cache_entry_dir.mkdir(parents=True, exist_ok=True)
 
-        # Store output files
+        # Store output files (with directory structure for repo mode)
         stored_files = []
         for output_file in output_files:
             if output_file.exists():
-                dest = cache_entry_dir / output_file.name
+                # Calculate relative path from output_base_dir if provided
+                if output_base_dir:
+                    try:
+                        rel_path = output_file.relative_to(output_base_dir)
+                        dest = cache_entry_dir / rel_path
+                        file_path_str = str(rel_path)
+                    except ValueError:
+                        # File is outside output_base_dir, use just filename
+                        dest = cache_entry_dir / output_file.name
+                        file_path_str = output_file.name
+                else:
+                    dest = cache_entry_dir / output_file.name
+                    file_path_str = output_file.name
+
+                # Create parent directories as needed
+                dest.parent.mkdir(parents=True, exist_ok=True)
+
+                # Copy file with metadata
                 shutil.copy2(output_file, dest)
-                stored_files.append(output_file.name)
+                stored_files.append(file_path_str)
 
         # Collect dependency metadata
         dep_metadata = [self._get_file_metadata(dep) for dep in dependencies]
@@ -151,8 +186,12 @@ class QuickenCache:
             "files": stored_files,
             "stdout": stdout,
             "stderr": stderr,
-            "returncode": returncode
+            "returncode": returncode,
+            "repo_mode": repo_mode
         }
+
+        if repo_mode and dependency_patterns:
+            metadata["dependency_patterns"] = dependency_patterns
 
         with open(cache_entry_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -161,26 +200,40 @@ class QuickenCache:
         if source_key not in self.index:
             self.index[source_key] = []
 
-        self.index[source_key].append({
+        index_entry = {
             "cache_key": cache_key,
             "tool_cmd": tool_cmd,
             "dependencies": dep_metadata
-        })
+        }
+
+        if repo_mode:
+            index_entry["repo_mode"] = True
+            if dependency_patterns:
+                index_entry["dependency_patterns"] = dependency_patterns
+
+        self.index[source_key].append(index_entry)
         self._save_index()
 
         return cache_entry_dir
 
     def restore(self, cache_entry_dir: Path, output_dir: Path) -> Tuple[str, str, int]:
-        """Restore cached files to output directory."""
+        """Restore cached files to output directory.
+
+        Handles both flat files and directory trees using relative paths.
+        """
         metadata_file = cache_entry_dir / "metadata.json"
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
 
-        # Restore output files
-        for filename in metadata["files"]:
-            src = cache_entry_dir / filename
-            dest = output_dir / filename
+        # Restore output files (preserving directory structure)
+        for file_path_str in metadata["files"]:
+            # file_path_str may be relative path (e.g., "xml/index.xml")
+            src = cache_entry_dir / file_path_str
+            dest = output_dir / file_path_str
+
             if src.exists():
+                # Create parent directories if needed
+                dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
 
         return metadata["stdout"], metadata["stderr"], metadata["returncode"]
@@ -291,6 +344,82 @@ class Quicken:
             return dependencies
         except Exception as e:
             raise RuntimeError(f"Failed to get dependencies: {e}")
+
+    def _get_repo_dependencies(self, repo_dir: Path, dependency_patterns: List[str]) -> List[Path]:
+        """Get list of files matching dependency patterns in repository.
+
+        Args:
+            repo_dir: Repository root directory
+            dependency_patterns: Glob patterns (e.g., ["*.cpp", "*.h"])
+
+        Returns:
+            Sorted list of absolute paths matching any pattern
+        """
+        dependencies = []
+        for pattern in dependency_patterns:
+            # Use recursive glob to find all matching files
+            matches = repo_dir.rglob(pattern)
+            dependencies.extend(matches)
+
+        # Remove duplicates and sort for deterministic ordering
+        unique_deps = sorted(set(dependencies))
+
+        # Return absolute paths
+        return [d.resolve() for d in unique_deps]
+
+    def _run_repo_tool_impl(self, tool_name: str, tool_args: List[str],
+                            work_dir: Path, output_dir: Path) -> Tuple[List[Path], str, str, int]:
+        """Run repo-level tool and detect all output files.
+
+        Args:
+            tool_name: Name of tool to run
+            tool_args: Arguments to pass to tool
+            work_dir: Working directory for tool execution
+            output_dir: Directory where tool creates output files
+
+        Returns:
+            Tuple of (output_files, stdout, stderr, returncode)
+        """
+        tool_path = self._get_tool_path(tool_name)
+
+        # Build command
+        cmd = [tool_path] + tool_args
+
+        # Snapshot output directory before execution (recursively)
+        files_before = set()
+        if output_dir.exists():
+            files_before = set(output_dir.rglob("*"))
+
+        # Determine if we need vcvarsall environment
+        needs_vcvars = tool_name in ["cl", "link"]
+
+        if needs_vcvars:
+            env = self._get_msvc_environment()
+            result = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=work_dir
+            )
+        else:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=work_dir
+            )
+
+        # Detect new files (recursively)
+        files_after = set(output_dir.rglob("*")) if output_dir.exists() else set()
+        new_files = files_after - files_before
+
+        # Filter to actual files (not directories)
+        output_files = [f for f in new_files if f.is_file()]
+
+        return output_files, result.stdout, result.stderr, result.returncode
 
     def _run_tool(self, tool_name: str, tool_args: List[str], cpp_file: Path,
                   work_dir: Path = None, output_dir: Path = None) -> Tuple[List[Path], str, str, int]:
@@ -441,6 +570,105 @@ class Quicken:
             if self.verbose:
                 print(f"[Quicken] Storing results in cache...", file=sys.stderr)
             self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
+
+            return returncode
+
+    def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
+                      main_file: Path, dependency_patterns: List[str],
+                      output_dir: Path = None) -> int:
+        """
+        Run a repo-level tool with caching based on dependency patterns.
+
+        Args:
+            repo_dir: Repository root directory
+            tool_name: Tool to run (e.g., "doxygen")
+            tool_args: Arguments for the tool
+            main_file: Main file for the tool (e.g., Doxyfile path)
+                       Used as cache index key
+            dependency_patterns: Glob patterns for dependencies
+                                 (e.g., ["*.cpp", "*.hpp", "*.h"])
+            output_dir: Directory where tool creates output files
+
+        Returns:
+            Tool exit code
+        """
+        # Validate inputs
+        if not dependency_patterns:
+            raise ValueError("dependency_patterns cannot be empty for repo-level tools")
+
+        if not main_file.exists():
+            print(f"Error: Main file not found: {main_file}", file=sys.stderr)
+            return 1
+
+        if self.verbose:
+            print(f"[Quicken] Processing repo with {tool_name}...", file=sys.stderr)
+
+        # Use repo_dir as output directory if not specified
+        if output_dir is None:
+            output_dir = repo_dir
+
+        # Build tool command string for cache key
+        tool_cmd = f"{tool_name} {' '.join(tool_args)}"
+
+        # Step 1: Fast cache lookup (metadata comparison only)
+        if self.verbose:
+            print(f"[Quicken] Looking up in cache...", file=sys.stderr)
+        cache_entry = self.cache.lookup(main_file, tool_cmd)
+
+        if cache_entry:
+            # Cache hit - restore files (fast path!)
+            if self.verbose:
+                print(f"[Quicken] Cache HIT! Restoring cached output...", file=sys.stderr)
+
+            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+
+            # Output stdout/stderr as if tool ran
+            if stdout:
+                print(stdout, end='')
+            if stderr:
+                print(stderr, end='', file=sys.stderr)
+
+            return returncode
+        else:
+            # Cache miss - need to detect dependencies and run tool
+            if self.verbose:
+                print(f"[Quicken] Cache MISS. Finding dependencies...", file=sys.stderr)
+
+            # Get repo dependencies using glob patterns (only on cache miss)
+            repo_files = self._get_repo_dependencies(repo_dir, dependency_patterns)
+            if self.verbose:
+                print(f"[Quicken] Found {len(repo_files)} files matching patterns", file=sys.stderr)
+
+            # Run the tool
+            if self.verbose:
+                print(f"[Quicken] Running tool...", file=sys.stderr)
+
+            output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
+                tool_name, tool_args, work_dir=repo_dir, output_dir=output_dir
+            )
+
+            # Output stdout/stderr
+            if stdout:
+                print(stdout, end='')
+            if stderr:
+                print(stderr, end='', file=sys.stderr)
+
+            # Only cache successful runs
+            if returncode != 0:
+                if self.verbose:
+                    print(f"[Quicken] Tool failed (returncode={returncode}), not caching", file=sys.stderr)
+                return returncode
+
+            # Store in cache with dependency metadata
+            if self.verbose:
+                print(f"[Quicken] Storing results in cache...", file=sys.stderr)
+            self.cache.store(
+                main_file, tool_cmd, repo_files, output_files,
+                stdout, stderr, returncode,
+                repo_mode=True,
+                dependency_patterns=dependency_patterns,
+                output_base_dir=output_dir
+            )
 
             return returncode
 

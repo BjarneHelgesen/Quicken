@@ -234,6 +234,219 @@ quicken.clear_cache()  # Clears all cached entries
 
 This removes all cache entries and resets the index.
 
+## Repo-Level Tool Caching
+
+Quicken supports caching for **repo-level tools** (e.g., Doxygen, cppcheck) that operate on entire repositories rather than individual source files.
+
+### Key Differences from File-Level Caching
+
+| Aspect | File-Level | Repo-Level |
+|--------|-----------|-----------|
+| **Index Key** | Source file path | Main file path (e.g., Doxyfile) |
+| **Dependencies** | Detected via `/showIncludes` | Specified via glob patterns |
+| **Dependency Count** | ~10-50 files | ~1000-5000 files |
+| **Output** | 1-3 files | 100-300 files (directory trees) |
+| **Cache Hit Overhead** | ~10-20ms | ~50-100ms |
+| **Typical Tool Runtime** | ~1-5 seconds | ~10-60 seconds |
+| **Speedup** | 100-500x | 5-30x |
+
+### API: `run_repo_tool()`
+
+```python
+def run_repo_tool(
+    repo_dir: Path,
+    tool_name: str,
+    tool_args: List[str],
+    main_file: Path,
+    dependency_patterns: List[str],
+    output_dir: Path = None
+) -> int
+```
+
+**Parameters:**
+- `repo_dir`: Repository root directory
+- `tool_name`: Tool to run (e.g., "doxygen")
+- `tool_args`: Arguments for the tool
+- `main_file`: Main file for the tool (e.g., Doxyfile path) - used as cache index key
+- `dependency_patterns`: Glob patterns for dependencies (e.g., `["*.cpp", "*.h"]`)
+- `output_dir`: Directory where tool creates output files (default: repo_dir)
+
+**Returns:** Tool exit code
+
+### Example: Doxygen Integration
+
+```python
+from pathlib import Path
+from quicken import Quicken
+
+# Create Quicken instance
+quicken = Quicken(Path("tools.json"))
+
+# Setup paths
+repo_path = Path("/path/to/repo")
+doxyfile = repo_path / ".doxygen" / "Doxyfile.xml_unexpanded"
+output_dir = repo_path / ".doxygen" / "xml_unexpanded"
+
+# Run Doxygen with caching
+returncode = quicken.run_repo_tool(
+    repo_dir=repo_path,
+    tool_name="doxygen",
+    tool_args=[str(doxyfile)],
+    main_file=doxyfile,
+    dependency_patterns=["*.cpp", "*.cxx", "*.cc", "*.c",
+                        "*.hpp", "*.hxx", "*.h", "*.hh"],
+    output_dir=output_dir
+)
+```
+
+**First Run (Cache MISS):**
+- Glob for all C++ files matching patterns (~50-100ms)
+- Collect metadata for all files (~50-100ms)
+- Run Doxygen (~10-60 seconds)
+- Store directory tree in cache (~500-2000ms)
+- **Total: ~10-60 seconds + ~600-2200ms overhead**
+
+**Second Run (Cache HIT):**
+- Lookup cache by doxyfile path (<1ms)
+- Compare metadata for all C++ files (~50ms)
+- Restore directory tree from cache (~1-2 seconds)
+- **Total: ~1-2 seconds (5-30x speedup!)**
+
+### How It Works
+
+**1. Dependency Detection:**
+- Uses glob patterns instead of `/showIncludes`
+- Recursively finds all files matching patterns
+- Stores metadata (size + mtime) for all matched files
+
+**2. Cache Validation:**
+- Same metadata-based approach as file-level caching
+- Compares size and mtime for ALL matched files
+- ANY file change invalidates the cache
+
+**3. Directory Tree Caching:**
+- Preserves directory structure in cache
+- Stores relative paths in metadata
+- Restores complete directory hierarchy
+
+**4. Index Structure:**
+
+```json
+{
+  "C:\\repo\\.doxygen\\Doxyfile.xml_unexpanded": [
+    {
+      "cache_key": "entry_000002",
+      "tool_cmd": "doxygen C:\\repo\\.doxygen\\Doxyfile.xml_unexpanded",
+      "repo_mode": true,
+      "dependency_patterns": ["*.cpp", "*.hpp", "*.h", "*.c"],
+      "dependencies": [
+        {"path": "C:\\repo\\main.cpp", "size": 5678, "mtime_ns": 132456800},
+        {"path": "C:\\repo\\utils.hpp", "size": 2345, "mtime_ns": 132456801},
+        ...
+      ]
+    }
+  ]
+}
+```
+
+### Multiple Runs (e.g., Doxygen Unexpanded + Expanded)
+
+Each run with a different main file creates a separate cache entry:
+
+```python
+# Unexpanded version
+quicken.run_repo_tool(
+    repo_dir=repo_path,
+    tool_name="doxygen",
+    tool_args=[str(doxyfile_unexpanded)],
+    main_file=doxyfile_unexpanded,  # Different main file
+    dependency_patterns=patterns,
+    output_dir=xml_unexpanded_dir
+)
+
+# Expanded version
+quicken.run_repo_tool(
+    repo_dir=repo_path,
+    tool_name="doxygen",
+    tool_args=[str(doxyfile_expanded)],
+    main_file=doxyfile_expanded,  # Different main file
+    dependency_patterns=patterns,
+    output_dir=xml_expanded_dir
+)
+```
+
+Both entries share the same dependencies (all C++ files), so both invalidate together when source changes.
+
+### LevelUp Integration
+
+**DoxygenRunner Integration:**
+
+```python
+from core.parsers.doxygen_runner import DoxygenRunner
+from quicken import Quicken
+
+# Create Quicken instance
+quicken = Quicken(Path("Quicken/tools.json"))
+
+# Run Doxygen with caching
+runner = DoxygenRunner()
+xml_unexpanded, xml_expanded = runner.run(
+    repo_path,
+    quicken=quicken  # Optional parameter
+)
+```
+
+**Repo Integration:**
+
+```python
+from core.repo.repo import create_repo
+from quicken import Quicken
+
+repo = create_repo("/path/to/repo")
+quicken = Quicken(Path("Quicken/tools.json"))
+
+# Generate Doxygen with caching
+xml_dirs = repo.generate_doxygen(quicken=quicken)
+```
+
+### Performance Expectations
+
+**Typical Repository (1000 C++ files):**
+
+| Operation | Cache MISS | Cache HIT | Speedup |
+|-----------|-----------|-----------|---------|
+| Dependency detection | ~100ms | ~50ms | 2x |
+| Tool execution | 30-60s | - | - |
+| Cache I/O | ~1-2s | ~1-2s | 1x |
+| **Total** | **~30-60s** | **~2-3s** | **15-30x** |
+
+**Large Repository (5000+ C++ files):**
+
+| Operation | Cache MISS | Cache HIT | Speedup |
+|-----------|-----------|-----------|---------|
+| Dependency detection | ~200ms | ~100ms | 2x |
+| Tool execution | 60-120s | - | - |
+| Cache I/O | ~2-4s | ~2-4s | 1x |
+| **Total** | **~60-120s** | **~4-6s** | **15-30x** |
+
+### Design Decisions
+
+**Why glob patterns instead of tool introspection?**
+- Simple and explicit
+- No tool-specific dependency detection needed
+- Fast (recursive glob is efficient)
+- User controls exactly what's tracked
+
+**Why store all file metadata?**
+- Ensures correct invalidation
+- ANY source file change triggers regeneration
+- Acceptable overhead (~50-100ms for 1000 files)
+
+**Why not cache failed runs?**
+- Prevents caching partial/corrupt output
+- Forces retry on next invocation
+- User-friendly behavior
+
 ## Configuration
 
 `tools.json` format:
