@@ -578,7 +578,7 @@ class Quicken:
                 # Specific optimization level requested
                 modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
                 tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-                cache_entry = self.cache.lookup(cpp_file, test_cmd)
+                cache_entry = self.cache.lookup(cpp_file, tool_cmd)
         else:
             # Tool doesn't support optimization - use args as-is
             modified_args = tool_args
