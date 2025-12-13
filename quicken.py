@@ -306,16 +306,24 @@ class Quicken:
 
     def _add_optimization_flag(self, tool_name: str, tool_args: List[str],
                               optimization: Optional[int]) -> List[str]:
-        """Insert optimization flag into tool arguments.
+        """Insert optimization flag into tool arguments if tool supports optimization.
 
         Args:
-            tool_name: Name of tool (cl, clang++, g++, etc.)
+            tool_name: Name of tool (cl, clang++, etc.)
             tool_args: Original tool arguments
             optimization: Optimization level (None = use 0)
 
         Returns:
-            Modified tool_args with optimization flag inserted at beginning
+            Modified tool_args with optimization flag inserted at beginning,
+            or original tool_args if tool doesn't support optimization
         """
+        # Get optimization flags from config
+        optimization_flags = self.config.get("optimization_flags", {})
+
+        # If this tool doesn't support optimization, return args unchanged
+        if tool_name not in optimization_flags:
+            return tool_args
+
         # Default to O0 if not specified
         opt_level = optimization if optimization is not None else 0
 
@@ -323,11 +331,8 @@ class Quicken:
         if opt_level < 0 or opt_level > 3:
             raise ValueError(f"optimization must be 0-3 or None, got {opt_level}")
 
-        # Get optimization flags from config
-        optimization_flags = self.config.get("optimization_flags", {})
-
-        # Get flags for this tool, or use GCC/Clang default
-        flags = optimization_flags.get(tool_name, ["-O0", "-O1", "-O2", "-O3"])
+        # Get flags for this tool
+        flags = optimization_flags[tool_name]
 
         if opt_level >= len(flags):
             raise ValueError(f"optimization level {opt_level} not configured for tool {tool_name}")
@@ -558,30 +563,40 @@ class Quicken:
         modified_args = None
         tool_cmd = None
 
-        # If optimization is None, try to find cache hit with ANY optimization level
-        if optimization is None:
-            for opt_level in range(4):  # Try 0, 1, 2, 3
-                # Add optimization flag for this level
-                test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
-                # Build tool command string for cache key
-                test_cmd = f"{tool_name} {' '.join(test_args)}"
-                # Try lookup
-                cache_entry = self.cache.lookup(source_file, test_cmd)
-                if cache_entry:
-                    if self.verbose:
-                        print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
-                    modified_args = test_args
-                    tool_cmd = test_cmd
-                    break
+        # Check if this tool supports optimization
+        optimization_flags = self.config.get("optimization_flags", {})
+        tool_supports_optimization = tool_name in optimization_flags
 
-            # If no cache hit found, default to O0 for execution
-            if not cache_entry:
-                modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
+        if tool_supports_optimization:
+            # If optimization is None, try to find cache hit with ANY optimization level
+            if optimization is None:
+                for opt_level in range(4):  # Try 0, 1, 2, 3
+                    # Add optimization flag for this level
+                    test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
+                    # Build tool command string for cache key
+                    test_cmd = f"{tool_name} {' '.join(test_args)}"
+                    # Try lookup
+                    cache_entry = self.cache.lookup(source_file, test_cmd)
+                    if cache_entry:
+                        if self.verbose:
+                            print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
+                        modified_args = test_args
+                        tool_cmd = test_cmd
+                        break
+
+                # If no cache hit found, default to O0 for execution
+                if not cache_entry:
+                    modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
+                    tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+            else:
+                # Specific optimization level requested
+                modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
                 tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+                cache_entry = self.cache.lookup(source_file, tool_cmd)
         else:
-            # Specific optimization level requested
-            modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
-            tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+            # Tool doesn't support optimization - use args as-is
+            modified_args = tool_args
+            tool_cmd = f"{tool_name} {' '.join(tool_args)}"
             cache_entry = self.cache.lookup(source_file, tool_cmd)
 
         if cache_entry:
@@ -676,30 +691,40 @@ class Quicken:
         modified_args = None
         tool_cmd = None
 
-        # If optimization is None, try to find cache hit with ANY optimization level
-        if optimization is None:
-            for opt_level in range(4):  # Try 0, 1, 2, 3
-                # Add optimization flag for this level
-                test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
-                # Build tool command string for cache key
-                test_cmd = f"{tool_name} {' '.join(test_args)}"
-                # Try lookup
-                cache_entry = self.cache.lookup(main_file, test_cmd)
-                if cache_entry:
-                    if self.verbose:
-                        print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
-                    modified_args = test_args
-                    tool_cmd = test_cmd
-                    break
+        # Check if this tool supports optimization
+        optimization_flags = self.config.get("optimization_flags", {})
+        tool_supports_optimization = tool_name in optimization_flags
 
-            # If no cache hit found, default to O0 for execution
-            if not cache_entry:
-                modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
+        if tool_supports_optimization:
+            # If optimization is None, try to find cache hit with ANY optimization level
+            if optimization is None:
+                for opt_level in range(4):  # Try 0, 1, 2, 3
+                    # Add optimization flag for this level
+                    test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
+                    # Build tool command string for cache key
+                    test_cmd = f"{tool_name} {' '.join(test_args)}"
+                    # Try lookup
+                    cache_entry = self.cache.lookup(main_file, test_cmd)
+                    if cache_entry:
+                        if self.verbose:
+                            print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
+                        modified_args = test_args
+                        tool_cmd = test_cmd
+                        break
+
+                # If no cache hit found, default to O0 for execution
+                if not cache_entry:
+                    modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
+                    tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+            else:
+                # Specific optimization level requested
+                modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
                 tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+                cache_entry = self.cache.lookup(main_file, tool_cmd)
         else:
-            # Specific optimization level requested
-            modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
-            tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+            # Tool doesn't support optimization - use args as-is
+            modified_args = tool_args
+            tool_cmd = f"{tool_name} {' '.join(tool_args)}"
             cache_entry = self.cache.lookup(main_file, tool_cmd)
 
         if cache_entry:

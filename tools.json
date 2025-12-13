@@ -5,5 +5,9 @@
   "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
   "msvc_arch": "x64",
   "clang": "C:\\Program Files\\LLVM\\bin\\clang++.exe",
-  "clang-tidy": "C:\\Program Files\\LLVM\\bin\\clang-tidy.exe"
+  "clang-tidy": "C:\\Program Files\\LLVM\\bin\\clang-tidy.exe",
+  "optimization_flags": {
+    "cl": ["/Od", "/O1", "/O2", "/Ox"],
+    "clang": ["-O0", "-O1", "-O2", "-O3"]
+  }
 }

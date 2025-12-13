@@ -321,7 +321,7 @@ class TestQuickenClang:
     def test_clang_different_optimization_levels(self, quicken_instance, test_cpp_file):
         """Test that different optimization levels create different cache entries."""
         # Compile with -O0
-        returncode1 = quicken_instance.run(test_cpp_file, "clang", ["-c", "-O0"])
+        returncode1 = quicken_instance.run(test_cpp_file, "clang", ["-c"], optimization=0)
         if returncode1 != 0:
             pytest.fail("clang++ compilation failed")
 
@@ -330,7 +330,7 @@ class TestQuickenClang:
             obj_file.unlink()
 
         # Compile with -O2 - should be a cache miss
-        returncode2 = quicken_instance.run(test_cpp_file, "clang", ["-c", "-O2"])
+        returncode2 = quicken_instance.run(test_cpp_file, "clang", ["-c"], optimization=2)
         # Just check it completes, return code may vary
         assert isinstance(returncode2, int)
 
