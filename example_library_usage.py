@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
-Example: Using Quicken as a library instead of subprocess
-
-This demonstrates the performance difference between calling Quicken
-as a subprocess vs using it as a library.
+Example of using Quicken 
 """
 
 from pathlib import Path
@@ -11,7 +8,6 @@ from quicken import Quicken
 import time
 
 def example_subprocess_usage():
-    """OLD WAY: High overhead (40-100ms per call from Python startup)"""
     import subprocess
 
     files = ["test.cpp"] * 10  # Simulate 10 files
@@ -29,7 +25,6 @@ def example_subprocess_usage():
 
 
 def example_library_usage_verbose():
-    """NEW WAY: Low overhead with verbose output (for debugging)"""
 
     # Initialize once
     quicken = Quicken(Path("tools.json"), verbose=True)
@@ -50,7 +45,7 @@ def example_library_usage_verbose():
 
 
 def example_library_usage_quiet():
-    """NEW WAY: Low overhead with quiet mode (for production)"""
+    """Quiet mode (for production)"""
 
     # Initialize once with verbose=False
     quicken = Quicken(Path("tools.json"), verbose=False)
@@ -122,9 +117,7 @@ def example_parallel_builds():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
     print("Quicken Library Usage Examples")
-    print("=" * 60)
 
     # Uncomment to compare subprocess vs library:
     # example_subprocess_usage()

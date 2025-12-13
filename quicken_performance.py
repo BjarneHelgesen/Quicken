@@ -120,12 +120,12 @@ def main():
         result = test_tool(
             quicken,
             cpp_file,
-            "clang++",
+            "clang",
             ["-c"],
             [cpp_file.parent / "test.o"]
         )
         if result:
-            results["Clang++"] = result
+            results["Clang"] = result
 
         # Test clang-tidy (analysis only - no output files)
         result = test_tool(
