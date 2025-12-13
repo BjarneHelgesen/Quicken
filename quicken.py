@@ -460,34 +460,25 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def _run_tool(self, tool_name: str, tool_args: List[str], cpp_file: Path,
-                  work_dir: Path = None, output_dir: Path = None) -> Tuple[List[Path], str, str, int]:
+                  output_dir: Path = None) -> Tuple[List[Path], str, str, int]:
         """Run the specified tool with arguments.
 
         Args:
             tool_name: Name of tool to run
             tool_args: Arguments to pass to tool
-            cpp_file: Path to C++ file (may be temp copy)
-            work_dir: Working directory for tool execution (default: cpp_file.parent)
-            output_dir: Directory to look for output files (default: work_dir)
+            cpp_file: Path to C++ file to process
+            output_dir: Directory to look for output files (default: cpp_file.parent)
         """
         tool_path = self._get_tool_path(tool_name)
 
-        # Determine working directory (use original location if provided)
-        cpp_file_dir = work_dir if work_dir else cpp_file.parent
+        # Tool runs in source file's directory (for relative includes)
+        work_dir = cpp_file.parent
 
         # Determine output directory (where to look for output files)
-        output_directory = output_dir if output_dir else cpp_file_dir
+        output_directory = output_dir if output_dir else work_dir
 
-        # If work_dir is specified and different from cpp_file location,
-        # use absolute path to cpp_file so tool can find it
-        if work_dir and work_dir != cpp_file.parent:
-            file_arg = str(cpp_file.resolve())
-        else:
-            # Use just filename since we're in the same directory
-            file_arg = cpp_file.name
-
-        # Build full command
-        cmd = [tool_path] + tool_args + [file_arg]
+        # Build command with just filename (we're in same directory)
+        cmd = [tool_path] + tool_args + [cpp_file.name]
 
         # Snapshot files in output directory before tool execution
         files_before = set(output_directory.iterdir()) if output_directory.exists() else set()
@@ -503,7 +494,7 @@ class Quicken:
                 capture_output=True,
                 text=True,
                 check=False,
-                cwd=cpp_file_dir
+                cwd=work_dir
             )
         else:
             result = subprocess.run(
@@ -511,7 +502,7 @@ class Quicken:
                 capture_output=True,
                 text=True,
                 check=False,
-                cwd=cpp_file_dir
+                cwd=work_dir
             )
 
         # Detect output files by comparing directory contents before/after
@@ -527,16 +518,14 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def run(self, cpp_file: Path, tool_name: str, tool_args: List[str],
-            original_file: Path = None, repo_dir: Path = None,
-            output_dir: Path = None, optimization: Optional[int] = None) -> int:
+            repo_dir: Path = None, output_dir: Path = None, optimization: Optional[int] = None) -> int:
         """
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
         Args:
-            cpp_file: C++ file to process (may be a temp copy)
+            cpp_file: C++ file to process
             tool_name: Tool to run
             tool_args: Arguments for the tool
-            original_file: Original source file location (for dependency detection)
             repo_dir: Repository directory (for dependency filtering)
             output_dir: Directory where tool creates output files (for detection and cache restoration)
             optimization: Optimization level (0-3, or None to accept any cached level)
@@ -547,9 +536,6 @@ class Quicken:
 
         if self.verbose:
             print(f"[Quicken] Processing {cpp_file} with {tool_name}...", file=sys.stderr)
-
-        # Use original file for cache lookup and dependency detection, or cpp_file if not provided
-        source_file = original_file if original_file else cpp_file
 
         # Determine repository directory
         if not repo_dir:
@@ -576,7 +562,7 @@ class Quicken:
                     # Build tool command string for cache key
                     test_cmd = f"{tool_name} {' '.join(test_args)}"
                     # Try lookup
-                    cache_entry = self.cache.lookup(source_file, test_cmd)
+                    cache_entry = self.cache.lookup(cpp_file, test_cmd)
                     if cache_entry:
                         if self.verbose:
                             print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
@@ -592,20 +578,20 @@ class Quicken:
                 # Specific optimization level requested
                 modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
                 tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-                cache_entry = self.cache.lookup(source_file, tool_cmd)
+                cache_entry = self.cache.lookup(cpp_file, test_cmd)
         else:
             # Tool doesn't support optimization - use args as-is
             modified_args = tool_args
             tool_cmd = f"{tool_name} {' '.join(tool_args)}"
-            cache_entry = self.cache.lookup(source_file, tool_cmd)
+            cache_entry = self.cache.lookup(cpp_file, tool_cmd)
 
         if cache_entry:
             # Cache hit - restore files (fast path!)
             if self.verbose:
                 print(f"[Quicken] Cache HIT! Restoring cached output...", file=sys.stderr)
 
-            # Restore to output_dir if provided, else original file's directory, else cpp_file directory
-            restore_dir = output_dir if output_dir else (original_file.parent if original_file else cpp_file.parent)
+            # Restore to output_dir if provided, else source file's directory
+            restore_dir = output_dir if output_dir else cpp_file.parent
             stdout, stderr, returncode = self.cache.restore(cache_entry, restore_dir)
 
             # Output stdout/stderr as if tool ran
@@ -621,7 +607,7 @@ class Quicken:
                 print(f"[Quicken] Cache MISS. Finding dependencies...", file=sys.stderr)
 
             # Get local dependencies using /showIncludes (only on cache miss)
-            local_files = self._get_local_dependencies(source_file, repo_dir)
+            local_files = self._get_local_dependencies(cpp_file, repo_dir)
             if self.verbose:
                 print(f"[Quicken] Found {len(local_files)} local files", file=sys.stderr)
 
@@ -629,10 +615,8 @@ class Quicken:
             if self.verbose:
                 print(f"[Quicken] Running tool...", file=sys.stderr)
 
-            # Use original file's directory as working directory if provided
-            work_dir = original_file.parent if original_file else None
             output_files, stdout, stderr, returncode = self._run_tool(
-                tool_name, modified_args, cpp_file, work_dir=work_dir, output_dir=output_dir
+                tool_name, modified_args, cpp_file, output_dir=output_dir
             )
 
             # Output stdout/stderr
@@ -644,7 +628,7 @@ class Quicken:
             # Store in cache with dependency metadata
             if self.verbose:
                 print(f"[Quicken] Storing results in cache...", file=sys.stderr)
-            self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
+            self.cache.store(cpp_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
 
             return returncode
 
