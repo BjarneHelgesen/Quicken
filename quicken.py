@@ -323,15 +323,16 @@ class Quicken:
         if opt_level < 0 or opt_level > 3:
             raise ValueError(f"optimization must be 0-3 or None, got {opt_level}")
 
-        # Determine flag based on tool
-        if tool_name in ["cl", "link"]:
-            # MSVC
-            flag_map = {0: "/Od", 1: "/O1", 2: "/O2", 3: "/Ox"}
-        else:
-            # GCC/Clang (default)
-            flag_map = {0: "-O0", 1: "-O1", 2: "-O2", 3: "-O3"}
+        # Get optimization flags from config
+        optimization_flags = self.config.get("optimization_flags", {})
 
-        opt_flag = flag_map[opt_level]
+        # Get flags for this tool, or use GCC/Clang default
+        flags = optimization_flags.get(tool_name, ["-O0", "-O1", "-O2", "-O3"])
+
+        if opt_level >= len(flags):
+            raise ValueError(f"optimization level {opt_level} not configured for tool {tool_name}")
+
+        opt_flag = flags[opt_level]
 
         # Insert at beginning of args
         return [opt_flag] + tool_args
@@ -533,7 +534,7 @@ class Quicken:
             original_file: Original source file location (for dependency detection)
             repo_dir: Repository directory (for dependency filtering)
             output_dir: Directory where tool creates output files (for detection and cache restoration)
-            optimization: Optimization level (0-3, or None for default O0)
+            optimization: Optimization level (0-3, or None to accept any cached level)
         """
         if not cpp_file.exists():
             print(f"Error: C++ file not found: {cpp_file}", file=sys.stderr)
@@ -549,16 +550,39 @@ class Quicken:
         if not repo_dir:
             repo_dir = Path.cwd()
 
-        # Add optimization flag to tool arguments
-        modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
-
-        # Build tool command string for cache key
-        tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-
         # Step 1: Fast cache lookup (no /showIncludes, just metadata comparison)
         if self.verbose:
             print(f"[Quicken] Looking up in cache...", file=sys.stderr)
-        cache_entry = self.cache.lookup(source_file, tool_cmd)
+
+        cache_entry = None
+        modified_args = None
+        tool_cmd = None
+
+        # If optimization is None, try to find cache hit with ANY optimization level
+        if optimization is None:
+            for opt_level in range(4):  # Try 0, 1, 2, 3
+                # Add optimization flag for this level
+                test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
+                # Build tool command string for cache key
+                test_cmd = f"{tool_name} {' '.join(test_args)}"
+                # Try lookup
+                cache_entry = self.cache.lookup(source_file, test_cmd)
+                if cache_entry:
+                    if self.verbose:
+                        print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
+                    modified_args = test_args
+                    tool_cmd = test_cmd
+                    break
+
+            # If no cache hit found, default to O0 for execution
+            if not cache_entry:
+                modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
+                tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+        else:
+            # Specific optimization level requested
+            modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
+            tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+            cache_entry = self.cache.lookup(source_file, tool_cmd)
 
         if cache_entry:
             # Cache hit - restore files (fast path!)
@@ -624,7 +648,7 @@ class Quicken:
             dependency_patterns: Glob patterns for dependencies
                                  (e.g., ["*.cpp", "*.hpp", "*.h"])
             output_dir: Directory where tool creates output files
-            optimization: Optimization level (0-3, or None for default O0)
+            optimization: Optimization level (0-3, or None to accept any cached level)
 
         Returns:
             Tool exit code
@@ -644,16 +668,39 @@ class Quicken:
         if output_dir is None:
             output_dir = repo_dir
 
-        # Add optimization flag to tool arguments
-        modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
-
-        # Build tool command string for cache key
-        tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-
         # Step 1: Fast cache lookup (metadata comparison only)
         if self.verbose:
             print(f"[Quicken] Looking up in cache...", file=sys.stderr)
-        cache_entry = self.cache.lookup(main_file, tool_cmd)
+
+        cache_entry = None
+        modified_args = None
+        tool_cmd = None
+
+        # If optimization is None, try to find cache hit with ANY optimization level
+        if optimization is None:
+            for opt_level in range(4):  # Try 0, 1, 2, 3
+                # Add optimization flag for this level
+                test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
+                # Build tool command string for cache key
+                test_cmd = f"{tool_name} {' '.join(test_args)}"
+                # Try lookup
+                cache_entry = self.cache.lookup(main_file, test_cmd)
+                if cache_entry:
+                    if self.verbose:
+                        print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
+                    modified_args = test_args
+                    tool_cmd = test_cmd
+                    break
+
+            # If no cache hit found, default to O0 for execution
+            if not cache_entry:
+                modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
+                tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+        else:
+            # Specific optimization level requested
+            modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
+            tool_cmd = f"{tool_name} {' '.join(modified_args)}"
+            cache_entry = self.cache.lookup(main_file, tool_cmd)
 
         if cache_entry:
             # Cache hit - restore files (fast path!)

@@ -110,7 +110,7 @@ class TestQuickenCache:
         assert cache.index_file.exists() or not cache.index_file.exists()  # May or may not exist initially
         assert isinstance(cache.index, dict)
 
-    def test_cache_key_generation(self, cache_dir):
+    def test_cache_key_generation(self, cache_dir, temp_dir):
         """Test cache entry counter generation."""
         cache = QuickenCache(cache_dir)
 
@@ -119,7 +119,8 @@ class TestQuickenCache:
         assert first_id == 1
 
         # After storing an entry, next_id should increment
-        source_file = Path("test.cpp")
+        source_file = temp_dir / "test.cpp"
+        source_file.write_text("int main() { return 0; }")
         dependencies = [source_file]
         cache.store(source_file, "cl /c", dependencies, [], "", "", 0)
 
@@ -332,6 +333,38 @@ class TestQuickenClang:
         returncode2 = quicken_instance.run(test_cpp_file, "clang", ["-c", "-O2"])
         # Just check it completes, return code may vary
         assert isinstance(returncode2, int)
+
+    def test_clang_optimization_none_accepts_any_level(self, quicken_instance, test_cpp_file):
+        """Test that optimization=None accepts cache hits from any optimization level."""
+        # Compile with optimization level 2
+        returncode1 = quicken_instance.run(test_cpp_file, "clang", ["-c"], optimization=2)
+        if returncode1 != 0:
+            pytest.fail("clang++ compilation with -O2 failed")
+
+        obj_file = test_cpp_file.parent / "test.o"
+        assert obj_file.exists(), "clang++ didn't create .o file"
+
+        # Delete the .o file
+        obj_file.unlink()
+
+        # Compile with optimization=None - should get cache hit from O2
+        returncode2 = quicken_instance.run(test_cpp_file, "clang", ["-c"], optimization=None)
+        assert returncode2 == returncode1, "Return codes should match"
+
+        # .o file should be restored from cache
+        assert obj_file.exists(), ".o file should be restored from cache"
+
+        # Delete the .o file again
+        obj_file.unlink()
+
+        # Compile with a different specific level (O1) - should be cache miss
+        returncode3 = quicken_instance.run(test_cpp_file, "clang", ["-c"], optimization=1)
+        assert isinstance(returncode3, int)
+
+        # Now with optimization=None, should hit the O2 cache (first one encountered)
+        obj_file.unlink()
+        returncode4 = quicken_instance.run(test_cpp_file, "clang", ["-c"], optimization=None)
+        assert obj_file.exists(), ".o file should be restored from cache again"
 
     def test_clang_with_warnings(self, quicken_instance, temp_dir):
         """Test clang++ compilation with warnings."""
