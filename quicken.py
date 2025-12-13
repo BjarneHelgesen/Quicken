@@ -304,6 +304,38 @@ class Quicken:
         self._msvc_env = env
         return self._msvc_env
 
+    def _add_optimization_flag(self, tool_name: str, tool_args: List[str],
+                              optimization: Optional[int]) -> List[str]:
+        """Insert optimization flag into tool arguments.
+
+        Args:
+            tool_name: Name of tool (cl, clang++, g++, etc.)
+            tool_args: Original tool arguments
+            optimization: Optimization level (None = use 0)
+
+        Returns:
+            Modified tool_args with optimization flag inserted at beginning
+        """
+        # Default to O0 if not specified
+        opt_level = optimization if optimization is not None else 0
+
+        # Validate range
+        if opt_level < 0 or opt_level > 3:
+            raise ValueError(f"optimization must be 0-3 or None, got {opt_level}")
+
+        # Determine flag based on tool
+        if tool_name in ["cl", "link"]:
+            # MSVC
+            flag_map = {0: "/Od", 1: "/O1", 2: "/O2", 3: "/Ox"}
+        else:
+            # GCC/Clang (default)
+            flag_map = {0: "-O0", 1: "-O1", 2: "-O2", 3: "-O3"}
+
+        opt_flag = flag_map[opt_level]
+
+        # Insert at beginning of args
+        return [opt_flag] + tool_args
+
     def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
         """Get list of local (repo) file dependencies using MSVC /showIncludes."""
         cl_path = self._get_tool_path("cl")
@@ -490,7 +522,7 @@ class Quicken:
 
     def run(self, cpp_file: Path, tool_name: str, tool_args: List[str],
             original_file: Path = None, repo_dir: Path = None,
-            output_dir: Path = None) -> int:
+            output_dir: Path = None, optimization: Optional[int] = None) -> int:
         """
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
@@ -501,6 +533,7 @@ class Quicken:
             original_file: Original source file location (for dependency detection)
             repo_dir: Repository directory (for dependency filtering)
             output_dir: Directory where tool creates output files (for detection and cache restoration)
+            optimization: Optimization level (0-3, or None for default O0)
         """
         if not cpp_file.exists():
             print(f"Error: C++ file not found: {cpp_file}", file=sys.stderr)
@@ -516,8 +549,11 @@ class Quicken:
         if not repo_dir:
             repo_dir = Path.cwd()
 
+        # Add optimization flag to tool arguments
+        modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
+
         # Build tool command string for cache key
-        tool_cmd = f"{tool_name} {' '.join(tool_args)}"
+        tool_cmd = f"{tool_name} {' '.join(modified_args)}"
 
         # Step 1: Fast cache lookup (no /showIncludes, just metadata comparison)
         if self.verbose:
@@ -557,7 +593,7 @@ class Quicken:
             # Use original file's directory as working directory if provided
             work_dir = original_file.parent if original_file else None
             output_files, stdout, stderr, returncode = self._run_tool(
-                tool_name, tool_args, cpp_file, work_dir=work_dir, output_dir=output_dir
+                tool_name, modified_args, cpp_file, work_dir=work_dir, output_dir=output_dir
             )
 
             # Output stdout/stderr
@@ -575,7 +611,7 @@ class Quicken:
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
                       main_file: Path, dependency_patterns: List[str],
-                      output_dir: Path = None) -> int:
+                      output_dir: Path = None, optimization: Optional[int] = None) -> int:
         """
         Run a repo-level tool with caching based on dependency patterns.
 
@@ -588,6 +624,7 @@ class Quicken:
             dependency_patterns: Glob patterns for dependencies
                                  (e.g., ["*.cpp", "*.hpp", "*.h"])
             output_dir: Directory where tool creates output files
+            optimization: Optimization level (0-3, or None for default O0)
 
         Returns:
             Tool exit code
@@ -607,8 +644,11 @@ class Quicken:
         if output_dir is None:
             output_dir = repo_dir
 
+        # Add optimization flag to tool arguments
+        modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
+
         # Build tool command string for cache key
-        tool_cmd = f"{tool_name} {' '.join(tool_args)}"
+        tool_cmd = f"{tool_name} {' '.join(modified_args)}"
 
         # Step 1: Fast cache lookup (metadata comparison only)
         if self.verbose:
@@ -644,7 +684,7 @@ class Quicken:
                 print(f"[Quicken] Running tool...", file=sys.stderr)
 
             output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
-                tool_name, tool_args, work_dir=repo_dir, output_dir=output_dir
+                tool_name, modified_args, work_dir=repo_dir, output_dir=output_dir
             )
 
             # Output stdout/stderr
@@ -699,6 +739,8 @@ Examples:
                        help="Path to tools.json config file (default: ./tools.json)")
     parser.add_argument("--output-dir", type=Path,
                        help="Directory where tool creates output files (default: source file directory)")
+    parser.add_argument("--optimization", "-O", type=int, choices=[0, 1, 2, 3],
+                       help="Optimization level (0-3). If not specified, defaults to O0")
     parser.add_argument("--clear-cache", action="store_true",
                        help="Clear the entire cache and exit")
 
@@ -717,7 +759,7 @@ Examples:
             parser.error("cpp_file and tool are required unless --clear-cache is used")
 
         returncode = quicken.run(args.cpp_file, args.tool, args.tool_args,
-                                 output_dir=args.output_dir)
+                                 output_dir=args.output_dir, optimization=args.optimization)
         sys.exit(returncode)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
