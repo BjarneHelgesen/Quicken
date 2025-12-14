@@ -220,19 +220,23 @@ class IntegrationTestRunner:
             self.stash_created = True
             self._log("Stashed uncommitted changes")
 
-        # Create/checkout test branch
+        # Find main branch
         main_branch_name = 'main' if 'main' in [h.name for h in self.git_repo.heads] else 'master'
         main_branch = self.git_repo.heads[main_branch_name]
 
-        if self.test_branch not in [h.name for h in self.git_repo.heads]:
-            self.git_repo.create_head(self.test_branch, commit=main_branch)
+        # Checkout main branch first
+        main_branch.checkout()
+        self._log(f"Checked out {main_branch_name} branch")
 
-        test_branch = self.git_repo.heads[self.test_branch]
+        # Delete test branch if it exists
+        if self.test_branch in [h.name for h in self.git_repo.heads]:
+            self.git_repo.delete_head(self.test_branch, force=True)
+            self._log(f"Deleted existing {self.test_branch} branch")
+
+        # Create fresh test branch from main
+        test_branch = self.git_repo.create_head(self.test_branch, commit=main_branch)
         test_branch.checkout()
-
-        # Reset to main to ensure clean state
-        if test_branch.commit != main_branch.commit:
-            self.git_repo.git.reset('--hard', main_branch_name)
+        self._log(f"Created and checked out {self.test_branch} branch from {main_branch_name}")
 
         print(f"  Repository: {self.repo_path.name}")
         print(f"  Branch: {self.test_branch}")
@@ -634,6 +638,15 @@ class IntegrationTestRunner:
                 except Exception as e:
                     if self.verbose:
                         print(f"Could not restore original branch: {e}")
+
+            # Delete main test branch
+            if self.git_repo and self.test_branch in [h.name for h in self.git_repo.heads]:
+                try:
+                    self.git_repo.delete_head(self.test_branch, force=True)
+                    self._log(f"Deleted {self.test_branch} branch")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Could not delete {self.test_branch}: {e}")
 
             # Restore stashed changes if we created a stash
             if self.git_repo and self.stash_created:
