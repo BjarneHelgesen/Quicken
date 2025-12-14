@@ -381,7 +381,10 @@ class IntegrationTestRunner:
         """Test basic clang-tidy analysis."""
         cpp_file = self._get_test_file()
         self._log(f"Analyzing {cpp_file.name} with clang-tidy")
-        returncode = self.quicken.run(cpp_file, "clang-tidy", ["--checks=readability-*"],
+        # Pass compilation flags to avoid compilation database requirement
+        # The '--' separates clang-tidy args from compiler args
+        returncode = self.quicken.run(cpp_file, "clang-tidy",
+                                       ["--checks=readability-*", "--", "-std=c++17"],
                                        self.repo_path, cpp_file.parent)
         # clang-tidy returns non-zero on warnings/errors, just check it completes
         assert isinstance(returncode, int), "clang-tidy did not complete"
@@ -390,7 +393,9 @@ class IntegrationTestRunner:
         """Test clang-tidy cache hit."""
         cpp_file = self._get_test_file()
         self._log(f"Running cached clang-tidy on {cpp_file.name}")
-        returncode = self.quicken.run(cpp_file, "clang-tidy", ["--checks=readability-*"],
+        # Use same args as basic test to ensure cache hit
+        returncode = self.quicken.run(cpp_file, "clang-tidy",
+                                       ["--checks=readability-*", "--", "-std=c++17"],
                                        self.repo_path, cpp_file.parent)
         assert isinstance(returncode, int), "clang-tidy cached run did not complete"
 
@@ -455,7 +460,8 @@ class IntegrationTestRunner:
         assert returncode2 == 0, "clang++ failed"
 
         # Clang-tidy
-        returncode3 = self.quicken.run(cpp_file, "clang-tidy", ["--checks=*"],
+        returncode3 = self.quicken.run(cpp_file, "clang-tidy",
+                                        ["--checks=*", "--", "-std=c++17"],
                                         self.repo_path, cpp_file.parent)
         assert isinstance(returncode3, int), "clang-tidy failed"
 
