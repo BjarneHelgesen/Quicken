@@ -381,13 +381,13 @@ class IntegrationTestRunner:
         """Test basic clang-tidy analysis."""
         cpp_file = self._get_test_file()
         self._log(f"Analyzing {cpp_file.name} with clang-tidy")
-        # Pass compilation flags to avoid compilation database requirement
-        # The '--' separates clang-tidy args from compiler args
+        # Uses compilation database in repository (compile_commands.json)
         returncode = self.quicken.run(cpp_file, "clang-tidy",
-                                       ["--checks=readability-*", "--", "-std=c++17"],
+                                       ["--checks=readability-*"],
                                        self.repo_path, cpp_file.parent)
-        # clang-tidy returns non-zero on warnings/errors, just check it completes
-        assert isinstance(returncode, int), "clang-tidy did not complete"
+        # clang-tidy returns non-zero on warnings/errors, but 0 or positive means it ran
+        # Negative return codes indicate actual failure (tool not found, etc)
+        assert returncode >= 0, f"clang-tidy failed to run with return code {returncode}"
 
     def _test_clang_tidy_cache_hit(self):
         """Test clang-tidy cache hit."""
@@ -395,9 +395,9 @@ class IntegrationTestRunner:
         self._log(f"Running cached clang-tidy on {cpp_file.name}")
         # Use same args as basic test to ensure cache hit
         returncode = self.quicken.run(cpp_file, "clang-tidy",
-                                       ["--checks=readability-*", "--", "-std=c++17"],
+                                       ["--checks=readability-*"],
                                        self.repo_path, cpp_file.parent)
-        assert isinstance(returncode, int), "clang-tidy cached run did not complete"
+        assert returncode >= 0, f"clang-tidy cached run failed with return code {returncode}"
 
     # Advanced file-level tests
 
@@ -461,9 +461,9 @@ class IntegrationTestRunner:
 
         # Clang-tidy
         returncode3 = self.quicken.run(cpp_file, "clang-tidy",
-                                        ["--checks=*", "--", "-std=c++17"],
+                                        ["--checks=*"],
                                         self.repo_path, cpp_file.parent)
-        assert isinstance(returncode3, int), "clang-tidy failed"
+        assert returncode3 >= 0, f"clang-tidy failed with return code {returncode3}"
 
         self._log("All tools completed successfully")
 
