@@ -3,8 +3,8 @@
 Quicken - A caching wrapper for C++ build tools
 
 Quicken caches the output of C++ tools (compilers, analyzers like clang-tidy)
-based on local file dependencies (using MSVC /showIncludes) and file metadata
-(size + mtime). External libraries are ignored for caching to maximize speed.
+based on local file dependencies (using MSVC /showIncludes) and file hashes.
+External libraries are ignored for caching to maximize speed.
 """
 
 import argparse
@@ -38,7 +38,7 @@ class QuickenCache:
                     "cache_key": "entry_001",
                     "tool_cmd": "cl /c /W4",
                     "dependencies": [
-                        {"path": "C:\\path\\file.cpp", "size": 1234, "mtime_ns": 132456789},
+                        {"path": "C:\\path\\file.cpp", "hash": "a1b2c3d4e5f60708"},
                         ...
                     ]
                 },
@@ -71,23 +71,33 @@ class QuickenCache:
                         pass
         return max_id + 1
 
+    def _get_file_hash(self, file_path: Path) -> str:
+        """Calculate 64-bit hash of file content.
+
+        Returns 16-character hex string for human readability in JSON.
+        """
+        hash_obj = hashlib.blake2b(digest_size=8)  # 64-bit hash
+        with open(file_path, 'rb') as f:
+            # Read in chunks for efficiency with large files
+            while chunk := f.read(8192):
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest()
+
     def _get_file_metadata(self, file_path: Path) -> Dict:
         """Get metadata for a single file."""
-        stat = file_path.stat()
         return {
             "path": str(file_path.resolve()),
-            "size": stat.st_size,
-            "mtime_ns": stat.st_mtime_ns
+            "hash": self._get_file_hash(file_path)
         }
 
     def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
-        """Check if all cached dependencies still match their metadata."""
+        """Check if all cached dependencies still match their file hashes."""
         for dep in cached_deps:
             dep_path = Path(dep["path"])
             if not dep_path.exists():
                 return False
-            stat = dep_path.stat()
-            if stat.st_size != dep["size"] or stat.st_mtime_ns != dep["mtime_ns"]:
+            current_hash = self._get_file_hash(dep_path)
+            if current_hash != dep["hash"]:
                 return False
         return True
 
@@ -95,7 +105,7 @@ class QuickenCache:
         """Look up cached output for given source file and tool command.
 
         This is the optimized fast path that doesn't run /showIncludes.
-        It only checks file metadata (size + mtime) against cached values.
+        It only checks file hashes against cached values.
         """
         source_key = str(source_file.resolve())
 
@@ -123,7 +133,7 @@ class QuickenCache:
               output_files: List[Path], stdout: str, stderr: str, returncode: int,
               repo_mode: bool = False, dependency_patterns: List[str] = None,
               output_base_dir: Path = None) -> Path:
-        """Store tool output in cache with dependency metadata.
+        """Store tool output in cache with dependency hashes.
 
         Args:
             source_file: Source file path (or main file for repo mode)
@@ -174,7 +184,7 @@ class QuickenCache:
                 shutil.copy2(output_file, dest)
                 stored_files.append(file_path_str)
 
-        # Collect dependency metadata
+        # Collect dependency hashes
         dep_metadata = [self._get_file_metadata(dep) for dep in dependencies]
 
         # Store metadata
@@ -625,7 +635,7 @@ class Quicken:
             if stderr:
                 print(stderr, end='', file=sys.stderr)
 
-            # Store in cache with dependency metadata
+            # Store in cache with dependency hashes
             if self.verbose:
                 print(f"[Quicken] Storing results in cache...", file=sys.stderr)
             self.cache.store(cpp_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
@@ -755,7 +765,7 @@ class Quicken:
                     print(f"[Quicken] Tool failed (returncode={returncode}), not caching", file=sys.stderr)
                 return returncode
 
-            # Store in cache with dependency metadata
+            # Store in cache with dependency hashes
             if self.verbose:
                 print(f"[Quicken] Storing results in cache...", file=sys.stderr)
             self.cache.store(

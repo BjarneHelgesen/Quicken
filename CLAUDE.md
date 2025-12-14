@@ -2,7 +2,7 @@
 
 ## Overview
 
-Quicken is an **independent, standalone** Python library and command-line tool that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and metadata.
+Quicken is an **independent, standalone** Python library and command-line tool that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and file hashes.
 
 **IMPORTANT: Independence**
 - Quicken is designed to be completely independent - it has NO dependencies on LevelUp or any parent project
@@ -19,7 +19,7 @@ Quicken is an **independent, standalone** Python library and command-line tool t
 1. **QuickenCache** (defined in quicken.py) - Manages cache storage and retrieval
    - Index-based lookup system (JSON)
    - File-based storage for output artifacts
-   - Metadata tracking for stdout/stderr/returncode
+   - Hash-based dependency tracking
 
 2. **Quicken** (main class in quicken.py) - Main application logic
    - Configuration management
@@ -35,23 +35,23 @@ Quicken is an **independent, standalone** Python library and command-line tool t
 1. Look up source file in index by absolute path
 2. For each cached entry for that file:
    - Compare tool command string (direct comparison)
-   - Compare metadata (size + mtime) for all dependencies
+   - Compare file hashes for all dependencies
    - If all match → Cache HIT!
 
 **Cache Miss (Slow Path - Runs Tool):**
 1. Run MSVC `/showIncludes` to detect dependencies (~100-200ms)
 2. Execute the actual tool
-3. Store output files and dependency metadata for future hits
+3. Store output files and dependency hashes for future hits
 
 **Performance Characteristics:**
-- Cache hits only require file stat operations (~1-10ms overhead)
+- Cache hits require hashing all dependencies (~10-50ms for typical projects)
 - `/showIncludes` only runs on cache misses when tool execution dominates anyway
 - Optimized for scenarios with many cache hits per miss
 
 This ensures that:
-- Same local files with same metadata → instant cache hit
+- Same local files with same content → instant cache hit
 - Different flags → different cache entries (separate lookup)
-- Header changes → cache invalidation (metadata comparison fails)
+- Header changes → cache invalidation (hash comparison fails)
 - External library changes → ignored (not tracked for speed)
 
 ### File Structure
@@ -75,8 +75,8 @@ This ensures that:
       "cache_key": "entry_000001",
       "tool_cmd": "cl /c /W4",
       "dependencies": [
-        {"path": "C:\\path\\to\\main.cpp", "size": 1234, "mtime_ns": 132456789},
-        {"path": "C:\\path\\to\\header.h", "size": 567, "mtime_ns": 132456790}
+        {"path": "C:\\path\\to\\main.cpp", "hash": "a1b2c3d4e5f60708"},
+        {"path": "C:\\path\\to\\header.h", "hash": "1234567890abcdef"}
       ]
     }
   ]
@@ -105,22 +105,22 @@ def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
 - Tracking them adds overhead with minimal benefit
 - Maximizes cache hit rate and performance
 
-### 2. Metadata Comparison (Cache Hit Fast Path)
+### 2. Hash Comparison (Cache Hit Fast Path)
 
 ```python
 def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
     # For each cached dependency:
     #   - Check file exists
-    #   - Compare size (stat.st_size)
-    #   - Compare mtime (stat.st_mtime_ns)
+    #   - Calculate 64-bit hash of file content
+    #   - Compare hash with cached value
     # All must match for cache hit
 ```
 
-**Why metadata comparison?**
-- Extremely fast (~1-10ms for typical files)
-- Direct stat() comparison is simple and efficient
-- mtime changes indicate file modifications
-- Sufficient for detecting actual changes in practice
+**Why hash comparison?**
+- Detects actual content changes, not just file touches
+- 64-bit BLAKE2b is fast and sufficient for this purpose
+- Simple and reliable - no false cache invalidations
+- Moderately fast (~10-50ms for typical projects)
 - No need to run `/showIncludes` on cache hits
 
 ### 3. Cache Lookup
@@ -128,7 +128,7 @@ def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
 The cache uses an optimized lookup system:
 1. **Index lookup by source file path** - Find all cached entries for this file
 2. **Tool command comparison** - Filter to matching tool command
-3. **Dependency metadata check** - Verify all dependencies still match
+3. **Dependency hash check** - Verify all dependencies still match
 4. **File existence check** - Verify cache entry directory exists
 
 Cache key format: `entry_{counter:06d}` (simple incrementing counter)
@@ -148,28 +148,6 @@ full_cmd = f'"{vcvarsall}" {msvc_arch} >nul && {tool_cmd}'
 # Direct execution without environment setup
 subprocess.run([tool_path] + args)
 ```
-
-**Working Directory Management:**
-
-Quicken supports running tools on temporary copies while preserving relative includes:
-
-```python
-# When using temp copies, pass original_file to preserve relative includes
-quicken.run(
-    cpp_file=temp_copy,           # Temporary copy of source
-    tool_name="clang-tidy",
-    tool_args=["-checks=*"],
-    original_file=original_source, # Original location
-    repo_dir=repo_root
-)
-```
-
-How it works:
-- **Tool runs in**: `original_file.parent` (original source directory)
-- **Tool operates on**: `temp_copy` (passed as absolute path)
-- **Result**: Relative includes like `#include "..\..\tools\mytool.h"` work correctly
-
-This is critical for tools that need to process modified/temporary versions of files while maintaining the original project structure.
 
 ### 5. Output Detection
 
@@ -204,6 +182,7 @@ quicken.run(
 
 For each cached execution:
 - **Files**: Copied with timestamps preserved (`shutil.copy2`)
+- **Hashes**: 64-bit BLAKE2b hash for each dependency file
 - **Metadata**: JSON with stdout, stderr, returncode
 - **Index**: Updated with entry information
 
@@ -246,9 +225,9 @@ Quicken supports caching for **repo-level tools** (e.g., Doxygen, cppcheck) that
 | **Dependencies** | Detected via `/showIncludes` | Specified via glob patterns |
 | **Dependency Count** | ~10-50 files | ~1000-5000 files |
 | **Output** | 1-3 files | 100-300 files (directory trees) |
-| **Cache Hit Overhead** | ~10-20ms | ~50-100ms |
+| **Cache Hit Overhead** | ~10-50ms | ~100-500ms |
 | **Typical Tool Runtime** | ~1-5 seconds | ~10-60 seconds |
-| **Speedup** | 100-500x | 5-30x |
+| **Speedup** | 50-200x | 10-50x |
 
 ### API: `run_repo_tool()`
 
@@ -301,28 +280,28 @@ returncode = quicken.run_repo_tool(
 
 **First Run (Cache MISS):**
 - Glob for all C++ files matching patterns (~50-100ms)
-- Collect metadata for all files (~50-100ms)
+- Calculate hashes for all files (~100-500ms)
 - Run Doxygen (~10-60 seconds)
 - Store directory tree in cache (~500-2000ms)
-- **Total: ~10-60 seconds + ~600-2200ms overhead**
+- **Total: ~10-60 seconds + ~650-2600ms overhead**
 
 **Second Run (Cache HIT):**
 - Lookup cache by doxyfile path (<1ms)
-- Compare metadata for all C++ files (~50ms)
+- Calculate and compare hashes for all C++ files (~100-500ms)
 - Restore directory tree from cache (~1-2 seconds)
-- **Total: ~1-2 seconds (5-30x speedup!)**
+- **Total: ~1-3 seconds (5-30x speedup!)**
 
 ### How It Works
 
 **1. Dependency Detection:**
 - Uses glob patterns instead of `/showIncludes`
 - Recursively finds all files matching patterns
-- Stores metadata (size + mtime) for all matched files
+- Calculates 64-bit hash for all matched files
 
 **2. Cache Validation:**
-- Same metadata-based approach as file-level caching
-- Compares size and mtime for ALL matched files
-- ANY file change invalidates the cache
+- Same hash-based approach as file-level caching
+- Compares hashes for ALL matched files
+- ANY file content change invalidates the cache
 
 **3. Directory Tree Caching:**
 - Preserves directory structure in cache
@@ -340,8 +319,8 @@ returncode = quicken.run_repo_tool(
       "repo_mode": true,
       "dependency_patterns": ["*.cpp", "*.hpp", "*.h", "*.c"],
       "dependencies": [
-        {"path": "C:\\repo\\main.cpp", "size": 5678, "mtime_ns": 132456800},
-        {"path": "C:\\repo\\utils.hpp", "size": 2345, "mtime_ns": 132456801},
+        {"path": "C:\\repo\\main.cpp", "hash": "a1b2c3d4e5f60708"},
+        {"path": "C:\\repo\\utils.hpp", "hash": "1234567890abcdef"},
         ...
       ]
     }
@@ -415,19 +394,19 @@ xml_dirs = repo.generate_doxygen(quicken=quicken)
 
 | Operation | Cache MISS | Cache HIT | Speedup |
 |-----------|-----------|-----------|---------|
-| Dependency detection | ~100ms | ~50ms | 2x |
+| Dependency detection | ~100ms | ~100-200ms | ~1x |
 | Tool execution | 30-60s | - | - |
 | Cache I/O | ~1-2s | ~1-2s | 1x |
-| **Total** | **~30-60s** | **~2-3s** | **15-30x** |
+| **Total** | **~30-60s** | **~2-3s** | **10-30x** |
 
 **Large Repository (5000+ C++ files):**
 
 | Operation | Cache MISS | Cache HIT | Speedup |
 |-----------|-----------|-----------|---------|
-| Dependency detection | ~200ms | ~100ms | 2x |
+| Dependency detection | ~200ms | ~500ms | ~1x |
 | Tool execution | 60-120s | - | - |
 | Cache I/O | ~2-4s | ~2-4s | 1x |
-| **Total** | **~60-120s** | **~4-6s** | **15-30x** |
+| **Total** | **~60-120s** | **~5-8s** | **10-20x** |
 
 ### Design Decisions
 
@@ -437,10 +416,10 @@ xml_dirs = repo.generate_doxygen(quicken=quicken)
 - Fast (recursive glob is efficient)
 - User controls exactly what's tracked
 
-**Why store all file metadata?**
-- Ensures correct invalidation
-- ANY source file change triggers regeneration
-- Acceptable overhead (~50-100ms for 1000 files)
+**Why hash all files?**
+- Ensures correct invalidation based on content
+- ANY source file content change triggers regeneration
+- Acceptable overhead (~100-500ms for 1000 files)
 
 **Why not cache failed runs?**
 - Prevents caching partial/corrupt output
@@ -505,15 +484,15 @@ Second run is instant if file unchanged.
 **Design Goal:** Optimize for cache hits (10-100 hits per miss).
 
 **Cache Hit:**
-- Time: ~15-60ms total
+- Time: ~20-100ms total
   - Index lookup: <1ms
-  - Stat all dependencies (50 files): ~1-10ms
-  - Metadata comparison: <1ms
-  - File copy + I/O: ~10-50ms (dominant cost)
-- Speedup vs actual compilation: 100-1000x
+  - Hash all dependencies (50 files): ~10-50ms
+  - Hash comparison: <1ms
+  - File copy + I/O: ~10-50ms
+- Speedup vs actual compilation: 50-200x
 
 **Cache Miss:**
-- Overhead: ~100-200ms (dependency detection)
+- Overhead: ~200-300ms (dependency detection + hashing)
 - Minimal overhead compared to actual tool execution
 - Dependency info cached for future hits
 
@@ -523,22 +502,22 @@ Second run is instant if file unchanged.
 - One-time cost per cache miss
 - Results stored in cache for instant future lookups
 
-**Metadata Comparison (On Every Cache Hit):**
-- Direct stat() comparison
+**Hash Comparison (On Every Cache Hit):**
+- 64-bit BLAKE2b hash calculation for each file
 - No `/showIncludes` execution needed
-- Near-instantaneous (~1-10ms for 50 files)
+- Fast (~10-50ms for 50 files)
 
 ## Design Decisions
 
-### Why Metadata Comparison?
+### Why Hash Comparison?
 
-**Approach:** Store dependency metadata in cache, compare directly on lookup
+**Approach:** Store dependency hashes in cache, compare hashes on lookup
 
 **Benefits:**
-- Near-instantaneous comparison (~1-10ms for 50 files)
+- Content-based comparison (~10-50ms for 50 files)
 - No `/showIncludes` needed on cache hits
-- Simple stat() calls are sufficient
-- Acceptable trade-off: "touch file" invalidates cache unnecessarily
+- No false cache invalidations from file touches
+- Detects actual content changes reliably
 
 ### Why Store Dependencies in Cache?
 
@@ -598,7 +577,7 @@ Alternative: Cache only stdout/stderr
 ### Known Limitations
 
 1. **MSVC Dependency** - Currently requires MSVC for dependency detection (`/showIncludes`)
-2. **Metadata Sensitivity** - `touch file` invalidates cache even if content unchanged
+2. **Hash Overhead** - Cache hits require hashing all dependencies (~10-50ms for typical files)
 3. **Output Detection** - Uses directory diff; requires `output_dir` parameter if tool writes outside working directory
 4. **No Distributed Cache** - Cache is local only
 5. **No Cache Limits** - Cache grows unbounded
