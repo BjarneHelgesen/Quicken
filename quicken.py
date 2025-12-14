@@ -64,11 +64,8 @@ class QuickenCache:
             for entry in entries:
                 cache_key = entry.get("cache_key", "")
                 if cache_key.startswith("entry_"):
-                    try:
-                        entry_id = int(cache_key.split("_")[1])
-                        max_id = max(max_id, entry_id)
-                    except (ValueError, IndexError):
-                        pass
+                    entry_id = int(cache_key.split("_")[1])
+                    max_id = max(max_id, entry_id)
         return max_id + 1
 
     def _get_file_hash(self, file_path: Path) -> str:
@@ -266,24 +263,18 @@ class QuickenCache:
 class Quicken:
     """Main Quicken application."""
 
-    def __init__(self, config_path: Path, verbose: bool = True):
+    def __init__(self, config_path: Path):
         self.config = self._load_config(config_path)
         self.cache = QuickenCache(Path.home() / ".quicken" / "cache")
-        self.verbose = verbose
         self._msvc_env = None  # Cached MSVC environment
 
     def _load_config(self, config_path: Path) -> Dict:
         """Load tools configuration."""
-        if not config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-
         with open(config_path, 'r') as f:
             return json.load(f)
 
     def _get_tool_path(self, tool_name: str) -> str:
         """Get the full path to a tool from config."""
-        if tool_name not in self.config:
-            raise ValueError(f"Tool '{tool_name}' not found in config")
         return self.config[tool_name]
 
     def _get_msvc_environment(self) -> Dict:
@@ -337,17 +328,8 @@ class Quicken:
         # Default to O0 if not specified
         opt_level = optimization if optimization is not None else 0
 
-        # Validate range
-        if opt_level < 0 or opt_level > 3:
-            raise ValueError(f"optimization must be 0-3 or None, got {opt_level}")
-
         # Get flags for this tool
-        flags = optimization_flags[tool_name]
-
-        if opt_level >= len(flags):
-            raise ValueError(f"optimization level {opt_level} not configured for tool {tool_name}")
-
-        opt_flag = flags[opt_level]
+        opt_flag = optimization_flags[tool_name][opt_level]
 
         # Insert at beginning of args
         return [opt_flag] + tool_args
@@ -362,36 +344,33 @@ class Quicken:
 
         # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
         # This is much faster than full preprocessing
-        try:
-            result = subprocess.run(
-                [cl_path, '/showIncludes', '/Zs', str(cpp_file)],
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False
-            )
+        result = subprocess.run(
+            [cl_path, '/showIncludes', '/Zs', str(cpp_file)],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False
+        )
 
-            # Parse /showIncludes output
-            # Format: "Note: including file:   <path>"
-            dependencies = [cpp_file]  # Always include the source file itself
+        # Parse /showIncludes output
+        # Format: "Note: including file:   <path>"
+        dependencies = [cpp_file]  # Always include the source file itself
 
-            for line in result.stderr.splitlines():  # /showIncludes outputs to stderr
-                if line.startswith("Note: including file:"):
-                    # Extract the file path (after "Note: including file:")
-                    file_path_str = line.split(":", 2)[2].strip()
-                    file_path = Path(file_path_str)
+        for line in result.stderr.splitlines():  # /showIncludes outputs to stderr
+            if line.startswith("Note: including file:"):
+                # Extract the file path (after "Note: including file:")
+                file_path_str = line.split(":", 2)[2].strip()
+                file_path = Path(file_path_str)
 
-                    # Only include files within the repository
-                    try:
-                        file_path.resolve().relative_to(repo_dir_resolved)
-                        dependencies.append(file_path)
-                    except ValueError:
-                        # File is outside repo, skip it
-                        pass
+                # Only include files within the repository
+                try:
+                    file_path.resolve().relative_to(repo_dir_resolved)
+                    dependencies.append(file_path)
+                except ValueError:
+                    # File is outside repo, skip it
+                    pass
 
-            return dependencies
-        except Exception as e:
-            raise RuntimeError(f"Failed to get dependencies: {e}")
+        return dependencies
 
     def _get_repo_dependencies(self, repo_dir: Path, dependency_patterns: List[str]) -> List[Path]:
         """Get list of files matching dependency patterns in repository.
@@ -540,20 +519,9 @@ class Quicken:
             output_dir: Directory where tool creates output files (for detection and cache restoration)
             optimization: Optimization level (0-3, or None to accept any cached level)
         """
-        if not cpp_file.exists():
-            print(f"Error: C++ file not found: {cpp_file}", file=sys.stderr)
-            return 1
-
-        if self.verbose:
-            print(f"[Quicken] Processing {cpp_file} with {tool_name}...", file=sys.stderr)
-
         # Determine repository directory
         if not repo_dir:
             repo_dir = Path.cwd()
-
-        # Step 1: Fast cache lookup (no /showIncludes, just metadata comparison)
-        if self.verbose:
-            print(f"[Quicken] Looking up in cache...", file=sys.stderr)
 
         cache_entry = None
         modified_args = None
@@ -574,8 +542,6 @@ class Quicken:
                     # Try lookup
                     cache_entry = self.cache.lookup(cpp_file, test_cmd)
                     if cache_entry:
-                        if self.verbose:
-                            print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
                         modified_args = test_args
                         tool_cmd = test_cmd
                         break
@@ -597,9 +563,6 @@ class Quicken:
 
         if cache_entry:
             # Cache hit - restore files (fast path!)
-            if self.verbose:
-                print(f"[Quicken] Cache HIT! Restoring cached output...", file=sys.stderr)
-
             # Restore to output_dir if provided, else source file's directory
             restore_dir = output_dir if output_dir else cpp_file.parent
             stdout, stderr, returncode = self.cache.restore(cache_entry, restore_dir)
@@ -613,18 +576,10 @@ class Quicken:
             return returncode
         else:
             # Cache miss - need to detect dependencies and run tool
-            if self.verbose:
-                print(f"[Quicken] Cache MISS. Finding dependencies...", file=sys.stderr)
-
             # Get local dependencies using /showIncludes (only on cache miss)
             local_files = self._get_local_dependencies(cpp_file, repo_dir)
-            if self.verbose:
-                print(f"[Quicken] Found {len(local_files)} local files", file=sys.stderr)
 
             # Run the tool
-            if self.verbose:
-                print(f"[Quicken] Running tool...", file=sys.stderr)
-
             output_files, stdout, stderr, returncode = self._run_tool(
                 tool_name, modified_args, cpp_file, output_dir=output_dir
             )
@@ -636,8 +591,6 @@ class Quicken:
                 print(stderr, end='', file=sys.stderr)
 
             # Store in cache with dependency hashes
-            if self.verbose:
-                print(f"[Quicken] Storing results in cache...", file=sys.stderr)
             self.cache.store(cpp_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
 
             return returncode
@@ -662,24 +615,9 @@ class Quicken:
         Returns:
             Tool exit code
         """
-        # Validate inputs
-        if not dependency_patterns:
-            raise ValueError("dependency_patterns cannot be empty for repo-level tools")
-
-        if not main_file.exists():
-            print(f"Error: Main file not found: {main_file}", file=sys.stderr)
-            return 1
-
-        if self.verbose:
-            print(f"[Quicken] Processing repo with {tool_name}...", file=sys.stderr)
-
         # Use repo_dir as output directory if not specified
         if output_dir is None:
             output_dir = repo_dir
-
-        # Step 1: Fast cache lookup (metadata comparison only)
-        if self.verbose:
-            print(f"[Quicken] Looking up in cache...", file=sys.stderr)
 
         cache_entry = None
         modified_args = None
@@ -700,8 +638,6 @@ class Quicken:
                     # Try lookup
                     cache_entry = self.cache.lookup(main_file, test_cmd)
                     if cache_entry:
-                        if self.verbose:
-                            print(f"[Quicken] Found cache hit with optimization level {opt_level}", file=sys.stderr)
                         modified_args = test_args
                         tool_cmd = test_cmd
                         break
@@ -723,9 +659,6 @@ class Quicken:
 
         if cache_entry:
             # Cache hit - restore files (fast path!)
-            if self.verbose:
-                print(f"[Quicken] Cache HIT! Restoring cached output...", file=sys.stderr)
-
             stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
 
             # Output stdout/stderr as if tool ran
@@ -737,18 +670,10 @@ class Quicken:
             return returncode
         else:
             # Cache miss - need to detect dependencies and run tool
-            if self.verbose:
-                print(f"[Quicken] Cache MISS. Finding dependencies...", file=sys.stderr)
-
             # Get repo dependencies using glob patterns (only on cache miss)
             repo_files = self._get_repo_dependencies(repo_dir, dependency_patterns)
-            if self.verbose:
-                print(f"[Quicken] Found {len(repo_files)} files matching patterns", file=sys.stderr)
 
             # Run the tool
-            if self.verbose:
-                print(f"[Quicken] Running tool...", file=sys.stderr)
-
             output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
                 tool_name, modified_args, work_dir=repo_dir, output_dir=output_dir
             )
@@ -761,13 +686,9 @@ class Quicken:
 
             # Only cache successful runs
             if returncode != 0:
-                if self.verbose:
-                    print(f"[Quicken] Tool failed (returncode={returncode}), not caching", file=sys.stderr)
                 return returncode
 
             # Store in cache with dependency hashes
-            if self.verbose:
-                print(f"[Quicken] Storing results in cache...", file=sys.stderr)
             self.cache.store(
                 main_file, tool_cmd, repo_files, output_files,
                 stdout, stderr, returncode,
@@ -781,8 +702,6 @@ class Quicken:
     def clear_cache(self):
         """Clear the entire cache."""
         self.cache.clear()
-        if self.verbose:
-            print(f"[Quicken] Cache cleared", file=sys.stderr)
 
 
 def main():
