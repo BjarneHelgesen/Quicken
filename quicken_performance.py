@@ -42,7 +42,9 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     # Cache MISS - First run
     print(f"[{tool_name}] Running cache MISS test...")
     start = time.time()
-    returncode1 = quicken.run(cpp_file, tool_name, tool_args)
+    returncode1 = quicken.run(cpp_file, tool_name, tool_args,
+                             repo_dir=cpp_file.parent,
+                             output_dir=cpp_file.parent)
     miss_time = time.time() - start
 
     if returncode1 != 0:
@@ -64,7 +66,9 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     # Cache HIT - Second run
     print(f"[{tool_name}] Running cache HIT test...")
     start = time.time()
-    returncode2 = quicken.run(cpp_file, tool_name, tool_args)
+    returncode2 = quicken.run(cpp_file, tool_name, tool_args,
+                             repo_dir=cpp_file.parent,
+                             output_dir=cpp_file.parent)
     hit_time = time.time() - start
 
     if returncode2 != 0:
@@ -78,9 +82,9 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
             return None
 
     speedup = miss_time / hit_time if hit_time > 0 else 0
-    print(f"[{tool_name}] ✓ Cache MISS: {miss_time:.3f}s")
-    print(f"[{tool_name}] ✓ Cache HIT:  {hit_time:.3f}s")
-    print(f"[{tool_name}] ✓ Speedup:    {speedup:.1f}x")
+    print(f"[{tool_name}] Cache MISS: {miss_time:.3f}s")
+    print(f"[{tool_name}] Cache HIT:  {hit_time:.3f}s")
+    print(f"[{tool_name}] Speedup:    {speedup:.1f}x")
 
     return (miss_time, hit_time, speedup)
 
