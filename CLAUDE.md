@@ -263,8 +263,8 @@ quicken = Quicken(Path("tools.json"))
 
 # Setup paths
 repo_path = Path("/path/to/repo")
-doxyfile = repo_path / ".doxygen" / "Doxyfile.xml_unexpanded"
-output_dir = repo_path / ".doxygen" / "xml_unexpanded"
+doxyfile = repo_path / ".doxygen" / "Doxyfile.xml"
+output_dir = repo_path / ".doxygen" / "xml"
 
 # Run Doxygen with caching
 returncode = quicken.run_repo_tool(
@@ -312,10 +312,10 @@ returncode = quicken.run_repo_tool(
 
 ```json
 {
-  "C:\\repo\\.doxygen\\Doxyfile.xml_unexpanded": [
+  "C:\\repo\\.doxygen\\Doxyfile.xml": [
     {
       "cache_key": "entry_000002",
-      "tool_cmd": "doxygen C:\\repo\\.doxygen\\Doxyfile.xml_unexpanded",
+      "tool_cmd": "doxygen C:\\repo\\.doxygen\\Doxyfile.xml",
       "repo_mode": true,
       "dependency_patterns": ["*.cpp", "*.hpp", "*.h", "*.c"],
       "dependencies": [
@@ -328,29 +328,29 @@ returncode = quicken.run_repo_tool(
 }
 ```
 
-### Multiple Runs (e.g., Doxygen Unexpanded + Expanded)
+### Multiple Runs with Different Configurations
 
 Each run with a different main file creates a separate cache entry:
 
 ```python
-# Unexpanded version
+# First configuration
 quicken.run_repo_tool(
     repo_dir=repo_path,
     tool_name="doxygen",
-    tool_args=[str(doxyfile_unexpanded)],
-    main_file=doxyfile_unexpanded,  # Different main file
+    tool_args=[str(doxyfile_config1)],
+    main_file=doxyfile_config1,  # Different main file
     dependency_patterns=patterns,
-    output_dir=xml_unexpanded_dir
+    output_dir=xml_output1_dir
 )
 
-# Expanded version
+# Second configuration
 quicken.run_repo_tool(
     repo_dir=repo_path,
     tool_name="doxygen",
-    tool_args=[str(doxyfile_expanded)],
-    main_file=doxyfile_expanded,  # Different main file
+    tool_args=[str(doxyfile_config2)],
+    main_file=doxyfile_config2,  # Different main file
     dependency_patterns=patterns,
-    output_dir=xml_expanded_dir
+    output_dir=xml_output2_dir
 )
 ```
 
@@ -369,7 +369,7 @@ quicken = Quicken(Path("Quicken/tools.json"))
 
 # Run Doxygen with caching
 runner = DoxygenRunner()
-xml_unexpanded, xml_expanded = runner.run(
+xml_dir = runner.run(
     repo_path,
     quicken=quicken  # Optional parameter
 )

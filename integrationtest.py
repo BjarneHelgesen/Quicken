@@ -157,9 +157,8 @@ class IntegrationTestRunner:
 
             # Repo-level caching tests
             print("\n[Repo-Level Caching]")
-            self._test("Doxygen unexpanded", self._test_doxygen_unexpanded)
-            self._test("Doxygen unexpanded cache hit", self._test_doxygen_unexpanded_cache_hit)
-            self._test("Doxygen expanded", self._test_doxygen_expanded)
+            self._test("Doxygen", self._test_doxygen)
+            self._test("Doxygen cache hit", self._test_doxygen_cache_hit)
             self._test("Doxygen with source change", self._test_doxygen_source_change)
 
             # Git operations
@@ -448,22 +447,22 @@ class IntegrationTestRunner:
 
     # Repo-level tests
 
-    def _test_doxygen_unexpanded(self):
-        """Test Doxygen unexpanded generation."""
+    def _test_doxygen(self):
+        """Test Doxygen generation."""
         # Check if Doxygen is configured
         doxygen_dir = self.repo_path / ".doxygen"
         if not doxygen_dir.exists():
             self._log("Doxygen not configured, skipping")
             return
 
-        doxyfile = doxygen_dir / "Doxyfile.xml_unexpanded"
+        doxyfile = doxygen_dir / "Doxyfile.xml"
         if not doxyfile.exists():
-            self._log("Doxyfile.xml_unexpanded not found, skipping")
+            self._log("Doxyfile.xml not found, skipping")
             return
 
-        output_dir = doxygen_dir / "xml_unexpanded"
+        output_dir = doxygen_dir / "xml"
 
-        self._log(f"Running Doxygen unexpanded")
+        self._log(f"Running Doxygen")
         returncode = self.quicken.run_repo_tool(
             repo_dir=self.repo_path,
             tool_name="doxygen",
@@ -473,28 +472,28 @@ class IntegrationTestRunner:
                                "*.hpp", "*.hxx", "*.h", "*.hh"],
             output_dir=output_dir
         )
-        assert returncode == 0, f"Doxygen unexpanded failed with code {returncode}"
+        assert returncode == 0, f"Doxygen failed with code {returncode}"
         assert output_dir.exists(), "Doxygen output directory not created"
 
-    def _test_doxygen_unexpanded_cache_hit(self):
-        """Test Doxygen unexpanded cache hit."""
+    def _test_doxygen_cache_hit(self):
+        """Test Doxygen cache hit."""
         doxygen_dir = self.repo_path / ".doxygen"
         if not doxygen_dir.exists():
             self._log("Doxygen not configured, skipping")
             return
 
-        doxyfile = doxygen_dir / "Doxyfile.xml_unexpanded"
+        doxyfile = doxygen_dir / "Doxyfile.xml"
         if not doxyfile.exists():
-            self._log("Doxyfile.xml_unexpanded not found, skipping")
+            self._log("Doxyfile.xml not found, skipping")
             return
 
-        output_dir = doxygen_dir / "xml_unexpanded"
+        output_dir = doxygen_dir / "xml"
 
         # Delete output directory
         if output_dir.exists():
             shutil.rmtree(output_dir)
 
-        self._log(f"Running cached Doxygen unexpanded")
+        self._log(f"Running cached Doxygen")
         returncode = self.quicken.run_repo_tool(
             repo_dir=self.repo_path,
             tool_name="doxygen",
@@ -504,35 +503,8 @@ class IntegrationTestRunner:
                                "*.hpp", "*.hxx", "*.h", "*.hh"],
             output_dir=output_dir
         )
-        assert returncode == 0, "Cached Doxygen unexpanded failed"
+        assert returncode == 0, "Cached Doxygen failed"
         assert output_dir.exists(), "Doxygen output not restored from cache"
-
-    def _test_doxygen_expanded(self):
-        """Test Doxygen expanded generation (separate cache entry)."""
-        doxygen_dir = self.repo_path / ".doxygen"
-        if not doxygen_dir.exists():
-            self._log("Doxygen not configured, skipping")
-            return
-
-        doxyfile = doxygen_dir / "Doxyfile.xml_expanded"
-        if not doxyfile.exists():
-            self._log("Doxyfile.xml_expanded not found, skipping")
-            return
-
-        output_dir = doxygen_dir / "xml_expanded"
-
-        self._log(f"Running Doxygen expanded")
-        returncode = self.quicken.run_repo_tool(
-            repo_dir=self.repo_path,
-            tool_name="doxygen",
-            tool_args=[str(doxyfile)],
-            main_file=doxyfile,
-            dependency_patterns=["*.cpp", "*.cxx", "*.cc", "*.c",
-                               "*.hpp", "*.hxx", "*.h", "*.hh"],
-            output_dir=output_dir
-        )
-        assert returncode == 0, f"Doxygen expanded failed with code {returncode}"
-        assert output_dir.exists(), "Doxygen output directory not created"
 
     def _test_doxygen_source_change(self):
         """Test that source file change invalidates Doxygen cache."""
@@ -550,12 +522,12 @@ class IntegrationTestRunner:
             modified_content = "// Test modification\n" + original_content
             cpp_file.write_text(modified_content, encoding='utf-8')
 
-            doxyfile = doxygen_dir / "Doxyfile.xml_unexpanded"
+            doxyfile = doxygen_dir / "Doxyfile.xml"
             if not doxyfile.exists():
-                self._log("Doxyfile.xml_unexpanded not found, skipping")
+                self._log("Doxyfile.xml not found, skipping")
                 return
 
-            output_dir = doxygen_dir / "xml_unexpanded"
+            output_dir = doxygen_dir / "xml"
 
             self._log(f"Running Doxygen after source change")
             returncode = self.quicken.run_repo_tool(
