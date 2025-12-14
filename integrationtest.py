@@ -272,7 +272,8 @@ class IntegrationTestRunner:
         """Test basic MSVC compilation."""
         cpp_file = self._get_test_file()
         self._log(f"Compiling {cpp_file.name}")
-        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                       self.repo_path, cpp_file.parent)
         assert returncode == 0, f"MSVC compilation failed with code {returncode}"
 
     def _test_msvc_cache_hit(self):
@@ -285,7 +286,8 @@ class IntegrationTestRunner:
             obj_file.unlink()
 
         self._log(f"Running cached compilation of {cpp_file.name}")
-        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                       self.repo_path, cpp_file.parent)
         assert returncode == 0, f"MSVC cached compilation failed with code {returncode}"
         assert obj_file.exists(), "Object file not restored from cache"
 
@@ -293,7 +295,8 @@ class IntegrationTestRunner:
         """Test MSVC with different flags creates different cache entry."""
         cpp_file = self._get_test_file()
         self._log(f"Compiling {cpp_file.name} with /W4")
-        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc", "/W4"])
+        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc", "/W4"],
+                                       self.repo_path, cpp_file.parent)
         assert returncode == 0, f"MSVC compilation with /W4 failed with code {returncode}"
 
     def _test_msvc_file_modification(self):
@@ -307,7 +310,8 @@ class IntegrationTestRunner:
             cpp_file.write_text(modified_content, encoding='utf-8')
             self._log(f"Modified {cpp_file.name}")
 
-            returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+            returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                           self.repo_path, cpp_file.parent)
             # Don't assert success - modified file might not compile
             self._log(f"Compilation returned {returncode}")
         finally:
@@ -324,7 +328,8 @@ class IntegrationTestRunner:
             obj_file.unlink()
 
         self._log(f"Compiling reverted {cpp_file.name}")
-        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                       self.repo_path, cpp_file.parent)
         assert returncode == 0, "Compilation of reverted file failed"
         assert obj_file.exists(), "Object file not restored from cache after reversion"
 
@@ -332,7 +337,8 @@ class IntegrationTestRunner:
         """Test basic clang++ compilation."""
         cpp_file = self._get_test_file()
         self._log(f"Compiling {cpp_file.name} with clang++")
-        returncode = self.quicken.run(cpp_file, "clang", ["-c"])
+        returncode = self.quicken.run(cpp_file, "clang", ["-c"],
+                                       self.repo_path, cpp_file.parent)
         assert returncode == 0, f"clang++ compilation failed with code {returncode}"
 
     def _test_clang_cache_hit(self):
@@ -344,7 +350,8 @@ class IntegrationTestRunner:
             obj_file.unlink()
 
         self._log(f"Running cached clang++ compilation of {cpp_file.name}")
-        returncode = self.quicken.run(cpp_file, "clang", ["-c"])
+        returncode = self.quicken.run(cpp_file, "clang", ["-c"],
+                                       self.repo_path, cpp_file.parent)
         assert returncode == 0, "clang++ cached compilation failed"
         assert obj_file.exists(), "Object file not restored from cache"
 
@@ -352,7 +359,8 @@ class IntegrationTestRunner:
         """Test clang++ with specific optimization level."""
         cpp_file = self._get_test_file()
         self._log(f"Compiling {cpp_file.name} with -O2")
-        returncode = self.quicken.run(cpp_file, "clang", ["-c"], optimization=2)
+        returncode = self.quicken.run(cpp_file, "clang", ["-c"],
+                                       self.repo_path, cpp_file.parent, optimization=2)
         assert returncode == 0, "clang++ compilation with -O2 failed"
 
     def _test_clang_optimization_none(self):
@@ -364,7 +372,8 @@ class IntegrationTestRunner:
             obj_file.unlink()
 
         self._log(f"Compiling {cpp_file.name} with optimization=None")
-        returncode = self.quicken.run(cpp_file, "clang", ["-c"], optimization=None)
+        returncode = self.quicken.run(cpp_file, "clang", ["-c"],
+                                       self.repo_path, cpp_file.parent, optimization=None)
         assert returncode == 0, "clang++ compilation with optimization=None failed"
         assert obj_file.exists(), "Object file not restored when optimization=None"
 
@@ -372,7 +381,8 @@ class IntegrationTestRunner:
         """Test basic clang-tidy analysis."""
         cpp_file = self._get_test_file()
         self._log(f"Analyzing {cpp_file.name} with clang-tidy")
-        returncode = self.quicken.run(cpp_file, "clang-tidy", ["--checks=readability-*"])
+        returncode = self.quicken.run(cpp_file, "clang-tidy", ["--checks=readability-*"],
+                                       self.repo_path, cpp_file.parent)
         # clang-tidy returns non-zero on warnings/errors, just check it completes
         assert isinstance(returncode, int), "clang-tidy did not complete"
 
@@ -380,7 +390,8 @@ class IntegrationTestRunner:
         """Test clang-tidy cache hit."""
         cpp_file = self._get_test_file()
         self._log(f"Running cached clang-tidy on {cpp_file.name}")
-        returncode = self.quicken.run(cpp_file, "clang-tidy", ["--checks=readability-*"])
+        returncode = self.quicken.run(cpp_file, "clang-tidy", ["--checks=readability-*"],
+                                       self.repo_path, cpp_file.parent)
         assert isinstance(returncode, int), "clang-tidy cached run did not complete"
 
     # Advanced file-level tests
@@ -398,7 +409,8 @@ class IntegrationTestRunner:
         time.sleep(0.1)  # Ensure timestamp changes
 
         self._log(f"Compiling {cpp_file.name} after timestamp change")
-        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+        returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                       self.repo_path, cpp_file.parent)
         assert returncode == 0, "Compilation after timestamp change failed"
         assert obj_file.exists(), "Object file not restored from cache after timestamp change"
 
@@ -417,7 +429,8 @@ class IntegrationTestRunner:
                 obj_file.unlink()
 
             self._log(f"Compiling {cpp_file.name} after adding unrelated file")
-            returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+            returncode = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                           self.repo_path, cpp_file.parent)
             assert returncode == 0, "Compilation after adding unrelated file failed"
             assert obj_file.exists(), "Cache should hit despite unrelated file addition"
         finally:
@@ -432,15 +445,18 @@ class IntegrationTestRunner:
         self._log(f"Running MSVC, clang++, and clang-tidy on {cpp_file.name}")
 
         # MSVC
-        returncode1 = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+        returncode1 = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                        self.repo_path, cpp_file.parent)
         assert returncode1 == 0, "MSVC failed"
 
         # Clang++
-        returncode2 = self.quicken.run(cpp_file, "clang", ["-c"])
+        returncode2 = self.quicken.run(cpp_file, "clang", ["-c"],
+                                        self.repo_path, cpp_file.parent)
         assert returncode2 == 0, "clang++ failed"
 
         # Clang-tidy
-        returncode3 = self.quicken.run(cpp_file, "clang-tidy", ["--checks=*"])
+        returncode3 = self.quicken.run(cpp_file, "clang-tidy", ["--checks=*"],
+                                        self.repo_path, cpp_file.parent)
         assert isinstance(returncode3, int), "clang-tidy failed"
 
         self._log("All tools completed successfully")
@@ -464,13 +480,13 @@ class IntegrationTestRunner:
 
         self._log(f"Running Doxygen")
         returncode = self.quicken.run_repo_tool(
-            repo_dir=self.repo_path,
-            tool_name="doxygen",
-            tool_args=[str(doxyfile)],
-            main_file=doxyfile,
-            dependency_patterns=["*.cpp", "*.cxx", "*.cc", "*.c",
-                               "*.hpp", "*.hxx", "*.h", "*.hh"],
-            output_dir=output_dir
+            self.repo_path,
+            "doxygen",
+            [str(doxyfile)],
+            doxyfile,
+            ["*.cpp", "*.cxx", "*.cc", "*.c",
+             "*.hpp", "*.hxx", "*.h", "*.hh"],
+            output_dir
         )
         assert returncode == 0, f"Doxygen failed with code {returncode}"
         assert output_dir.exists(), "Doxygen output directory not created"
@@ -495,13 +511,13 @@ class IntegrationTestRunner:
 
         self._log(f"Running cached Doxygen")
         returncode = self.quicken.run_repo_tool(
-            repo_dir=self.repo_path,
-            tool_name="doxygen",
-            tool_args=[str(doxyfile)],
-            main_file=doxyfile,
-            dependency_patterns=["*.cpp", "*.cxx", "*.cc", "*.c",
-                               "*.hpp", "*.hxx", "*.h", "*.hh"],
-            output_dir=output_dir
+            self.repo_path,
+            "doxygen",
+            [str(doxyfile)],
+            doxyfile,
+            ["*.cpp", "*.cxx", "*.cc", "*.c",
+             "*.hpp", "*.hxx", "*.h", "*.hh"],
+            output_dir
         )
         assert returncode == 0, "Cached Doxygen failed"
         assert output_dir.exists(), "Doxygen output not restored from cache"
@@ -531,13 +547,13 @@ class IntegrationTestRunner:
 
             self._log(f"Running Doxygen after source change")
             returncode = self.quicken.run_repo_tool(
-                repo_dir=self.repo_path,
-                tool_name="doxygen",
-                tool_args=[str(doxyfile)],
-                main_file=doxyfile,
-                dependency_patterns=["*.cpp", "*.cxx", "*.cc", "*.c",
-                                   "*.hpp", "*.hxx", "*.h", "*.hh"],
-                output_dir=output_dir
+                self.repo_path,
+                "doxygen",
+                [str(doxyfile)],
+                doxyfile,
+                ["*.cpp", "*.cxx", "*.cc", "*.c",
+                 "*.hpp", "*.hxx", "*.h", "*.hh"],
+                output_dir
             )
             # Don't assert - just check it completes
             self._log(f"Doxygen completed with code {returncode}")
@@ -579,7 +595,8 @@ class IntegrationTestRunner:
 
         try:
             # Compile on current branch
-            returncode1 = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+            returncode1 = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                            self.repo_path, cpp_file.parent)
             assert returncode1 == 0, "Initial compilation failed"
 
             # Switch to new branch
@@ -592,7 +609,8 @@ class IntegrationTestRunner:
 
             # Compile again - should hit cache if file is same
             self._log(f"Compiling on new branch")
-            returncode2 = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"])
+            returncode2 = self.quicken.run(cpp_file, "cl", ["/c", "/nologo", "/EHsc"],
+                                            self.repo_path, cpp_file.parent)
             assert returncode2 == 0, "Compilation on new branch failed"
             assert obj_file.exists(), "Cache should work across branches for same content"
         finally:
