@@ -171,7 +171,7 @@ Automatically detects and caches all files created by tools during execution:
 ```python
 # Example: Tool writes to a specific output directory
 quicken.run(
-    cpp_file=source_file,
+    source_file=source_file,
     tool_name="cl",
     tool_args=["/c", "/Fooutput/"],  # MSVC writes to output/
     output_dir=Path("output")         # Tell Quicken where to look

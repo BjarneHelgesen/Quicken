@@ -334,7 +334,7 @@ class Quicken:
         # Insert at beginning of args
         return [opt_flag] + tool_args
 
-    def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
+    def _get_local_dependencies(self, source_file: Path, repo_dir: Path) -> List[Path]:
         """Get list of local (repo) file dependencies using MSVC /showIncludes."""
         cl_path = self._get_tool_path("cl")
         env = self._get_msvc_environment()
@@ -345,7 +345,7 @@ class Quicken:
         # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
         # This is much faster than full preprocessing
         result = subprocess.run(
-            [cl_path, '/showIncludes', '/Zs', str(cpp_file)],
+            [cl_path, '/showIncludes', '/Zs', str(source_file)],
             env=env,
             capture_output=True,
             text=True,
@@ -354,7 +354,7 @@ class Quicken:
 
         # Parse /showIncludes output
         # Format: "Note: including file:   <path>"
-        dependencies = [cpp_file]  # Always include the source file itself
+        dependencies = [source_file]  # Always include the source file itself
 
         for line in result.stderr.splitlines():  # /showIncludes outputs to stderr
             if line.startswith("Note: including file:"):
@@ -448,26 +448,26 @@ class Quicken:
 
         return output_files, result.stdout, result.stderr, result.returncode
 
-    def _run_tool(self, tool_name: str, tool_args: List[str], cpp_file: Path,
-                  output_dir: Path = None) -> Tuple[List[Path], str, str, int]:
+    def _run_tool(self, tool_name: str, tool_args: List[str], source_file: Path,
+                  output_dir: Path) -> Tuple[List[Path], str, str, int]:
         """Run the specified tool with arguments.
 
         Args:
             tool_name: Name of tool to run
             tool_args: Arguments to pass to tool
-            cpp_file: Path to C++ file to process
-            output_dir: Directory to look for output files (default: cpp_file.parent)
+            source_file: Path to C++ file to process
+            output_dir: Directory to look for output files
         """
         tool_path = self._get_tool_path(tool_name)
 
         # Tool runs in source file's directory (for relative includes)
-        work_dir = cpp_file.parent
+        work_dir = source_file.parent
 
-        # Determine output directory (where to look for output files)
-        output_directory = output_dir if output_dir else work_dir
+        # Output directory (where to look for output files)
+        output_directory = output_dir
 
         # Build command with just filename (we're in same directory)
-        cmd = [tool_path] + tool_args + [cpp_file.name]
+        cmd = [tool_path] + tool_args + [source_file.name]
 
         # Snapshot files in output directory before tool execution
         files_before = set(output_directory.iterdir()) if output_directory.exists() else set()
@@ -501,28 +501,24 @@ class Quicken:
         # Filter to only include actual output files (not directories, not source file)
         output_files = []
         for file_path in new_files:
-            if file_path.is_file() and file_path != cpp_file:
+            if file_path.is_file() and file_path != source_file:
                 output_files.append(file_path)
 
         return output_files, result.stdout, result.stderr, result.returncode
 
-    def run(self, cpp_file: Path, tool_name: str, tool_args: List[str],
-            repo_dir: Path = None, output_dir: Path = None, optimization: Optional[int] = None) -> int:
+    def run(self, source_file: Path, tool_name: str, tool_args: List[str],
+            repo_dir: Path, output_dir: Path, optimization: int = None) -> int:
         """
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
         Args:
-            cpp_file: C++ file to process
+            source_file: C++ file to process
             tool_name: Tool to run
             tool_args: Arguments for the tool
             repo_dir: Repository directory (for dependency filtering)
             output_dir: Directory where tool creates output files (for detection and cache restoration)
             optimization: Optimization level (0-3, or None to accept any cached level)
         """
-        # Determine repository directory
-        if not repo_dir:
-            repo_dir = Path.cwd()
-
         cache_entry = None
         modified_args = None
         tool_cmd = None
@@ -540,7 +536,7 @@ class Quicken:
                     # Build tool command string for cache key
                     test_cmd = f"{tool_name} {' '.join(test_args)}"
                     # Try lookup
-                    cache_entry = self.cache.lookup(cpp_file, test_cmd)
+                    cache_entry = self.cache.lookup(source_file, test_cmd)
                     if cache_entry:
                         modified_args = test_args
                         tool_cmd = test_cmd
@@ -554,18 +550,16 @@ class Quicken:
                 # Specific optimization level requested
                 modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
                 tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-                cache_entry = self.cache.lookup(cpp_file, tool_cmd)
+                cache_entry = self.cache.lookup(source_file, tool_cmd)
         else:
             # Tool doesn't support optimization - use args as-is
             modified_args = tool_args
             tool_cmd = f"{tool_name} {' '.join(tool_args)}"
-            cache_entry = self.cache.lookup(cpp_file, tool_cmd)
+            cache_entry = self.cache.lookup(source_file, tool_cmd)
 
         if cache_entry:
             # Cache hit - restore files (fast path!)
-            # Restore to output_dir if provided, else source file's directory
-            restore_dir = output_dir if output_dir else cpp_file.parent
-            stdout, stderr, returncode = self.cache.restore(cache_entry, restore_dir)
+            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
 
             # Output stdout/stderr as if tool ran
             if stdout:
@@ -577,11 +571,11 @@ class Quicken:
         else:
             # Cache miss - need to detect dependencies and run tool
             # Get local dependencies using /showIncludes (only on cache miss)
-            local_files = self._get_local_dependencies(cpp_file, repo_dir)
+            local_files = self._get_local_dependencies(source_file, repo_dir)
 
             # Run the tool
             output_files, stdout, stderr, returncode = self._run_tool(
-                tool_name, modified_args, cpp_file, output_dir=output_dir
+                tool_name, modified_args, source_file, output_dir=output_dir
             )
 
             # Output stdout/stderr
@@ -591,13 +585,13 @@ class Quicken:
                 print(stderr, end='', file=sys.stderr)
 
             # Store in cache with dependency hashes
-            self.cache.store(cpp_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
+            self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
 
             return returncode
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
                       main_file: Path, dependency_patterns: List[str],
-                      output_dir: Path = None, optimization: Optional[int] = None) -> int:
+                      output_dir: Path, optimization: int = None) -> int:
         """
         Run a repo-level tool with caching based on dependency patterns.
 
@@ -615,9 +609,6 @@ class Quicken:
         Returns:
             Tool exit code
         """
-        # Use repo_dir as output directory if not specified
-        if output_dir is None:
-            output_dir = repo_dir
 
         cache_entry = None
         modified_args = None
@@ -684,18 +675,15 @@ class Quicken:
             if stderr:
                 print(stderr, end='', file=sys.stderr)
 
-            # Only cache successful runs
-            if returncode != 0:
-                return returncode
-
-            # Store in cache with dependency hashes
-            self.cache.store(
-                main_file, tool_cmd, repo_files, output_files,
-                stdout, stderr, returncode,
-                repo_mode=True,
-                dependency_patterns=dependency_patterns,
-                output_base_dir=output_dir
-            )
+            # Cache successful runs
+            if returncode == 0:
+                self.cache.store(
+                    main_file, tool_cmd, repo_files, output_files,
+                    stdout, stderr, returncode,
+                    repo_mode=True,
+                    dependency_patterns=dependency_patterns,
+                    output_base_dir=output_dir
+                )
 
             return returncode
 
@@ -717,7 +705,7 @@ Examples:
         """
     )
 
-    parser.add_argument("cpp_file", nargs="?", type=Path, help="C++ source file to process")
+    parser.add_argument("source_file", nargs="?", type=Path, help="C++ source file to process")
     parser.add_argument("tool", nargs="?", help="Tool to run (must be in tools.json)")
     parser.add_argument("tool_args", nargs="*", help="Arguments to pass to the tool")
     parser.add_argument("--config", type=Path, default=Path("tools.json"),
@@ -740,11 +728,15 @@ Examples:
             sys.exit(0)
 
         # Validate required arguments for normal operation
-        if not args.cpp_file or not args.tool:
-            parser.error("cpp_file and tool are required unless --clear-cache is used")
+        if not args.source_file or not args.tool:
+            parser.error("source_file and tool are required unless --clear-cache is used")
 
-        returncode = quicken.run(args.cpp_file, args.tool, args.tool_args,
-                                 output_dir=args.output_dir, optimization=args.optimization)
+        # Determine output directory
+        output_dir = args.output_dir if args.output_dir else args.source_file.parent
+
+        returncode = quicken.run(args.source_file, args.tool, args.tool_args,
+                                 repo_dir=Path.cwd(), output_dir=output_dir,
+                                 optimization=args.optimization)
         sys.exit(returncode)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

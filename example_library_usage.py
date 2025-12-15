@@ -13,9 +13,9 @@ def example_subprocess_usage():
     files = ["test.cpp"] * 10  # Simulate 10 files
 
     start = time.perf_counter()
-    for cpp_file in files:
+    for source_file in files:
         subprocess.run(
-            ["python", "quicken.py", cpp_file, "cl", "/c"],
+            ["python", "quicken.py", source_file, "cl", "/c"],
             capture_output=True
         )
     elapsed = time.perf_counter() - start
@@ -27,16 +27,18 @@ def example_subprocess_usage():
 def example_library_usage_verbose():
 
     # Initialize once
-    quicken = Quicken(Path("tools.json"), verbose=True)
+    quicken = Quicken(Path("tools.json"))
 
     files = ["test.cpp"] * 10
 
     start = time.perf_counter()
-    for cpp_file in files:
+    for source_file in files:
         returncode = quicken.run(
-            cpp_file=Path(cpp_file),
+            source_file=Path(source_file),
             tool_name="cl",
-            tool_args=["/c"]
+            tool_args=["/c"],
+            repo_dir=Path.cwd(),
+            output_dir=Path.cwd()
         )
     elapsed = time.perf_counter() - start
 
@@ -47,21 +49,23 @@ def example_library_usage_verbose():
 def example_library_usage_quiet():
     """Quiet mode (for production)"""
 
-    # Initialize once with verbose=False
-    quicken = Quicken(Path("tools.json"), verbose=False)
+    # Initialize once
+    quicken = Quicken(Path("tools.json"))
 
     files = ["test.cpp"] * 100  # Simulate 100 files
 
     print("\n[Running 100 files in quiet mode...]")
     start = time.perf_counter()
-    for cpp_file in files:
+    for source_file in files:
         returncode = quicken.run(
-            cpp_file=Path(cpp_file),
+            source_file=Path(source_file),
             tool_name="cl",
-            tool_args=["/c"]
+            tool_args=["/c"],
+            repo_dir=Path.cwd(),
+            output_dir=Path.cwd()
         )
         if returncode != 0:
-            print(f"ERROR: {cpp_file} failed with code {returncode}")
+            print(f"ERROR: {source_file} failed with code {returncode}")
     elapsed = time.perf_counter() - start
 
     print(f"\nLibrary method (quiet): {elapsed:.2f}s for {len(files)} calls")
@@ -73,19 +77,21 @@ def example_parallel_builds():
     """Advanced: Process multiple files with progress tracking"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    quicken = Quicken(Path("tools.json"), verbose=False)
+    quicken = Quicken(Path("tools.json"))
 
     # Simulate a larger project
     files = ["test.cpp"] * 500
 
-    def compile_file(cpp_file):
+    def compile_file(source_file):
         """Compile a single file"""
         returncode = quicken.run(
-            cpp_file=Path(cpp_file),
+            source_file=Path(source_file),
             tool_name="cl",
-            tool_args=["/c", "/W4"]
+            tool_args=["/c", "/W4"],
+            repo_dir=Path.cwd(),
+            output_dir=Path.cwd()
         )
-        return cpp_file, returncode
+        return source_file, returncode
 
     print("\n[Parallel compilation of 500 files...]")
     start = time.perf_counter()
@@ -99,10 +105,10 @@ def example_parallel_builds():
         completed = 0
         failed = []
         for future in as_completed(futures):
-            cpp_file, returncode = future.result()
+            source_file, returncode = future.result()
             completed += 1
             if returncode != 0:
-                failed.append(cpp_file)
+                failed.append(source_file)
 
             # Show progress every 50 files
             if completed % 50 == 0:
@@ -130,8 +136,7 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 60)
     print("Summary:")
-    print("  - Use verbose=True for debugging/CLI usage")
-    print("  - Use verbose=False for production/library usage")
     print("  - Initialize Quicken once, call run() many times")
+    print("  - Always provide repo_dir and output_dir parameters")
     print("  - Expected speedup: 40-100x vs subprocess approach")
     print("=" * 60)
