@@ -97,15 +97,26 @@ def quicken_instance(config_file, cache_dir):
 
 def capture_output(func, *args, **kwargs):
     """
-    Call quicken.run() or quicken.run_repo_tool() and return the output.
+    Call quicken.run() or quicken.run_repo_tool() and capture its output.
 
-    The new Quicken API returns (stdout, stderr, returncode) directly,
-    so we just call the function and return its result.
+    The Quicken API returns just an integer and writes to stdout/stderr as side effects.
+    This function captures those side effects using StringIO.
 
     Returns:
         Tuple of (returncode, stdout, stderr) - note the order matches test expectations
     """
-    stdout, stderr, returncode = func(*args, **kwargs)
+    # Create StringIO objects to capture stdout and stderr
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+
+    # Redirect stdout and stderr to our StringIO objects
+    with patch('sys.stdout', stdout_capture), patch('sys.stderr', stderr_capture):
+        returncode = func(*args, **kwargs)
+
+    # Get the captured output
+    stdout = stdout_capture.getvalue()
+    stderr = stderr_capture.getvalue()
+
     return returncode, stdout, stderr
 
 
