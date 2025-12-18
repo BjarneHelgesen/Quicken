@@ -227,6 +227,9 @@ class QuickenCache:
         """Restore cached files to output directory.
 
         Handles both flat files and directory trees using relative paths.
+
+        Returns:
+            Tuple of (stdout, stderr, returncode)
         """
         metadata_file = cache_entry_dir / "metadata.json"
         with open(metadata_file, 'r') as f:
@@ -507,7 +510,7 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
-            repo_dir: Path, output_dir: Path, optimization: int = None) -> int:
+            repo_dir: Path, output_dir: Path, optimization: int = None) -> Tuple[str, str, int]:
         """
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
@@ -518,6 +521,9 @@ class Quicken:
             repo_dir: Repository directory (for dependency filtering)
             output_dir: Directory where tool creates output files (for detection and cache restoration)
             optimization: Optimization level (0-3, or None to accept any cached level)
+
+        Returns:
+            Tuple of (stdout, stderr, returncode)
         """
         cache_entry = None
         modified_args = None
@@ -558,16 +564,8 @@ class Quicken:
             cache_entry = self.cache.lookup(source_file, tool_cmd)
 
         if cache_entry:
-            # Cache hit - restore files (fast path!)
-            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
-
-            # Output stdout/stderr as if tool ran
-            if stdout:
-                print(stdout, end='')
-            if stderr:
-                print(stderr, end='', file=sys.stderr)
-
-            return returncode
+            # Cache hit - restore files and return stdout/stderr (fast path!)
+            return self.cache.restore(cache_entry, output_dir)
         else:
             # Cache miss - need to detect dependencies and run tool
             # Get local dependencies using /showIncludes (only on cache miss)
@@ -578,20 +576,14 @@ class Quicken:
                 tool_name, modified_args, source_file, output_dir=output_dir
             )
 
-            # Output stdout/stderr
-            if stdout:
-                print(stdout, end='')
-            if stderr:
-                print(stderr, end='', file=sys.stderr)
-
             # Store in cache with dependency hashes
             self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
 
-            return returncode
+            return stdout, stderr, returncode
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
                       main_file: Path, dependency_patterns: List[str],
-                      output_dir: Path, optimization: int = None) -> int:
+                      output_dir: Path, optimization: int = None) -> Tuple[str, str, int]:
         """
         Run a repo-level tool with caching based on dependency patterns.
 
@@ -607,7 +599,7 @@ class Quicken:
             optimization: Optimization level (0-3, or None to accept any cached level)
 
         Returns:
-            Tool exit code
+            Tuple of (stdout, stderr, returncode)
         """
 
         cache_entry = None
@@ -649,16 +641,8 @@ class Quicken:
             cache_entry = self.cache.lookup(main_file, tool_cmd)
 
         if cache_entry:
-            # Cache hit - restore files (fast path!)
-            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
-
-            # Output stdout/stderr as if tool ran
-            if stdout:
-                print(stdout, end='')
-            if stderr:
-                print(stderr, end='', file=sys.stderr)
-
-            return returncode
+            # Cache hit - restore files and return stdout/stderr (fast path!)
+            return self.cache.restore(cache_entry, output_dir)
         else:
             # Cache miss - need to detect dependencies and run tool
             # Get repo dependencies using glob patterns (only on cache miss)
@@ -668,12 +652,6 @@ class Quicken:
             output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
                 tool_name, modified_args, work_dir=repo_dir, output_dir=output_dir
             )
-
-            # Output stdout/stderr
-            if stdout:
-                print(stdout, end='')
-            if stderr:
-                print(stderr, end='', file=sys.stderr)
 
             # Cache successful runs
             if returncode == 0:
@@ -685,7 +663,7 @@ class Quicken:
                     output_base_dir=output_dir
                 )
 
-            return returncode
+            return stdout, stderr, returncode
 
     def clear_cache(self):
         """Clear the entire cache."""
@@ -734,9 +712,16 @@ Examples:
         # Determine output directory
         output_dir = args.output_dir if args.output_dir else args.source_file.parent
 
-        returncode = quicken.run(args.source_file, args.tool, args.tool_args,
-                                 repo_dir=Path.cwd(), output_dir=output_dir,
-                                 optimization=args.optimization)
+        stdout, stderr, returncode = quicken.run(args.source_file, args.tool, args.tool_args,
+                                                  repo_dir=Path.cwd(), output_dir=output_dir,
+                                                  optimization=args.optimization)
+
+        # Print stdout and stderr
+        if stdout:
+            print(stdout, end='')
+        if stderr:
+            print(stderr, end='', file=sys.stderr)
+
         sys.exit(returncode)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

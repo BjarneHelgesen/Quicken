@@ -1,0 +1,602 @@
+#!/usr/bin/env python3
+"""
+Unit tests for stdout and stderr capturing in Quicken.
+
+Verifies that:
+1. Cache misses correctly capture tool stdout and stderr
+2. Cache hits reproduce the exact same stdout and stderr
+3. Both streams are handled independently
+4. Output is byte-for-byte identical between cache miss and hit
+"""
+
+import io
+import json
+import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from quicken import Quicken, QuickenCache
+
+
+# Sample C++ code for testing
+SIMPLE_CPP_CODE = """
+#include <iostream>
+
+int main() {
+    std::cout << "Hello, World!" << std::endl;
+    return 0;
+}
+"""
+
+CPP_CODE_WITH_WARNING = """
+#include <iostream>
+
+int main() {
+    int unused_var = 0;
+    std::cout << "Test" << std::endl;
+    return 0;
+}
+"""
+
+
+@pytest.fixture
+def temp_dir():
+    """Create a temporary directory for test files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield Path(tmpdir)
+
+
+@pytest.fixture
+def test_cpp_file(temp_dir):
+    """Create a test C++ file."""
+    cpp_file = temp_dir / "test.cpp"
+    cpp_file.write_text(SIMPLE_CPP_CODE)
+    return cpp_file
+
+
+@pytest.fixture
+def cache_dir(temp_dir):
+    """Create a temporary cache directory."""
+    cache = temp_dir / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
+
+
+@pytest.fixture
+def config_file(temp_dir):
+    """Create a test config file pointing to the real tools.json."""
+    # Use the actual tools.json from the project
+    project_tools = Path(__file__).parent.parent / "tools.json"
+    if project_tools.exists():
+        return project_tools
+
+    # Fallback: create a minimal config
+    config = temp_dir / "tools.json"
+    config_data = {
+        "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
+        "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+        "msvc_arch": "x64",
+        "clang": "clang++",
+        "clang-tidy": "clang-tidy"
+    }
+    config.write_text(json.dumps(config_data, indent=2))
+    return config
+
+
+@pytest.fixture
+def quicken_instance(config_file, cache_dir):
+    """Create a Quicken instance with a custom cache directory."""
+    quicken = Quicken(config_file)
+    # Override the cache directory to use our temp one
+    quicken.cache = QuickenCache(cache_dir)
+    return quicken
+
+
+def capture_output(func, *args, **kwargs):
+    """
+    Call quicken.run() or quicken.run_repo_tool() and return the output.
+
+    The new Quicken API returns (stdout, stderr, returncode) directly,
+    so we just call the function and return its result.
+
+    Returns:
+        Tuple of (returncode, stdout, stderr) - note the order matches test expectations
+    """
+    stdout, stderr, returncode = func(*args, **kwargs)
+    return returncode, stdout, stderr
+
+
+class TestStdoutStderrCapture:
+    """Test stdout/stderr capturing and reproduction."""
+
+    def test_cache_stores_stdout_stderr_metadata(self, cache_dir, temp_dir):
+        """Test that cache stores stdout and stderr in metadata."""
+        cache = QuickenCache(cache_dir)
+
+        # Create source file
+        source_file = temp_dir / "test.cpp"
+        source_file.write_text("int main() { return 0; }")
+
+        # Create fake output file
+        output_file = temp_dir / "test.obj"
+        output_file.write_text("fake object file")
+
+        dependencies = [source_file]
+        tool_cmd = "cl /c"
+        stdout = "Compilation successful\n"
+        stderr = "Warning: something\n"
+        returncode = 0
+
+        # Store in cache
+        cache_entry = cache.store(
+            source_file, tool_cmd, dependencies, [output_file],
+            stdout, stderr, returncode
+        )
+
+        # Verify metadata.json contains stdout and stderr
+        metadata_file = cache_entry / "metadata.json"
+        assert metadata_file.exists()
+
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+
+        assert metadata["stdout"] == stdout
+        assert metadata["stderr"] == stderr
+        assert metadata["returncode"] == returncode
+
+    def test_cache_restore_returns_correct_stdout_stderr(self, cache_dir, temp_dir):
+        """Test that cache.restore() returns the correct stdout and stderr."""
+        cache = QuickenCache(cache_dir)
+
+        # Create source file
+        source_file = temp_dir / "test.cpp"
+        source_file.write_text("int main() { return 0; }")
+
+        # Create fake output file
+        output_file = temp_dir / "test.obj"
+        output_file.write_text("fake object file")
+
+        dependencies = [source_file]
+        tool_cmd = "cl /c"
+        original_stdout = "Build output line 1\nBuild output line 2\n"
+        original_stderr = "Warning: unused variable\n"
+        returncode = 0
+
+        # Store in cache
+        cache_entry = cache.store(
+            source_file, tool_cmd, dependencies, [output_file],
+            original_stdout, original_stderr, returncode
+        )
+
+        # Delete output file
+        output_file.unlink()
+
+        # Restore from cache
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(
+            cache_entry, temp_dir
+        )
+
+        # Verify exact match
+        assert restored_stdout == original_stdout
+        assert restored_stderr == original_stderr
+        assert restored_returncode == returncode
+
+    def test_empty_stdout_stderr_handling(self, cache_dir, temp_dir):
+        """Test that empty stdout and stderr are handled correctly."""
+        cache = QuickenCache(cache_dir)
+
+        source_file = temp_dir / "test.cpp"
+        source_file.write_text("int main() { return 0; }")
+
+        output_file = temp_dir / "test.obj"
+        output_file.write_text("fake object file")
+
+        dependencies = [source_file]
+        tool_cmd = "cl /c /nologo"
+
+        # Store with empty stdout and stderr
+        cache_entry = cache.store(
+            source_file, tool_cmd, dependencies, [output_file],
+            "", "", 0
+        )
+
+        # Restore
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(
+            cache_entry, temp_dir
+        )
+
+        # Verify empty strings are preserved
+        assert restored_stdout == ""
+        assert restored_stderr == ""
+        assert restored_returncode == 0
+
+    def test_multiline_stdout_stderr_preservation(self, cache_dir, temp_dir):
+        """Test that multiline stdout and stderr are preserved correctly."""
+        cache = QuickenCache(cache_dir)
+
+        source_file = temp_dir / "test.cpp"
+        source_file.write_text("int main() { return 0; }")
+
+        output_file = temp_dir / "test.obj"
+        output_file.write_text("fake object file")
+
+        dependencies = [source_file]
+        tool_cmd = "cl /c"
+
+        # Create multiline output with various line endings
+        original_stdout = "Line 1\nLine 2\nLine 3\n"
+        original_stderr = "Error on line 10\nError on line 20\n"
+
+        cache_entry = cache.store(
+            source_file, tool_cmd, dependencies, [output_file],
+            original_stdout, original_stderr, 0
+        )
+
+        # Restore and verify exact preservation
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(
+            cache_entry, temp_dir
+        )
+
+        assert restored_stdout == original_stdout
+        assert restored_stderr == original_stderr
+        assert len(restored_stdout.splitlines()) == 3
+        assert len(restored_stderr.splitlines()) == 2
+
+    def test_special_characters_in_output(self, cache_dir, temp_dir):
+        """Test that special characters in stdout and stderr are preserved."""
+        cache = QuickenCache(cache_dir)
+
+        source_file = temp_dir / "test.cpp"
+        source_file.write_text("int main() { return 0; }")
+
+        output_file = temp_dir / "test.obj"
+        output_file.write_text("fake object file")
+
+        dependencies = [source_file]
+        tool_cmd = "cl /c"
+
+        # Include special characters, unicode, paths with backslashes
+        original_stdout = "C:\\Path\\To\\File.cpp\nTest: 100% complete\n"
+        original_stderr = "Warning: '\t' tab and \"quotes\"\n"
+
+        cache_entry = cache.store(
+            source_file, tool_cmd, dependencies, [output_file],
+            original_stdout, original_stderr, 0
+        )
+
+        # Restore and verify
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(
+            cache_entry, temp_dir
+        )
+
+        assert restored_stdout == original_stdout
+        assert restored_stderr == original_stderr
+        assert '\t' in restored_stderr
+        assert '\\' in restored_stdout
+
+
+class TestMSVCStdoutStderr:
+    """Test stdout/stderr reproduction for MSVC compilation."""
+
+    def test_msvc_stdout_stderr_reproduction(self, quicken_instance, test_cpp_file):
+        """Test that MSVC stdout/stderr is identical between cache miss and hit."""
+        tool_args = ["/c", "/nologo", "/EHsc"]
+
+        # First run (cache miss) - capture output
+        returncode1, stdout1, stderr1 = capture_output(
+            quicken_instance.run,
+            test_cpp_file, "cl", tool_args,
+            repo_dir=test_cpp_file.parent,
+            output_dir=test_cpp_file.parent
+        )
+
+        if returncode1 != 0:
+            pytest.skip("MSVC compilation failed, skipping test")
+
+        # Delete output file
+        obj_file = test_cpp_file.parent / "test.obj"
+        if obj_file.exists():
+            obj_file.unlink()
+
+        # Second run (cache hit) - capture output
+        returncode2, stdout2, stderr2 = capture_output(
+            quicken_instance.run,
+            test_cpp_file, "cl", tool_args,
+            repo_dir=test_cpp_file.parent,
+            output_dir=test_cpp_file.parent
+        )
+
+        # Verify outputs are identical
+        assert returncode1 == returncode2, "Return codes should match"
+        assert stdout1 == stdout2, f"Stdout mismatch:\nCache miss: {repr(stdout1)}\nCache hit: {repr(stdout2)}"
+        assert stderr1 == stderr2, f"Stderr mismatch:\nCache miss: {repr(stderr1)}\nCache hit: {repr(stderr2)}"
+
+    def test_msvc_with_warnings_stdout_stderr(self, quicken_instance, temp_dir):
+        """Test that MSVC warnings are reproduced correctly."""
+        # Create file with warning
+        cpp_file = temp_dir / "test_warn.cpp"
+        cpp_file.write_text(CPP_CODE_WITH_WARNING)
+
+        tool_args = ["/c", "/W4", "/EHsc"]  # High warning level
+
+        # First run (cache miss)
+        returncode1, stdout1, stderr1 = capture_output(
+            quicken_instance.run,
+            cpp_file, "cl", tool_args,
+            repo_dir=cpp_file.parent,
+            output_dir=cpp_file.parent
+        )
+
+        # Should succeed with warnings
+        if returncode1 != 0:
+            pytest.skip("MSVC compilation failed, skipping test")
+
+        # Verify we got some output (compilation message or warning)
+        has_output = bool(stdout1 or stderr1)
+
+        # Delete output file
+        obj_file = cpp_file.parent / "test_warn.obj"
+        if obj_file.exists():
+            obj_file.unlink()
+
+        # Second run (cache hit)
+        returncode2, stdout2, stderr2 = capture_output(
+            quicken_instance.run,
+            cpp_file, "cl", tool_args,
+            repo_dir=cpp_file.parent,
+            output_dir=cpp_file.parent
+        )
+
+        # Verify exact reproduction
+        assert returncode1 == returncode2
+        assert stdout1 == stdout2
+        assert stderr1 == stderr2
+
+        # If there was output before, there should be output now
+        if has_output:
+            assert bool(stdout2 or stderr2), "Output should be reproduced from cache"
+
+    def test_msvc_nologo_flag_affects_stdout(self, quicken_instance, test_cpp_file):
+        """Test that /nologo flag properly affects stdout in cache."""
+        # Without /nologo - may have banner
+        tool_args_banner = ["/c", "/EHsc"]
+
+        returncode1, stdout1, stderr1 = capture_output(
+            quicken_instance.run,
+            test_cpp_file, "cl", tool_args_banner,
+            repo_dir=test_cpp_file.parent,
+            output_dir=test_cpp_file.parent
+        )
+
+        if returncode1 != 0:
+            pytest.skip("MSVC compilation failed, skipping test")
+
+        # With /nologo - should suppress banner
+        obj_file = test_cpp_file.parent / "test.obj"
+        if obj_file.exists():
+            obj_file.unlink()
+
+        tool_args_nologo = ["/c", "/nologo", "/EHsc"]
+
+        returncode2, stdout2, stderr2 = capture_output(
+            quicken_instance.run,
+            test_cpp_file, "cl", tool_args_nologo,
+            repo_dir=test_cpp_file.parent,
+            output_dir=test_cpp_file.parent
+        )
+
+        if returncode2 != 0:
+            pytest.skip("MSVC compilation with /nologo failed, skipping test")
+
+        # These are different tool commands, so they should have separate cache entries
+        # and potentially different output
+        # Just verify both are valid
+        assert isinstance(stdout1, str)
+        assert isinstance(stderr1, str)
+        assert isinstance(stdout2, str)
+        assert isinstance(stderr2, str)
+
+
+class TestClangStdoutStderr:
+    """Test stdout/stderr reproduction for Clang compilation."""
+
+    def test_clang_stdout_stderr_reproduction(self, quicken_instance, test_cpp_file):
+        """Test that clang++ stdout/stderr is identical between cache miss and hit."""
+        tool_args = ["-c"]
+
+        # First run (cache miss)
+        returncode1, stdout1, stderr1 = capture_output(
+            quicken_instance.run,
+            test_cpp_file, "clang", tool_args,
+            repo_dir=test_cpp_file.parent,
+            output_dir=test_cpp_file.parent
+        )
+
+        if returncode1 != 0:
+            pytest.skip("clang++ compilation failed, skipping test")
+
+        # Delete output file
+        obj_file = test_cpp_file.parent / "test.o"
+        if obj_file.exists():
+            obj_file.unlink()
+
+        # Second run (cache hit)
+        returncode2, stdout2, stderr2 = capture_output(
+            quicken_instance.run,
+            test_cpp_file, "clang", tool_args,
+            repo_dir=test_cpp_file.parent,
+            output_dir=test_cpp_file.parent
+        )
+
+        # Verify exact reproduction
+        assert returncode1 == returncode2
+        assert stdout1 == stdout2, f"Stdout mismatch:\nCache miss: {repr(stdout1)}\nCache hit: {repr(stdout2)}"
+        assert stderr1 == stderr2, f"Stderr mismatch:\nCache miss: {repr(stderr1)}\nCache hit: {repr(stderr2)}"
+
+    def test_clang_with_warnings_reproduction(self, quicken_instance, temp_dir):
+        """Test that clang++ warnings are reproduced correctly."""
+        cpp_file = temp_dir / "test_warn.cpp"
+        cpp_file.write_text(CPP_CODE_WITH_WARNING)
+
+        tool_args = ["-c", "-Wall", "-Wextra"]
+
+        # First run (cache miss)
+        returncode1, stdout1, stderr1 = capture_output(
+            quicken_instance.run,
+            cpp_file, "clang", tool_args,
+            repo_dir=cpp_file.parent,
+            output_dir=cpp_file.parent
+        )
+
+        if returncode1 != 0:
+            pytest.skip("clang++ compilation failed, skipping test")
+
+        # Should have warnings in output
+        has_warnings = bool(stderr1)
+
+        # Delete output file
+        obj_file = cpp_file.parent / "test_warn.o"
+        if obj_file.exists():
+            obj_file.unlink()
+
+        # Second run (cache hit)
+        returncode2, stdout2, stderr2 = capture_output(
+            quicken_instance.run,
+            cpp_file, "clang", tool_args,
+            repo_dir=cpp_file.parent,
+            output_dir=cpp_file.parent
+        )
+
+        # Verify exact reproduction
+        assert returncode1 == returncode2
+        assert stdout1 == stdout2
+        assert stderr1 == stderr2
+
+        # Warnings should be reproduced
+        if has_warnings:
+            assert stderr2, "Warnings should be reproduced from cache"
+
+
+class TestClangTidyStdoutStderr:
+    """Test stdout/stderr reproduction for clang-tidy analysis."""
+
+    def test_clang_tidy_stdout_reproduction(self, quicken_instance, test_cpp_file):
+        """Test that clang-tidy output is reproduced correctly."""
+        tool_args = ["--checks=readability-*"]
+
+        # First run (cache miss)
+        try:
+            returncode1, stdout1, stderr1 = capture_output(
+                quicken_instance.run,
+                test_cpp_file, "clang-tidy", tool_args,
+                repo_dir=test_cpp_file.parent,
+                output_dir=test_cpp_file.parent
+            )
+        except Exception:
+            pytest.skip("clang-tidy not available or failed")
+
+        # clang-tidy may have non-zero return code if it finds issues
+        # Just verify it completed
+        assert isinstance(returncode1, int)
+
+        # Second run (cache hit)
+        returncode2, stdout2, stderr2 = capture_output(
+            quicken_instance.run,
+            test_cpp_file, "clang-tidy", tool_args,
+            repo_dir=test_cpp_file.parent,
+            output_dir=test_cpp_file.parent
+        )
+
+        # Verify exact reproduction
+        assert returncode1 == returncode2
+        assert stdout1 == stdout2, f"Stdout mismatch:\nCache miss: {repr(stdout1)}\nCache hit: {repr(stdout2)}"
+        assert stderr1 == stderr2, f"Stderr mismatch:\nCache miss: {repr(stderr1)}\nCache hit: {repr(stderr2)}"
+
+
+class TestRepoToolStdoutStderr:
+    """Test stdout/stderr reproduction for repo-level tools."""
+
+    def test_repo_tool_stdout_stderr_storage(self, cache_dir, temp_dir):
+        """Test that repo-level tool stdout/stderr is stored correctly."""
+        cache = QuickenCache(cache_dir)
+
+        # Create main file (e.g., Doxyfile)
+        main_file = temp_dir / "Doxyfile"
+        main_file.write_text("# Doxygen config")
+
+        # Create fake dependencies
+        cpp_file = temp_dir / "main.cpp"
+        cpp_file.write_text("int main() { return 0; }")
+
+        # Create fake output directory
+        output_dir = temp_dir / "output"
+        output_dir.mkdir()
+        output_file = output_dir / "index.html"
+        output_file.write_text("<html></html>")
+
+        dependencies = [main_file, cpp_file]
+        tool_cmd = "doxygen Doxyfile"
+        stdout = "Generating documentation...\nDone.\n"
+        stderr = ""
+        returncode = 0
+
+        # Store as repo-level cache entry
+        cache_entry = cache.store(
+            main_file, tool_cmd, dependencies, [output_file],
+            stdout, stderr, returncode,
+            repo_mode=True,
+            dependency_patterns=["*.cpp", "*.h"],
+            output_base_dir=output_dir
+        )
+
+        # Verify metadata contains stdout/stderr
+        metadata_file = cache_entry / "metadata.json"
+        with open(metadata_file, 'r') as f:
+            metadata = json.load(f)
+
+        assert metadata["stdout"] == stdout
+        assert metadata["stderr"] == stderr
+        assert metadata["returncode"] == returncode
+        assert metadata["repo_mode"] is True
+
+
+class TestErrorCases:
+    """Test error case handling for stdout/stderr."""
+
+    def test_non_zero_returncode_with_stderr(self, cache_dir, temp_dir):
+        """Test that compilation errors (non-zero return codes) preserve stderr."""
+        cache = QuickenCache(cache_dir)
+
+        source_file = temp_dir / "test.cpp"
+        source_file.write_text("int main() { return 0; }")
+
+        dependencies = [source_file]
+        tool_cmd = "cl /c"
+
+        # Simulate compilation error
+        stdout = ""
+        stderr = "error C2065: 'undeclared_var': undeclared identifier\n"
+        returncode = 2
+
+        # Store error result (no output files created)
+        cache_entry = cache.store(
+            source_file, tool_cmd, dependencies, [],
+            stdout, stderr, returncode
+        )
+
+        # Restore
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(
+            cache_entry, temp_dir
+        )
+
+        # Verify error information is preserved
+        assert restored_returncode == 2
+        assert restored_stderr == stderr
+        assert "undeclared" in restored_stderr
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
