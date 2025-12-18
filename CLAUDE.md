@@ -443,61 +443,46 @@ Special keys:
 
 ## Usage Patterns
 
-### QuickenCL - Drop-in cl.exe Replacement
+### Command-line Usage
 
-**QuickenCL.py** is a wrapper script that accepts the exact same command-line arguments as `cl.exe` and automatically routes them through Quicken for caching.
-
-**Features:**
-- Takes identical arguments to cl.exe (MSVC compiler)
-- Automatically detects source files and output directories
-- Can be compiled to QuickenCL.exe using tools like PyInstaller
-- Drop-in replacement in build systems and makefiles
-
-**Usage:**
+Direct usage of Quicken as a wrapper around tools:
 
 ```bash
-# Use QuickenCL.py exactly like cl.exe
-python QuickenCL.py /c /W4 myfile.cpp
-python QuickenCL.py /c /Foobj/ file1.cpp file2.cpp
-python QuickenCL.py myfile.cpp /c /O2
+# Run compiler through Quicken cache
+python quicken.py myfile.cpp cl /c
 
-# Or compile to .exe and use as direct replacement
-pyinstaller --onefile QuickenCL.py
-QuickenCL.exe /c /W4 myfile.cpp
+# Run with custom output directory
+python quicken.py myfile.cpp cl /c /Fooutput/ --output-dir output
+
+# Clear the cache
+python quicken.py --clear-cache
 ```
 
-**Compilation to .exe:**
+### Library Usage
 
-```bash
-# Install PyInstaller
-pip install pyinstaller
+Using Quicken as a Python library:
 
-# Compile QuickenCL.py to a standalone executable
-pyinstaller --onefile --name QuickenCL QuickenCL.py
+```python
+from pathlib import Path
+from quicken import Quicken
 
-# The executable will be in dist/QuickenCL.exe
-# Copy it to your build directory or add to PATH
+quicken = Quicken(Path("tools.json"))
+
+# Compile with caching
+returncode = quicken.run(
+    source_file=Path("myfile.cpp"),
+    tool_name="cl",
+    tool_args=["/c", "/W4"],
+    repo_dir=Path.cwd(),
+    output_dir=Path("output")
+)
 ```
 
-**Integration with Build Systems:**
+### Build System Integration
 
-```bash
-# In your build script, just replace "cl" with path to QuickenCL
-# Before: cl /c /W4 *.cpp
-# After:  QuickenCL /c /W4 *.cpp
+For a drop-in `cl.exe` replacement wrapper, see the separate [QuickenCompiler](../QuickenCompiler) repository which provides QuickenCL - a tool that accepts identical command-line arguments to cl.exe.
 
-# Or set as an environment variable
-set CL=C:\path\to\QuickenCL.exe
-```
-
-**Implementation Details:**
-- Parses cl.exe arguments to extract source files and compiler flags
-- Detects output directory from `/Fo` flag if present
-- Processes each source file through `quicken.run()`
-- Returns appropriate exit codes for build system integration
-- Looks for `tools.json` in script directory or current working directory
-
-### Build Systems Integration
+### Manual Build Systems Integration
 
 ```bash
 # Replace compiler calls with Quicken
