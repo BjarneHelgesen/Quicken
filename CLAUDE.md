@@ -2,11 +2,10 @@
 
 ## Overview
 
-Quicken is an **independent, standalone** Python library and command-line tool that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and file hashes.
+Quicken is an **independent, standalone** Python library that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and file hashes.
 
 **IMPORTANT: Independence**
 - Quicken is designed to be completely independent - it has NO dependencies on LevelUp or any parent project
-- Can be used as a command-line tool: `python quicken.py <file> <tool> [args]`
 - Can be used as a Python library: `from quicken import Quicken`
 - Can be integrated into any build system or project
 - Maintains its own configuration (`tools.json`)
@@ -39,12 +38,12 @@ Quicken is an **independent, standalone** Python library and command-line tool t
    - If all match → Cache HIT!
 
 **Cache Miss (Slow Path - Runs Tool):**
-1. Run MSVC `/showIncludes` to detect dependencies (~100-200ms)
+1. Run MSVC `/showIncludes` to detect dependencies for Cpp files 
 2. Execute the actual tool
 3. Store output files and dependency hashes for future hits
 
 **Performance Characteristics:**
-- Cache hits require hashing all dependencies (~10-50ms for typical projects)
+- Cache hits require hashing all dependencies 
 - `/showIncludes` only runs on cache misses when tool execution dominates anyway
 - Optimized for scenarios with many cache hits per miss
 
@@ -53,47 +52,38 @@ This ensures that:
 - Different flags → different cache entries (separate lookup)
 - Header changes → cache invalidation (hash comparison fails)
 - External library changes → ignored (not tracked for speed)
+- **Cache portability → works across different checkout locations** (uses file name - not full path)
 
 ### File Structure
 
-```
-~/.quicken/cache/
-├── index.json                           # Cache index (source file → entries)
-├── entry_000001/                        # Cache entry (simple counter)
-│   ├── metadata.json                   # Execution metadata + dependencies
-│   ├── output.obj                      # Cached output files
-│   └── ...
-├── entry_000002/
-│   └── ...
-```
 
-**Index Structure:**
-```json
-{
-  "C:\\path\\to\\main.cpp": [
-    {
-      "cache_key": "entry_000001",
-      "tool_cmd": "cl /c /W4",
-      "dependencies": [
-        {"path": "C:\\path\\to\\main.cpp", "hash": "a1b2c3d4e5f60708"},
-        {"path": "C:\\path\\to\\header.h", "hash": "1234567890abcdef"}
-      ]
-    }
-  ]
-}
-```
+**Note:** We store file name - not full paths. This allows the cache to work across different checkout locations (e.g., `C:\repo1` vs `C:\repo2` or `D:\projects\myrepo`).
+
+### Request Logging
+
+Quicken automatically logs every request to `~/.quicken/quicken.log` with information about cache hits and misses.
+
+**Log File Location:** `~/.quicken/quicken.log`
+
+**Log Format:**
+
+Each log line is either a CACHE HIT or CACHE MISS with all relevant information:
+
+
+**What's NOT Logged:**
+- Actual stdout/stderr output data (too verbose)
+- File contents or hashes
+
+**Use Cases:**
+- Performance analysis: Track cache hit rates
+- Debugging: Identify which files cause cache misses
+- Optimization: Find files with many dependencies
+- Auditing: Monitor tool usage and success rates
 
 ## Implementation Details
 
 ### 1. Dependency Detection
 
-```python
-def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
-    # Uses MSVC cl.exe with /showIncludes /Zs flags
-    # /showIncludes: Lists all included files
-    # /Zs: Syntax check only (no code generation - much faster)
-    # Only includes files within repo_dir (external libraries ignored)
-```
 
 **Why `/showIncludes` instead of preprocessing?**
 - Much faster than full preprocessing (~100ms vs ~500ms+)
@@ -107,15 +97,6 @@ def _get_local_dependencies(self, cpp_file: Path, repo_dir: Path) -> List[Path]:
 
 ### 2. Hash Comparison (Cache Hit Fast Path)
 
-```python
-def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
-    # For each cached dependency:
-    #   - Check file exists
-    #   - Calculate 64-bit hash of file content
-    #   - Compare hash with cached value
-    # All must match for cache hit
-```
-
 **Why hash comparison?**
 - Detects actual content changes, not just file touches
 - 64-bit BLAKE2b is fast and sufficient for this purpose
@@ -126,28 +107,20 @@ def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
 ### 3. Cache Lookup
 
 The cache uses an optimized lookup system:
-1. **Index lookup by source file path** - Find all cached entries for this file
+1. **Index lookup by source file name** - Find all cached entries for this file
 2. **Tool command comparison** - Filter to matching tool command
-3. **Dependency hash check** - Verify all dependencies still match
+3. **Dependency hash check** - Search repo_dir for files matching each dependency's filename and verify hashes match
 4. **File existence check** - Verify cache entry directory exists
+
+This filename-based matching (rather than path-based) allows cache hits even when files are in different directories, such as temporary build directories with changing names.
 
 Cache key format: `entry_{counter:06d}` (simple incrementing counter)
 
 ### 4. Tool Execution
 
-The wrapper handles two execution modes:
+vcvarsall is required for cl (MSVC compiler) 
 
-**MSVC Tools (cl, link):**
-```python
-# Requires vcvarsall.bat to set up environment
-full_cmd = f'"{vcvarsall}" {msvc_arch} >nul && {tool_cmd}'
-```
-
-**Other Tools (clang-tidy, clang++):**
-```python
-# Direct execution without environment setup
-subprocess.run([tool_path] + args)
-```
+Other Tools (clang-tidy, clang++) don't need this. 
 
 ### 5. Output Detection
 
@@ -155,28 +128,10 @@ Automatically detects and caches all files created by tools during execution:
 - Compares directory contents before/after tool execution
 - Caches any new files (excluding the source file itself)
 - Supports custom output directories via `output_dir` parameter
-- Works with arbitrary tool outputs:
-  - `.obj`, `.o` - Object files
-  - `.exe` - Executables
-  - `.pdb` - Debug symbols
-  - `.ilk` - Incremental link files
-  - `.yaml` - clang-tidy fix exports
-  - Any other tool-generated files
 
 **Output Directory Detection:**
 - By default, looks in the working directory (where the tool executes)
 - Can specify custom `output_dir` for tools that write to different locations
-- Useful for tools with output flags like `/Fo<dir>` (MSVC) or `-o <path>`
-
-```python
-# Example: Tool writes to a specific output directory
-quicken.run(
-    source_file=source_file,
-    tool_name="cl",
-    tool_args=["/c", "/Fooutput/"],  # MSVC writes to output/
-    output_dir=Path("output")         # Tell Quicken where to look
-)
-```
 
 ### 6. Cache Storage
 
@@ -198,16 +153,13 @@ Result is indistinguishable from actual tool execution.
 
 ### 8. Cache Clearing
 
-Clients can clear the entire cache through:
+Clients can clear the entire cache through the library API:
 
-**Command-line:**
-```bash
-python quicken.py --clear-cache
-```
-
-**Library API:**
 ```python
-quicken = Quicken(config_path)
+from pathlib import Path
+from quicken import Quicken
+
+quicken = Quicken(Path("tools.json"))
 quicken.clear_cache()  # Clears all cached entries
 ```
 
@@ -217,66 +169,8 @@ This removes all cache entries and resets the index.
 
 Quicken supports caching for **repo-level tools** (e.g., Doxygen, cppcheck) that operate on entire repositories rather than individual source files.
 
-### Key Differences from File-Level Caching
-
-| Aspect | File-Level | Repo-Level |
-|--------|-----------|-----------|
-| **Index Key** | Source file path | Main file path (e.g., Doxyfile) |
-| **Dependencies** | Detected via `/showIncludes` | Specified via glob patterns |
-| **Dependency Count** | ~10-50 files | ~1000-5000 files |
-| **Output** | 1-3 files | 100-300 files (directory trees) |
-| **Cache Hit Overhead** | ~10-50ms | ~100-500ms |
-| **Typical Tool Runtime** | ~1-5 seconds | ~10-60 seconds |
-| **Speedup** | 50-200x | 10-50x |
-
-### API: `run_repo_tool()`
-
-```python
-def run_repo_tool(
-    repo_dir: Path,
-    tool_name: str,
-    tool_args: List[str],
-    main_file: Path,
-    dependency_patterns: List[str],
-    output_dir: Path = None
-) -> int
-```
-
-**Parameters:**
-- `repo_dir`: Repository root directory
-- `tool_name`: Tool to run (e.g., "doxygen")
-- `tool_args`: Arguments for the tool
-- `main_file`: Main file for the tool (e.g., Doxyfile path) - used as cache index key
-- `dependency_patterns`: Glob patterns for dependencies (e.g., `["*.cpp", "*.h"]`)
-- `output_dir`: Directory where tool creates output files (default: repo_dir)
-
-**Returns:** Tool exit code
 
 ### Example: Doxygen Integration
-
-```python
-from pathlib import Path
-from quicken import Quicken
-
-# Create Quicken instance
-quicken = Quicken(Path("tools.json"))
-
-# Setup paths
-repo_path = Path("/path/to/repo")
-doxyfile = repo_path / ".doxygen" / "Doxyfile.xml"
-output_dir = repo_path / ".doxygen" / "xml"
-
-# Run Doxygen with caching
-returncode = quicken.run_repo_tool(
-    repo_dir=repo_path,
-    tool_name="doxygen",
-    tool_args=[str(doxyfile)],
-    main_file=doxyfile,
-    dependency_patterns=["*.cpp", "*.cxx", "*.cc", "*.c",
-                        "*.hpp", "*.hxx", "*.h", "*.hh"],
-    output_dir=output_dir
-)
-```
 
 **First Run (Cache MISS):**
 - Glob for all C++ files matching patterns (~50-100ms)
@@ -308,105 +202,13 @@ returncode = quicken.run_repo_tool(
 - Stores relative paths in metadata
 - Restores complete directory hierarchy
 
-**4. Index Structure:**
-
-```json
-{
-  "C:\\repo\\.doxygen\\Doxyfile.xml": [
-    {
-      "cache_key": "entry_000002",
-      "tool_cmd": "doxygen C:\\repo\\.doxygen\\Doxyfile.xml",
-      "repo_mode": true,
-      "dependency_patterns": ["*.cpp", "*.hpp", "*.h", "*.c"],
-      "dependencies": [
-        {"path": "C:\\repo\\main.cpp", "hash": "a1b2c3d4e5f60708"},
-        {"path": "C:\\repo\\utils.hpp", "hash": "1234567890abcdef"},
-        ...
-      ]
-    }
-  ]
-}
-```
-
+- 
 ### Multiple Runs with Different Configurations
 
 Each run with a different main file creates a separate cache entry:
 
-```python
-# First configuration
-quicken.run_repo_tool(
-    repo_dir=repo_path,
-    tool_name="doxygen",
-    tool_args=[str(doxyfile_config1)],
-    main_file=doxyfile_config1,  # Different main file
-    dependency_patterns=patterns,
-    output_dir=xml_output1_dir
-)
-
-# Second configuration
-quicken.run_repo_tool(
-    repo_dir=repo_path,
-    tool_name="doxygen",
-    tool_args=[str(doxyfile_config2)],
-    main_file=doxyfile_config2,  # Different main file
-    dependency_patterns=patterns,
-    output_dir=xml_output2_dir
-)
-```
 
 Both entries share the same dependencies (all C++ files), so both invalidate together when source changes.
-
-### LevelUp Integration
-
-**DoxygenRunner Integration:**
-
-```python
-from core.parsers.doxygen_runner import DoxygenRunner
-from quicken import Quicken
-
-# Create Quicken instance
-quicken = Quicken(Path("Quicken/tools.json"))
-
-# Run Doxygen with caching
-runner = DoxygenRunner()
-xml_dir = runner.run(
-    repo_path,
-    quicken=quicken  # Optional parameter
-)
-```
-
-**Repo Integration:**
-
-```python
-from core.repo.repo import create_repo
-from quicken import Quicken
-
-repo = create_repo("/path/to/repo")
-quicken = Quicken(Path("Quicken/tools.json"))
-
-# Generate Doxygen with caching
-xml_dirs = repo.generate_doxygen(quicken=quicken)
-```
-
-### Performance Expectations
-
-**Typical Repository (1000 C++ files):**
-
-| Operation | Cache MISS | Cache HIT | Speedup |
-|-----------|-----------|-----------|---------|
-| Dependency detection | ~100ms | ~100-200ms | ~1x |
-| Tool execution | 30-60s | - | - |
-| Cache I/O | ~1-2s | ~1-2s | 1x |
-| **Total** | **~30-60s** | **~2-3s** | **10-30x** |
-
-**Large Repository (5000+ C++ files):**
-
-| Operation | Cache MISS | Cache HIT | Speedup |
-|-----------|-----------|-----------|---------|
-| Dependency detection | ~200ms | ~500ms | ~1x |
-| Tool execution | 60-120s | - | - |
-| Cache I/O | ~2-4s | ~2-4s | 1x |
-| **Total** | **~60-120s** | **~5-8s** | **10-20x** |
 
 ### Design Decisions
 
@@ -443,21 +245,6 @@ Special keys:
 
 ## Usage Patterns
 
-### Command-line Usage
-
-Direct usage of Quicken as a wrapper around tools:
-
-```bash
-# Run compiler through Quicken cache
-python quicken.py myfile.cpp cl /c
-
-# Run with custom output directory
-python quicken.py myfile.cpp cl /c /Fooutput/ --output-dir output
-
-# Clear the cache
-python quicken.py --clear-cache
-```
-
 ### Library Usage
 
 Using Quicken as a Python library:
@@ -480,22 +267,7 @@ returncode = quicken.run(
 
 ### Build System Integration
 
-For a drop-in `cl.exe` replacement wrapper, see the separate [QuickenCompiler](../QuickenCompiler) repository which provides QuickenCL - a tool that accepts identical command-line arguments to cl.exe.
-
-### Manual Build Systems Integration
-
-```bash
-# Replace compiler calls with Quicken
-# Before: cl /c myfile.cpp
-# After:  python quicken.py myfile.cpp cl /c
-
-# With custom output directory
-# Before: cl /c /Fooutput/ myfile.cpp
-# After:  python quicken.py myfile.cpp cl /c /Fooutput/ --output-dir output
-
-# Clear the cache
-python quicken.py --clear-cache
-```
+For a drop-in `cl.exe` replacement wrapper, see the separate [QuickenCompiler](../QuickenCompiler) repository which provides QuickenCL - a tool that accepts identical command-line arguments to cl.exe and uses Quicken internally for caching.
 
 ### CI/CD Pipelines
 
@@ -506,17 +278,7 @@ Quicken shines in CI environments where:
 
 ### Static Analysis
 
-```bash
-# Run clang-tidy through cache
-python quicken.py myfile.cpp clang-tidy --checks=modernize-* --export-fixes=fixes.yaml
-
-# Clear cache to force re-analysis
-python quicken.py --clear-cache
-```
-
-Second run is instant if file unchanged.
-
-**Note**: LevelUp's ClangTidyCrawler automatically uses Quicken for caching clang-tidy analysis, providing massive speedups during repeated analysis runs.
+Quicken can be integrated into static analysis tools to cache results. For example, a clang-tidy wrapper could use Quicken to cache analysis results, providing massive speedups during repeated analysis runs.
 
 ## Performance Characteristics
 
@@ -605,12 +367,6 @@ Alternative: Cache only stdout/stderr
 
 ### Possible Improvements
 
-1. **Distributed Cache** - Share cache across machines
-2. **Compression** - Compress large cached files
-3. **TTL/LRU** - Automatic cache eviction
-4. **Statistics** - Track hit/miss rates
-5. **Parallel Dependency Detection** - Process multiple files concurrently
-6. **Custom Dependency Detection** - Support non-MSVC compilers (GCC `-M`, Clang `-MM`)
 7. **Content Hashing Option** - Optional fallback to content hashing for critical builds
 
 ### Known Limitations
@@ -625,26 +381,17 @@ Alternative: Cache only stdout/stderr
 
 ## Testing
 
-### Manual Testing
+### Unit Tests
 
-```bash
-# First run (cache miss)
-python quicken.py test.cpp cl /c
-# Second run (cache hit - should be instant)
-python quicken.py test.cpp cl /c
-
-# Different flags (cache miss)
-python quicken.py test.cpp cl /c /W4
-
-# Modify test.cpp (cache miss)
-# Revert test.cpp (cache hit again)
-```
+See `unit_tests/` directory for automated tests of Quicken functionality.
 
 ### Expected Behavior
 
-- Cache miss: See "[Quicken] Cache MISS" in stderr
-- Cache hit: See "[Quicken] Cache HIT" in stderr
-- Output files restored with same content
+- First run with a given file and tool configuration: Cache miss, tool executes normally
+- Subsequent runs with same file and unchanged dependencies: Cache hit, instant results
+- Modified source or header files: Cache miss, tool re-executes
+- Different tool arguments: Cache miss (separate cache entries)
+- Output files restored with same content as original tool execution
 - stdout/stderr identical to direct tool execution
 
 ## Conclusion

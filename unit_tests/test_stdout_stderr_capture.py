@@ -144,7 +144,7 @@ class TestStdoutStderrCapture:
         # Store in cache
         cache_entry = cache.store(
             source_file, tool_cmd, dependencies, [output_file],
-            stdout, stderr, returncode
+            stdout, stderr, returncode, temp_dir
         )
 
         # Verify metadata.json contains stdout and stderr
@@ -179,7 +179,7 @@ class TestStdoutStderrCapture:
         # Store in cache
         cache_entry = cache.store(
             source_file, tool_cmd, dependencies, [output_file],
-            original_stdout, original_stderr, returncode
+            original_stdout, original_stderr, returncode, temp_dir
         )
 
         # Delete output file
@@ -211,7 +211,7 @@ class TestStdoutStderrCapture:
         # Store with empty stdout and stderr
         cache_entry = cache.store(
             source_file, tool_cmd, dependencies, [output_file],
-            "", "", 0
+            "", "", 0, temp_dir
         )
 
         # Restore
@@ -243,7 +243,7 @@ class TestStdoutStderrCapture:
 
         cache_entry = cache.store(
             source_file, tool_cmd, dependencies, [output_file],
-            original_stdout, original_stderr, 0
+            original_stdout, original_stderr, 0, temp_dir
         )
 
         # Restore and verify exact preservation
@@ -275,7 +275,7 @@ class TestStdoutStderrCapture:
 
         cache_entry = cache.store(
             source_file, tool_cmd, dependencies, [output_file],
-            original_stdout, original_stderr, 0
+            original_stdout, original_stderr, 0, temp_dir
         )
 
         # Restore and verify
@@ -557,7 +557,7 @@ class TestRepoToolStdoutStderr:
         # Store as repo-level cache entry
         cache_entry = cache.store(
             main_file, tool_cmd, dependencies, [output_file],
-            stdout, stderr, returncode,
+            stdout, stderr, returncode, temp_dir,
             repo_mode=True,
             dependency_patterns=["*.cpp", "*.h"],
             output_base_dir=output_dir
@@ -595,7 +595,7 @@ class TestErrorCases:
         # Store error result (no output files created)
         cache_entry = cache.store(
             source_file, tool_cmd, dependencies, [],
-            stdout, stderr, returncode
+            stdout, stderr, returncode, temp_dir
         )
 
         # Restore

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Quicken - A caching wrapper for C++ build tools
 
@@ -7,9 +6,9 @@ based on local file dependencies (using MSVC /showIncludes) and file hashes.
 External libraries are ignored for caching to maximize speed.
 """
 
-import argparse
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -33,12 +32,12 @@ class QuickenCache:
 
         Index structure:
         {
-            "source_file_path": [
+            "source_filename": [
                 {
                     "cache_key": "entry_001",
                     "tool_cmd": "cl /c /W4",
                     "dependencies": [
-                        {"path": "C:\\path\\file.cpp", "hash": "a1b2c3d4e5f60708"},
+                        {"name": "file.cpp", "hash": "a1b2c3d4e5f60708"},
                         ...
                     ]
                 },
@@ -80,31 +79,58 @@ class QuickenCache:
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()
 
-    def _get_file_metadata(self, file_path: Path) -> Dict:
-        """Get metadata for a single file."""
+    def _get_file_metadata(self, file_path: Path, repo_dir: Path) -> Dict:
+        """Get metadata for a single file.
+
+        Stores only filename (not path) for portability across different
+        directories, including temporary directories.
+        """
         return {
-            "path": str(file_path.resolve()),
+            "name": file_path.name,
             "hash": self._get_file_hash(file_path)
         }
 
-    def _dependencies_match(self, cached_deps: List[Dict]) -> bool:
-        """Check if all cached dependencies still match their file hashes."""
+    def _dependencies_match(self, cached_deps: List[Dict], repo_dir: Path) -> bool:
+        """Check if all cached dependencies still match their file hashes.
+
+        Searches repo_dir for files with matching names and verifies their hashes.
+        This allows cache hits even when files are in different directories
+        (e.g., different temporary directories).
+        """
         for dep in cached_deps:
-            dep_path = Path(dep["path"])
-            if not dep_path.exists():
+            dep_name = dep["name"]
+            expected_hash = dep["hash"]
+
+            # Search for file with this name in repo_dir
+            matching_files = list(repo_dir.rglob(dep_name))
+
+            if not matching_files:
                 return False
-            current_hash = self._get_file_hash(dep_path)
-            if current_hash != dep["hash"]:
+
+            # Check if any matching file has the correct hash
+            found_match = False
+            for file_path in matching_files:
+                if file_path.is_file():
+                    current_hash = self._get_file_hash(file_path)
+                    if current_hash == expected_hash:
+                        found_match = True
+                        break
+
+            if not found_match:
                 return False
+
         return True
 
-    def lookup(self, source_file: Path, tool_cmd: str) -> Optional[Path]:
+    def lookup(self, source_file: Path, tool_cmd: str, repo_dir: Path) -> Optional[Path]:
         """Look up cached output for given source file and tool command.
 
         This is the optimized fast path that doesn't run /showIncludes.
         It only checks file hashes against cached values.
+
+        Uses filename (not path) for portability across different locations.
         """
-        source_key = str(source_file.resolve())
+        # Use filename only as index key (not path)
+        source_key = source_file.name
 
         if source_key not in self.index:
             return None
@@ -116,7 +142,7 @@ class QuickenCache:
                 continue
 
             # Check if all dependencies still match their cached metadata
-            if not self._dependencies_match(entry["dependencies"]):
+            if not self._dependencies_match(entry["dependencies"], repo_dir):
                 continue
 
             # Cache hit! Return the cache entry directory
@@ -128,7 +154,7 @@ class QuickenCache:
 
     def store(self, source_file: Path, tool_cmd: str, dependencies: List[Path],
               output_files: List[Path], stdout: str, stderr: str, returncode: int,
-              repo_mode: bool = False, dependency_patterns: List[str] = None,
+              repo_dir: Path, repo_mode: bool = False, dependency_patterns: List[str] = None,
               output_base_dir: Path = None) -> Path:
         """Store tool output in cache with dependency hashes.
 
@@ -140,6 +166,7 @@ class QuickenCache:
             stdout: Tool stdout
             stderr: Tool stderr
             returncode: Tool exit code
+            repo_dir: Repository directory (for hashing dependencies)
             repo_mode: If True, this is a repo-level cache entry
             dependency_patterns: Glob patterns used (for repo mode)
             output_base_dir: Base directory for preserving relative paths
@@ -147,7 +174,8 @@ class QuickenCache:
         Returns:
             Path to cache entry directory
         """
-        source_key = str(source_file.resolve())
+        # Use filename only as index key (not path)
+        source_key = source_file.name
 
         # Generate unique cache key
         cache_key = f"entry_{self._next_id:06d}"
@@ -181,8 +209,8 @@ class QuickenCache:
                 shutil.copy2(output_file, dest)
                 stored_files.append(file_path_str)
 
-        # Collect dependency hashes
-        dep_metadata = [self._get_file_metadata(dep) for dep in dependencies]
+        # Collect dependency hashes (with relative paths for portability)
+        dep_metadata = [self._get_file_metadata(dep, repo_dir) for dep in dependencies]
 
         # Store metadata
         metadata = {
@@ -270,11 +298,35 @@ class Quicken:
         self.config = self._load_config(config_path)
         self.cache = QuickenCache(Path.home() / ".quicken" / "cache")
         self._msvc_env = None  # Cached MSVC environment
+        self._setup_logging()
 
     def _load_config(self, config_path: Path) -> Dict:
         """Load tools configuration."""
         with open(config_path, 'r') as f:
             return json.load(f)
+
+    def _setup_logging(self):
+        """Set up logging to file."""
+        log_dir = Path.home() / ".quicken"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "quicken.log"
+
+        # Configure logger
+        self.logger = logging.getLogger("Quicken")
+        self.logger.setLevel(logging.INFO)
+
+        # Remove existing handlers to avoid duplicates
+        self.logger.handlers.clear()
+
+        # File handler
+        handler = logging.FileHandler(log_file)
+        handler.setLevel(logging.INFO)
+
+        # Format: timestamp - level - message
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+
+        self.logger.addHandler(handler)
 
     def _get_tool_path(self, tool_name: str) -> str:
         """Get the full path to a tool from config."""
@@ -548,7 +600,7 @@ class Quicken:
                     # Build tool command string for cache key
                     test_cmd = f"{tool_name} {' '.join(test_args)}"
                     # Try lookup
-                    cache_entry = self.cache.lookup(source_file, test_cmd)
+                    cache_entry = self.cache.lookup(source_file, test_cmd, repo_dir)
                     if cache_entry:
                         modified_args = test_args
                         tool_cmd = test_cmd
@@ -562,16 +614,19 @@ class Quicken:
                 # Specific optimization level requested
                 modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
                 tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-                cache_entry = self.cache.lookup(source_file, tool_cmd)
+                cache_entry = self.cache.lookup(source_file, tool_cmd, repo_dir)
         else:
             # Tool doesn't support optimization - use args as-is
             modified_args = tool_args
             tool_cmd = f"{tool_name} {' '.join(tool_args)}"
-            cache_entry = self.cache.lookup(source_file, tool_cmd)
+            cache_entry = self.cache.lookup(source_file, tool_cmd, repo_dir)
 
         if cache_entry:
             # Cache hit - restore files and print output (fast path!)
             stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+            self.logger.info(f"CACHE HIT - file: {source_file}, tool: {tool_name}, "
+                           f"args: {tool_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
+                           f"optimization: {optimization}, cache_entry: {cache_entry.name}, returncode: {returncode}")
             # Print to stdout/stderr
             if stdout:
                 print(stdout, end='')
@@ -588,6 +643,11 @@ class Quicken:
                 tool_name, modified_args, source_file, output_dir=output_dir
             )
 
+            self.logger.info(f"CACHE MISS - file: {source_file}, tool: {tool_name}, "
+                           f"args: {tool_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
+                           f"optimization: {optimization}, dependencies: {len(local_files)}, "
+                           f"returncode: {returncode}, output_files: {len(output_files)}")
+
             # Print to stdout/stderr
             if stdout:
                 print(stdout, end='')
@@ -595,7 +655,7 @@ class Quicken:
                 print(stderr, end='', file=sys.stderr)
 
             # Store in cache with dependency hashes
-            self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode)
+            self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode, repo_dir)
 
             return returncode
 
@@ -619,7 +679,6 @@ class Quicken:
         Returns:
             Tool exit code (integer)
         """
-
         cache_entry = None
         modified_args = None
         tool_cmd = None
@@ -637,7 +696,7 @@ class Quicken:
                     # Build tool command string for cache key
                     test_cmd = f"{tool_name} {' '.join(test_args)}"
                     # Try lookup
-                    cache_entry = self.cache.lookup(main_file, test_cmd)
+                    cache_entry = self.cache.lookup(main_file, test_cmd, repo_dir)
                     if cache_entry:
                         modified_args = test_args
                         tool_cmd = test_cmd
@@ -651,16 +710,20 @@ class Quicken:
                 # Specific optimization level requested
                 modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
                 tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-                cache_entry = self.cache.lookup(main_file, tool_cmd)
+                cache_entry = self.cache.lookup(main_file, tool_cmd, repo_dir)
         else:
             # Tool doesn't support optimization - use args as-is
             modified_args = tool_args
             tool_cmd = f"{tool_name} {' '.join(tool_args)}"
-            cache_entry = self.cache.lookup(main_file, tool_cmd)
+            cache_entry = self.cache.lookup(main_file, tool_cmd, repo_dir)
 
         if cache_entry:
             # Cache hit - restore files and print output (fast path!)
             stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+            self.logger.info(f"CACHE HIT (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
+                           f"args: {tool_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
+                           f"output_dir: {output_dir}, optimization: {optimization}, "
+                           f"cache_entry: {cache_entry.name}, returncode: {returncode}")
             # Print to stdout/stderr
             if stdout:
                 print(stdout, end='')
@@ -677,6 +740,12 @@ class Quicken:
                 tool_name, modified_args, work_dir=repo_dir, output_dir=output_dir
             )
 
+            self.logger.info(f"CACHE MISS (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
+                           f"args: {tool_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
+                           f"output_dir: {output_dir}, optimization: {optimization}, "
+                           f"dependencies: {len(repo_files)}, returncode: {returncode}, "
+                           f"output_files: {len(output_files)}, will_cache: {returncode == 0}")
+
             # Print to stdout/stderr
             if stdout:
                 print(stdout, end='')
@@ -687,7 +756,7 @@ class Quicken:
             if returncode == 0:
                 self.cache.store(
                     main_file, tool_cmd, repo_files, output_files,
-                    stdout, stderr, returncode,
+                    stdout, stderr, returncode, repo_dir,
                     repo_mode=True,
                     dependency_patterns=dependency_patterns,
                     output_base_dir=output_dir
@@ -698,59 +767,3 @@ class Quicken:
     def clear_cache(self):
         """Clear the entire cache."""
         self.cache.clear()
-
-
-def main():
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Quicken - Cache wrapper for C++ build tools",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  quicken myfile.cpp cl /c /W4
-  quicken myfile.cpp clang-tidy --checks=*
-  quicken myfile.cpp clang++ -c -Wall
-        """
-    )
-
-    parser.add_argument("source_file", nargs="?", type=Path, help="C++ source file to process")
-    parser.add_argument("tool", nargs="?", help="Tool to run (must be in tools.json)")
-    parser.add_argument("tool_args", nargs="*", help="Arguments to pass to the tool")
-    parser.add_argument("--config", type=Path, default=Path("tools.json"),
-                       help="Path to tools.json config file (default: ./tools.json)")
-    parser.add_argument("--output-dir", type=Path,
-                       help="Directory where tool creates output files (default: source file directory)")
-    parser.add_argument("--optimization", "-O", type=int, choices=[0, 1, 2, 3],
-                       help="Optimization level (0-3). If not specified, defaults to O0")
-    parser.add_argument("--clear-cache", action="store_true",
-                       help="Clear the entire cache and exit")
-
-    args = parser.parse_args()
-
-    try:
-        quicken = Quicken(args.config)
-
-        # Handle cache clearing
-        if args.clear_cache:
-            quicken.clear_cache()
-            sys.exit(0)
-
-        # Validate required arguments for normal operation
-        if not args.source_file or not args.tool:
-            parser.error("source_file and tool are required unless --clear-cache is used")
-
-        # Determine output directory
-        output_dir = args.output_dir if args.output_dir else args.source_file.parent
-
-        returncode = quicken.run(args.source_file, args.tool, args.tool_args,
-                                 repo_dir=Path.cwd(), output_dir=output_dir,
-                                 optimization=args.optimization)
-
-        sys.exit(returncode)
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

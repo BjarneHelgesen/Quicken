@@ -122,7 +122,7 @@ class TestQuickenCache:
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
         dependencies = [source_file]
-        cache.store(source_file, "cl /c", dependencies, [], "", "", 0)
+        cache.store(source_file, "cl /c", dependencies, [], "", "", 0, temp_dir)
 
         assert cache._next_id == 2
 
@@ -144,16 +144,16 @@ class TestQuickenCache:
         returncode = 0
 
         # Store in cache
-        cache_entry = cache.store(source_file, tool_cmd, dependencies, [output_file], stdout, stderr, returncode)
+        cache_entry = cache.store(source_file, tool_cmd, dependencies, [output_file], stdout, stderr, returncode, temp_dir)
         assert cache_entry.exists()
 
         # Lookup should find it
-        found = cache.lookup(source_file, tool_cmd)
+        found = cache.lookup(source_file, tool_cmd, temp_dir)
         assert found is not None
         assert found == cache_entry
 
         # Different command should not find it
-        not_found = cache.lookup(source_file, "cl /c /W4")
+        not_found = cache.lookup(source_file, "cl /c /W4", temp_dir)
         assert not_found is None
 
     def test_cache_restore(self, cache_dir, temp_dir):
@@ -175,7 +175,7 @@ class TestQuickenCache:
         stderr = "No warnings"
         returncode = 0
 
-        cache_entry = cache.store(source_file, tool_cmd, dependencies, [output_file], stdout, stderr, returncode)
+        cache_entry = cache.store(source_file, tool_cmd, dependencies, [output_file], stdout, stderr, returncode, temp_dir)
 
         # Delete the original file
         output_file.unlink()
