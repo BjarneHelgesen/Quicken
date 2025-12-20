@@ -79,7 +79,7 @@ def config_file(temp_dir):
         "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
         "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
         "msvc_arch": "x64",
-        "clang": "clang++",
+        "clang++": "clang++",
         "clang-tidy": "clang-tidy"
     }
     config.write_text(json.dumps(config_data, indent=2))
@@ -421,7 +421,7 @@ class TestClangStdoutStderr:
         # First run (cache miss)
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "clang", tool_args,
+            test_cpp_file, "clang++", tool_args,
             repo_dir=test_cpp_file.parent,
             output_dir=test_cpp_file.parent
         )
@@ -437,7 +437,7 @@ class TestClangStdoutStderr:
         # Second run (cache hit)
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "clang", tool_args,
+            test_cpp_file, "clang++", tool_args,
             repo_dir=test_cpp_file.parent,
             output_dir=test_cpp_file.parent
         )
@@ -457,7 +457,7 @@ class TestClangStdoutStderr:
         # First run (cache miss)
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
-            cpp_file, "clang", tool_args,
+            cpp_file, "clang++", tool_args,
             repo_dir=cpp_file.parent,
             output_dir=cpp_file.parent
         )
@@ -476,7 +476,7 @@ class TestClangStdoutStderr:
         # Second run (cache hit)
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            cpp_file, "clang", tool_args,
+            cpp_file, "clang++", tool_args,
             repo_dir=cpp_file.parent,
             output_dir=cpp_file.parent
         )

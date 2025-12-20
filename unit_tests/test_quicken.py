@@ -84,7 +84,7 @@ def config_file(temp_dir):
         "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
         "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
         "msvc_arch": "x64",
-        "clang": "clang++",
+        "clang++": "clang++",
         "clang-tidy": "clang-tidy"
     }
     config.write_text(json.dumps(config_data, indent=2))
@@ -312,7 +312,7 @@ class TestQuickenClang:
         tool_args = ["-c"]
 
         # First run - cache miss
-        returncode1 = quicken_instance.run(test_cpp_file, "clang", tool_args,
+        returncode1 = quicken_instance.run(test_cpp_file, "clang++", tool_args,
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent)
         # Clang may fail due to missing headers, that's okay for testing cache behavior
@@ -328,7 +328,7 @@ class TestQuickenClang:
         obj_file.unlink()
 
         # Second run - cache hit
-        returncode2 = quicken_instance.run(test_cpp_file, "clang", tool_args,
+        returncode2 = quicken_instance.run(test_cpp_file, "clang++", tool_args,
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent)
         assert returncode2 == returncode1
@@ -339,7 +339,7 @@ class TestQuickenClang:
     def test_clang_different_optimization_levels(self, quicken_instance, test_cpp_file):
         """Test that different optimization levels create different cache entries."""
         # Compile with -O0
-        returncode1 = quicken_instance.run(test_cpp_file, "clang", ["-c"],
+        returncode1 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent,
                                            optimization=0)
@@ -351,7 +351,7 @@ class TestQuickenClang:
             obj_file.unlink()
 
         # Compile with -O2 - should be a cache miss
-        returncode2 = quicken_instance.run(test_cpp_file, "clang", ["-c"],
+        returncode2 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent,
                                            optimization=2)
@@ -361,7 +361,7 @@ class TestQuickenClang:
     def test_clang_optimization_none_accepts_any_level(self, quicken_instance, test_cpp_file):
         """Test that optimization=None accepts cache hits from any optimization level."""
         # Compile with optimization level 2
-        returncode1 = quicken_instance.run(test_cpp_file, "clang", ["-c"],
+        returncode1 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent,
                                            optimization=2)
@@ -375,7 +375,7 @@ class TestQuickenClang:
         obj_file.unlink()
 
         # Compile with optimization=None - should get cache hit from O2
-        returncode2 = quicken_instance.run(test_cpp_file, "clang", ["-c"],
+        returncode2 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent,
                                            optimization=None)
@@ -388,7 +388,7 @@ class TestQuickenClang:
         obj_file.unlink()
 
         # Compile with a different specific level (O1) - should be cache miss
-        returncode3 = quicken_instance.run(test_cpp_file, "clang", ["-c"],
+        returncode3 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent,
                                            optimization=1)
@@ -396,7 +396,7 @@ class TestQuickenClang:
 
         # Now with optimization=None, should hit the O2 cache (first one encountered)
         obj_file.unlink()
-        returncode4 = quicken_instance.run(test_cpp_file, "clang", ["-c"],
+        returncode4 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent,
                                            optimization=None)
@@ -410,7 +410,7 @@ class TestQuickenClang:
         tool_args = ["-c", "-Wall"]
 
         # First run
-        returncode1 = quicken_instance.run(cpp_file, "clang", tool_args,
+        returncode1 = quicken_instance.run(cpp_file, "clang++", tool_args,
                                            repo_dir=cpp_file.parent,
                                            output_dir=cpp_file.parent)
         if returncode1 != 0:
@@ -423,7 +423,7 @@ class TestQuickenClang:
         obj_file.unlink()
 
         # Second run - cache hit
-        returncode2 = quicken_instance.run(cpp_file, "clang", tool_args,
+        returncode2 = quicken_instance.run(cpp_file, "clang++", tool_args,
                                            repo_dir=cpp_file.parent,
                                            output_dir=cpp_file.parent)
         assert returncode2 == returncode1
@@ -501,7 +501,7 @@ class TestQuickenIntegration:
             pytest.fail("MSVC compilation failed")
 
         # Compile with clang
-        returncode_clang = quicken_instance.run(test_cpp_file, "clang", ["-c"],
+        returncode_clang = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
                                                 repo_dir=test_cpp_file.parent,
                                                 output_dir=test_cpp_file.parent)
         # Clang may fail, that's okay

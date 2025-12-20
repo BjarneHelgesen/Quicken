@@ -15,7 +15,7 @@ import sys
 import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
+from abc import ABC, abstractmethod
 
 class QuickenCache:
     """Manages caching of tool outputs based on source file and dependency metadata."""
@@ -289,7 +289,61 @@ class QuickenCache:
         # Clear the index
         self.index = {}
         self._save_index()
+        
 
+class ToolCmd(ABC):
+    """Base class for tool command wrappers."""
+
+    def __init__(self, arguments: List[str], logger, config, cache, optimization=None):
+        self.arguments = arguments
+        self.optimization = optimization
+        self.config = config
+        self.logger = logger
+        self.cache = cache
+
+    def run_subprocess(self, cmd: List[str], work_dir: Path, env=None):
+        """Run subprocess with given command and environment."""
+        return subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=work_dir)
+
+    def restore_from_cache(self, cache_entry: Path, output_dir: Path, repo_dir: Path,
+                          source_file: Path, tool_name: str, tool_args: List[str],
+                          optimization: Optional[int]) -> int:
+        """Restore cached output and print to stdout/stderr.
+
+        Returns:
+            Tool exit code (integer)
+        """
+        stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+        self.logger.info(f"CACHE HIT - file: {source_file}, tool: {tool_name}, "
+                        f"args: {tool_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
+                        f"optimization: {optimization}, cache_entry: {cache_entry.name}, returncode: {returncode}")
+        # Print to stdout/stderr
+        print(stdout, end='')
+        print(stderr, end='', file=sys.stderr)
+        return returncode
+
+
+class ClCmd(ToolCmd):
+    supports_optimization = True
+    optimization_flags = ["/O0", "/O1", "/O2", "/Ox"]
+
+class ClangCmd(ToolCmd):
+    supports_optimization = True
+    optimization_flags = ["-O0", "-O1", "-O2", "-O3"]
+
+class ClangTidyCmd(ToolCmd):
+    supports_optimization = False
+    optimization_flags = []
+
+class DoxygenCmd(ToolCmd):
+    supports_optimization = False
+    optimization_flags = []
 
 class Quicken:
     """Main Quicken application."""
@@ -549,6 +603,7 @@ class Quicken:
         else:
             result = subprocess.run(
                 cmd,
+                env=None,
                 capture_output=True,
                 text=True,
                 check=False,
@@ -587,6 +642,18 @@ class Quicken:
         modified_args = None
         tool_cmd = None
 
+        # Instantiate tool with correct parameters
+        if tool_name == "cl":
+            tool = ClCmd(tool_args, self.logger, self.config, self.cache, optimization)
+        elif tool_name == "clang++":
+            tool = ClangCmd(tool_args, self.logger, self.config, self.cache, optimization)
+        elif tool_name == "clang-tidy":
+            tool = ClangTidyCmd(tool_args, self.logger, self.config, self.cache, optimization)
+        elif tool_name == "doxygen":
+            tool = DoxygenCmd(tool_args, self.logger, self.config, self.cache, optimization)
+        else:
+            raise ValueError(f"Unsupported tool: {tool_name}")
+
         # Check if this tool supports optimization
         optimization_flags = self.config.get("optimization_flags", {})
         tool_supports_optimization = tool_name in optimization_flags
@@ -623,16 +690,10 @@ class Quicken:
 
         if cache_entry:
             # Cache hit - restore files and print output (fast path!)
-            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
-            self.logger.info(f"CACHE HIT - file: {source_file}, tool: {tool_name}, "
-                           f"args: {tool_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
-                           f"optimization: {optimization}, cache_entry: {cache_entry.name}, returncode: {returncode}")
-            # Print to stdout/stderr
-            if stdout:
-                print(stdout, end='')
-            if stderr:
-                print(stderr, end='', file=sys.stderr)
-            return returncode
+            return tool.restore_from_cache(
+                cache_entry, output_dir, repo_dir,
+                source_file, tool_name, modified_args, optimization
+            )
         else:
             # Cache miss - need to detect dependencies and run tool
             # Get local dependencies using /showIncludes (only on cache miss)
@@ -644,15 +705,13 @@ class Quicken:
             )
 
             self.logger.info(f"CACHE MISS - file: {source_file}, tool: {tool_name}, "
-                           f"args: {tool_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
+                           f"args: {modified_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
                            f"optimization: {optimization}, dependencies: {len(local_files)}, "
                            f"returncode: {returncode}, output_files: {len(output_files)}")
 
             # Print to stdout/stderr
-            if stdout:
-                print(stdout, end='')
-            if stderr:
-                print(stderr, end='', file=sys.stderr)
+            print(stdout, end='')
+            print(stderr, end='', file=sys.stderr)
 
             # Store in cache with dependency hashes
             self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode, repo_dir)
@@ -721,7 +780,7 @@ class Quicken:
             # Cache hit - restore files and print output (fast path!)
             stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
             self.logger.info(f"CACHE HIT (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
-                           f"args: {tool_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
+                           f"args: {modified_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
                            f"output_dir: {output_dir}, optimization: {optimization}, "
                            f"cache_entry: {cache_entry.name}, returncode: {returncode}")
             # Print to stdout/stderr
@@ -741,7 +800,7 @@ class Quicken:
             )
 
             self.logger.info(f"CACHE MISS (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
-                           f"args: {tool_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
+                           f"args: {modified_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
                            f"output_dir: {output_dir}, optimization: {optimization}, "
                            f"dependencies: {len(repo_files)}, returncode: {returncode}, "
                            f"output_files: {len(output_files)}, will_cache: {returncode == 0}")
