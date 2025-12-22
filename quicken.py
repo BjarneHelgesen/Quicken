@@ -6,6 +6,7 @@ based on local file dependencies (using MSVC /showIncludes) and file hashes.
 External libraries are ignored for caching to maximize speed.
 """
 
+import time
 import hashlib
 import json
 import logging
@@ -121,7 +122,8 @@ class QuickenCache:
 
         return True
 
-    def lookup(self, source_file: Path, tool_cmd: str, repo_dir: Path) -> Optional[Path]:
+    def lookup(self, source_file: Path, tool_name: str, tool_args: List[str],
+               repo_dir: Path) -> Optional[Path]:
         """Look up cached output for given source file and tool command.
 
         This is the optimized fast path that doesn't run /showIncludes.
@@ -129,38 +131,45 @@ class QuickenCache:
 
         Uses filename (not path) for portability across different locations.
         """
-        # Use filename only as index key (not path)
         source_key = source_file.name
 
         if source_key not in self.index:
             return None
 
-        # Check each cached entry for this source file
         for entry in self.index[source_key]:
-            # Check if tool command matches
-            if entry["tool_cmd"] != tool_cmd:
+            if entry.get("tool_name") != tool_name:
+                continue
+            if entry.get("tool_args") != tool_args:
+                continue
+            if entry.get("main_file_name") != source_file.name:
                 continue
 
-            # Check if all dependencies still match their cached metadata
+            # For repo mode, verify main_file content hasn't changed
+            if entry.get("repo_mode", False) and "main_file_hash" in entry:
+                if self._get_file_hash(source_file) != entry["main_file_hash"]:
+                    continue
+
             if not self._dependencies_match(entry["dependencies"], repo_dir):
                 continue
 
-            # Cache hit! Return the cache entry directory
             cache_entry_dir = self.cache_dir / entry["cache_key"]
             if cache_entry_dir.exists():
                 return cache_entry_dir
 
         return None
 
-    def store(self, source_file: Path, tool_cmd: str, dependencies: List[Path],
-              output_files: List[Path], stdout: str, stderr: str, returncode: int,
-              repo_dir: Path, repo_mode: bool = False, dependency_patterns: List[str] = None,
+    def store(self, source_file: Path, tool_name: str, tool_args: List[str],
+              dependencies: List[Path], output_files: List[Path],
+              stdout: str, stderr: str, returncode: int,
+              repo_dir: Path, repo_mode: bool = False,
+              dependency_patterns: List[str] = None,
               output_base_dir: Path = None) -> Path:
         """Store tool output in cache with dependency hashes.
 
         Args:
             source_file: Source file path (or main file for repo mode)
-            tool_cmd: Tool command string
+            tool_name: Name of the tool
+            tool_args: Tool arguments (without main_file path)
             dependencies: List of dependency file paths
             output_files: List of output file paths
             stdout: Tool stdout
@@ -174,75 +183,71 @@ class QuickenCache:
         Returns:
             Path to cache entry directory
         """
-        # Use filename only as index key (not path)
         source_key = source_file.name
 
-        # Generate unique cache key
         cache_key = f"entry_{self._next_id:06d}"
         self._next_id += 1
 
         cache_entry_dir = self.cache_dir / cache_key
         cache_entry_dir.mkdir(parents=True, exist_ok=True)
 
-        # Store output files (with directory structure for repo mode)
         stored_files = []
         for output_file in output_files:
             if output_file.exists():
-                # Calculate relative path from output_base_dir if provided
                 if output_base_dir:
                     try:
                         rel_path = output_file.relative_to(output_base_dir)
                         dest = cache_entry_dir / rel_path
                         file_path_str = str(rel_path)
                     except ValueError:
-                        # File is outside output_base_dir, use just filename
                         dest = cache_entry_dir / output_file.name
                         file_path_str = output_file.name
                 else:
                     dest = cache_entry_dir / output_file.name
                     file_path_str = output_file.name
 
-                # Create parent directories as needed
                 dest.parent.mkdir(parents=True, exist_ok=True)
-
-                # Copy file with metadata
                 shutil.copy2(output_file, dest)
                 stored_files.append(file_path_str)
 
-        # Collect dependency hashes (with relative paths for portability)
         dep_metadata = [self._get_file_metadata(dep, repo_dir) for dep in dependencies]
 
-        # Store metadata
         metadata = {
             "cache_key": cache_key,
             "source_file": source_key,
-            "tool_cmd": tool_cmd,
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "main_file_name": source_file.name,
             "dependencies": dep_metadata,
             "files": stored_files,
             "stdout": stdout,
             "stderr": stderr,
-            "returncode": returncode,
-            "repo_mode": repo_mode
+            "returncode": returncode
         }
 
-        if repo_mode and dependency_patterns:
-            metadata["dependency_patterns"] = dependency_patterns
+        if repo_mode:
+            metadata["repo_mode"] = True
+            metadata["main_file_hash"] = self._get_file_hash(source_file)
+            if dependency_patterns:
+                metadata["dependency_patterns"] = dependency_patterns
 
         with open(cache_entry_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
 
-        # Update index
         if source_key not in self.index:
             self.index[source_key] = []
 
         index_entry = {
             "cache_key": cache_key,
-            "tool_cmd": tool_cmd,
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "main_file_name": source_file.name,
             "dependencies": dep_metadata
         }
 
         if repo_mode:
             index_entry["repo_mode"] = True
+            index_entry["main_file_hash"] = self._get_file_hash(source_file)
             if dependency_patterns:
                 index_entry["dependency_patterns"] = dependency_patterns
 
@@ -294,56 +299,182 @@ class QuickenCache:
 class ToolCmd(ABC):
     """Base class for tool command wrappers."""
 
-    def __init__(self, arguments: List[str], logger, config, cache, optimization=None):
+    # Class attributes (overridden by subclasses)
+    supports_optimization = False
+    optimization_flags = []
+    needs_vcvars = False
+
+    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, env, optimization=None):
+        self.tool_path = tool_path
         self.arguments = arguments
         self.optimization = optimization
         self.config = config
         self.logger = logger
         self.cache = cache
+        self.env = env  # Environment dict or None
 
-    def run_subprocess(self, cmd: List[str], work_dir: Path, env=None):
-        """Run subprocess with given command and environment."""
-        return subprocess.run(
-            cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=work_dir)
+    @staticmethod
+    def get_tool_path(config: Dict, tool_name: str) -> str:
+        """Get the full path to a tool from config.
 
-    def restore_from_cache(self, cache_entry: Path, output_dir: Path, repo_dir: Path,
-                          source_file: Path, tool_name: str, tool_args: List[str],
-                          optimization: Optional[int]) -> int:
-        """Restore cached output and print to stdout/stderr.
+        Args:
+            config: Configuration dictionary
+            tool_name: Name of the tool
 
         Returns:
-            Tool exit code (integer)
+            Full path to the tool executable
         """
-        stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
-        self.logger.info(f"CACHE HIT - file: {source_file}, tool: {tool_name}, "
-                        f"args: {tool_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
-                        f"optimization: {optimization}, cache_entry: {cache_entry.name}, returncode: {returncode}")
-        # Print to stdout/stderr
-        print(stdout, end='')
-        print(stderr, end='', file=sys.stderr)
-        return returncode
+        return config[tool_name]
+
+    def get_optimization_flags(self, level: int) -> List[str]:
+        """Return optimization flags for the given level.
+
+        Args:
+            level: Optimization level (0-3)
+
+        Returns:
+            List of flags (may be empty list, or multiple flags for space-separated)
+        """
+        if not self.supports_optimization:
+            return []
+
+        if level < 0 or level >= len(self.optimization_flags):
+            raise ValueError(f"Invalid optimization level {level}")
+
+        flag = self.optimization_flags[level]
+
+        # Handle space-separated flags (e.g., "-O0 -fno-inline")
+        if isinstance(flag, str) and ' ' in flag:
+            return flag.split()
+
+        return [flag] if isinstance(flag, str) else flag
+
+    def add_optimization_flags(self, args: List[str]) -> List[str]:
+        """Add optimization flags to arguments if optimization is set.
+
+        Args:
+            args: Original arguments
+
+        Returns:
+            Modified arguments with optimization flags at beginning
+        """
+        if not self.supports_optimization:
+            return args
+
+        # Default to O0 if not specified
+        opt_level = self.optimization if self.optimization is not None else 0
+        opt_flags = self.get_optimization_flags(opt_level)
+
+        return opt_flags + args
+
+    def build_execution_command(self, main_file: Path = None) -> List[str]:
+        """Build complete command for execution.
+
+        Args:
+            main_file: Main file path for repo-level tools (e.g., Doxyfile) or source file for file-level tools
+
+        Returns:
+            Complete command list for subprocess
+        """
+        modified_args = self.add_optimization_flags(self.arguments)
+        cmd = [self.tool_path] + modified_args
+
+        if main_file:
+            cmd.append(str(main_file))
+
+        return cmd
+
+    def try_all_optimization_levels(self, tool_name: str, tool_args: List[str],
+                                   source_file: Path, repo_dir: Path) -> Tuple[Optional[Path], List[str]]:
+        """Try to find cache hit with any optimization level.
+
+        Args:
+            tool_name: Name of the tool
+            tool_args: Tool arguments (without source_file/main_file)
+            source_file: Source file path
+            repo_dir: Repository directory
+
+        Returns:
+            Tuple of (cache_entry, modified_args) or (None, original_args)
+        """
+        if not self.supports_optimization:
+            cache_entry = self.cache.lookup(source_file, tool_name, tool_args, repo_dir)
+            return cache_entry, tool_args
+
+        for opt_level in range(len(self.optimization_flags)):
+            self.optimization = opt_level
+            modified_args = self.add_optimization_flags(tool_args)
+            cache_entry = self.cache.lookup(source_file, tool_name, modified_args, repo_dir)
+            if cache_entry:
+                return cache_entry, modified_args
+
+        # No cache hit found - default to optimization level 0
+        self.optimization = 0
+        modified_args = self.add_optimization_flags(tool_args)
+        return None, modified_args
 
 
 class ClCmd(ToolCmd):
     supports_optimization = True
-    optimization_flags = ["/O0", "/O1", "/O2", "/Ox"]
+    optimization_flags = ["/Od", "/O1", "/O2", "/Ox"]
+    needs_vcvars = True
 
 class ClangCmd(ToolCmd):
     supports_optimization = True
     optimization_flags = ["-O0", "-O1", "-O2", "-O3"]
+    needs_vcvars = False
 
 class ClangTidyCmd(ToolCmd):
     supports_optimization = False
     optimization_flags = []
+    needs_vcvars = False
 
 class DoxygenCmd(ToolCmd):
     supports_optimization = False
     optimization_flags = []
+    needs_vcvars = False
+
+class ToolRegistry:
+    """Registry for tool command classes."""
+
+    _registry = {
+        "cl": ClCmd,
+        "clang++": ClangCmd,
+        "clang-tidy": ClangTidyCmd,
+        "doxygen": DoxygenCmd,
+    }
+
+    @classmethod
+    def create(cls, tool_name: str, tool_path: str, arguments: List[str],
+               logger, config, cache, quicken, optimization=None) -> ToolCmd:
+        """Create ToolCmd instance for the given tool name.
+
+        Args:
+            tool_name: Name of the tool (must be registered)
+            tool_path: Full path to tool executable
+            arguments: Command-line arguments
+            logger: Logger instance
+            config: Configuration dict
+            cache: QuickenCache instance
+            quicken: Quicken instance (for environment access if needed)
+            optimization: Optional optimization level
+
+        Returns:
+            ToolCmd subclass instance
+
+        Raises:
+            ValueError: If tool_name is not registered
+        """
+        if tool_name not in cls._registry:
+            raise ValueError(f"Unsupported tool: {tool_name}")
+
+        tool_class = cls._registry[tool_name]
+
+        # Get environment if tool needs vcvars
+        env = quicken._get_msvc_environment() if tool_class.needs_vcvars else None
+
+        return tool_class(tool_path, arguments, logger, config, cache,
+                         env, optimization)
 
 class Quicken:
     """Main Quicken application."""
@@ -382,16 +513,12 @@ class Quicken:
 
         self.logger.addHandler(handler)
 
-    def _get_tool_path(self, tool_name: str) -> str:
-        """Get the full path to a tool from config."""
-        return self.config[tool_name]
-
     def _get_msvc_environment(self) -> Dict:
         """Get MSVC environment variables (cached after first call)."""
         if self._msvc_env is not None:
             return self._msvc_env
 
-        vcvarsall = self._get_tool_path("vcvarsall")
+        vcvarsall = ToolCmd.get_tool_path(self.config, "vcvarsall")
         msvc_arch = self.config.get("msvc_arch", "x64")
 
         # Run vcvarsall and capture environment
@@ -414,44 +541,9 @@ class Quicken:
         self._msvc_env = env
         return self._msvc_env
 
-    def _add_optimization_flag(self, tool_name: str, tool_args: List[str],
-                              optimization: Optional[int]) -> List[str]:
-        """Insert optimization flag into tool arguments if tool supports optimization.
-
-        Args:
-            tool_name: Name of tool (cl, clang++, etc.)
-            tool_args: Original tool arguments
-            optimization: Optimization level (None = use 0)
-
-        Returns:
-            Modified tool_args with optimization flag inserted at beginning,
-            or original tool_args if tool doesn't support optimization
-        """
-        # Get optimization flags from config
-        optimization_flags = self.config.get("optimization_flags", {})
-
-        # If this tool doesn't support optimization, return args unchanged
-        if tool_name not in optimization_flags:
-            return tool_args
-
-        # Default to O0 if not specified
-        opt_level = optimization if optimization is not None else 0
-
-        # Get flags for this tool
-        opt_flag = optimization_flags[tool_name][opt_level]
-
-        # Handle space-separated flags (e.g., "-O0 -fno-inline")
-        if isinstance(opt_flag, str) and ' ' in opt_flag:
-            opt_flags = opt_flag.split()
-        else:
-            opt_flags = [opt_flag]
-
-        # Insert at beginning of args
-        return opt_flags + tool_args
-
     def _get_local_dependencies(self, source_file: Path, repo_dir: Path) -> List[Path]:
         """Get list of local (repo) file dependencies using MSVC /showIncludes."""
-        cl_path = self._get_tool_path("cl")
+        cl_path = ToolCmd.get_tool_path(self.config, "cl")
         env = self._get_msvc_environment()
 
         # Pre-resolve repo_dir once for faster filtering
@@ -509,116 +601,66 @@ class Quicken:
         # Return absolute paths
         return [d.resolve() for d in unique_deps]
 
-    def _run_repo_tool_impl(self, tool_name: str, tool_args: List[str],
-                            work_dir: Path, output_dir: Path) -> Tuple[List[Path], str, str, int]:
+    def _run_repo_tool_impl(self, tool: ToolCmd, tool_args: List[str],
+                            main_file: Path, work_dir: Path, output_dir: Path) -> Tuple[List[Path], str, str, int]:
         """Run repo-level tool and detect all output files.
 
         Args:
-            tool_name: Name of tool to run
-            tool_args: Arguments to pass to tool
+            tool: ToolCmd instance
+            tool_args: Arguments to pass to tool (already includes optimization)
+            main_file: Main file path (e.g., Doxyfile)
             work_dir: Working directory for tool execution
             output_dir: Directory where tool creates output files
 
         Returns:
             Tuple of (output_files, stdout, stderr, returncode)
         """
-        tool_path = self._get_tool_path(tool_name)
+        files_before = set(output_dir.rglob("*")) if output_dir.exists() else set()
 
-        # Build command
-        cmd = [tool_path] + tool_args
+        cmd = tool.build_execution_command(main_file)
 
-        # Snapshot output directory before execution (recursively)
-        files_before = set()
-        if output_dir.exists():
-            files_before = set(output_dir.rglob("*"))
+        result = subprocess.run(
+            cmd,
+            cwd=work_dir,
+            capture_output=True,
+            text=True,
+            env=tool.env
+        )
 
-        # Determine if we need vcvarsall environment
-        needs_vcvars = tool_name in ["cl", "link"]
-
-        if needs_vcvars:
-            env = self._get_msvc_environment()
-            result = subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-                cwd=work_dir
-            )
-        else:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-                cwd=work_dir
-            )
-
-        # Detect new files (recursively)
         files_after = set(output_dir.rglob("*")) if output_dir.exists() else set()
         new_files = files_after - files_before
-
-        # Filter to actual files (not directories)
         output_files = [f for f in new_files if f.is_file()]
 
         return output_files, result.stdout, result.stderr, result.returncode
 
-    def _run_tool(self, tool_name: str, tool_args: List[str], source_file: Path,
-                  output_dir: Path) -> Tuple[List[Path], str, str, int]:
+    def _run_tool(self, tool: ToolCmd, tool_args: List[str], source_file: Path,
+                  work_dir: Path) -> Tuple[List[Path], str, str, int]:
         """Run the specified tool with arguments.
 
         Args:
-            tool_name: Name of tool to run
-            tool_args: Arguments to pass to tool
+            tool: ToolCmd instance
+            tool_args: Arguments to pass to tool (already includes optimization flags)
             source_file: Path to C++ file to process
-            output_dir: Directory to look for output files
+            work_dir: Directory to look for output files
+
+        Returns:
+            Tuple of (output_files, stdout, stderr, returncode)
         """
-        tool_path = self._get_tool_path(tool_name)
+        files_before = set(work_dir.iterdir()) if work_dir.exists() else set()
 
-        # Tool runs in source file's directory (for relative includes)
-        work_dir = source_file.parent
+        cmd = tool.build_execution_command(source_file)
 
-        # Output directory (where to look for output files)
-        output_directory = output_dir
+        result = subprocess.run(
+            cmd,
+            cwd=source_file.parent,
+            capture_output=True,
+            text=True,
+            env=tool.env
+        )
 
-        # Build command with just filename (we're in same directory)
-        cmd = [tool_path] + tool_args + [source_file.name]
-
-        # Snapshot files in output directory before tool execution
-        files_before = set(output_directory.iterdir()) if output_directory.exists() else set()
-
-        # Determine if we need vcvarsall environment
-        needs_vcvars = tool_name in ["cl", "link"]
-
-        if needs_vcvars:
-            env = self._get_msvc_environment()
-            result = subprocess.run(
-                cmd,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-                cwd=work_dir
-            )
-        else:
-            result = subprocess.run(
-                cmd,
-                env=None,
-                capture_output=True,
-                text=True,
-                check=False,
-                cwd=work_dir
-            )
-
-        # Detect output files by comparing directory contents before/after
-        files_after = set(output_directory.iterdir()) if output_directory.exists() else set()
+        files_after = set(work_dir.iterdir()) if work_dir.exists() else set()
         new_files = files_after - files_before
-
-        # Filter to only include actual output files (not directories, not source file)
-        output_files = []
-        for file_path in new_files:
-            if file_path.is_file() and file_path != source_file:
-                output_files.append(file_path)
+        output_files = [f for f in new_files if f.is_file() and f != source_file]
 
         return output_files, result.stdout, result.stderr, result.returncode
 
@@ -638,85 +680,58 @@ class Quicken:
         Returns:
             Tool exit code (integer)
         """
-        cache_entry = None
-        modified_args = None
-        tool_cmd = None
 
-        # Instantiate tool with correct parameters
-        if tool_name == "cl":
-            tool = ClCmd(tool_args, self.logger, self.config, self.cache, optimization)
-        elif tool_name == "clang++":
-            tool = ClangCmd(tool_args, self.logger, self.config, self.cache, optimization)
-        elif tool_name == "clang-tidy":
-            tool = ClangTidyCmd(tool_args, self.logger, self.config, self.cache, optimization)
-        elif tool_name == "doxygen":
-            tool = DoxygenCmd(tool_args, self.logger, self.config, self.cache, optimization)
+        start_time = time.perf_counter()
+        tool_path = ToolCmd.get_tool_path(self.config, tool_name)
+        tool = ToolRegistry.create(
+            tool_name, tool_path, tool_args,
+            self.logger, self.config, self.cache, self, optimization
+        )
+
+        if optimization is None:
+            cache_entry, modified_args = tool.try_all_optimization_levels(
+                tool_name, tool_args, source_file, repo_dir
+            )
         else:
-            raise ValueError(f"Unsupported tool: {tool_name}")
-
-        # Check if this tool supports optimization
-        optimization_flags = self.config.get("optimization_flags", {})
-        tool_supports_optimization = tool_name in optimization_flags
-
-        if tool_supports_optimization:
-            # If optimization is None, try to find cache hit with ANY optimization level
-            if optimization is None:
-                for opt_level in range(4):  # Try 0, 1, 2, 3
-                    # Add optimization flag for this level
-                    test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
-                    # Build tool command string for cache key
-                    test_cmd = f"{tool_name} {' '.join(test_args)}"
-                    # Try lookup
-                    cache_entry = self.cache.lookup(source_file, test_cmd, repo_dir)
-                    if cache_entry:
-                        modified_args = test_args
-                        tool_cmd = test_cmd
-                        break
-
-                # If no cache hit found, default to O0 for execution
-                if not cache_entry:
-                    modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
-                    tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-            else:
-                # Specific optimization level requested
-                modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
-                tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-                cache_entry = self.cache.lookup(source_file, tool_cmd, repo_dir)
-        else:
-            # Tool doesn't support optimization - use args as-is
-            modified_args = tool_args
-            tool_cmd = f"{tool_name} {' '.join(tool_args)}"
-            cache_entry = self.cache.lookup(source_file, tool_cmd, repo_dir)
+            modified_args = tool.add_optimization_flags(tool_args)
+            cache_entry = self.cache.lookup(source_file, tool_name, modified_args, repo_dir)
 
         if cache_entry:
-            # Cache hit - restore files and print output (fast path!)
-            return tool.restore_from_cache(
-                cache_entry, output_dir, repo_dir,
-                source_file, tool_name, modified_args, optimization
-            )
-        else:
-            # Cache miss - need to detect dependencies and run tool
-            # Get local dependencies using /showIncludes (only on cache miss)
-            local_files = self._get_local_dependencies(source_file, repo_dir)
+            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+            if stdout:
+                print(stdout, end='')
+            if stderr:
+                print(stderr, end='', file=sys.stderr)
+            self.logger.info(f"CACHE HIT - source_file: {source_file}, tool: {tool_name}, "
+                           f"Time: {time.perf_counter()-start_time:.3f} seconds, "
+                           f"args: {modified_args}, cache_entry: {cache_entry.name}, "
+                           f"returncode: {returncode}")
+            return returncode
 
-            # Run the tool
-            output_files, stdout, stderr, returncode = self._run_tool(
-                tool_name, modified_args, source_file, output_dir=output_dir
-            )
+        local_files = self._get_local_dependencies(source_file, repo_dir)
 
-            self.logger.info(f"CACHE MISS - file: {source_file}, tool: {tool_name}, "
-                           f"args: {modified_args}, repo_dir: {repo_dir}, output_dir: {output_dir}, "
-                           f"optimization: {optimization}, dependencies: {len(local_files)}, "
-                           f"returncode: {returncode}, output_files: {len(output_files)}")
+        output_files, stdout, stderr, returncode = self._run_tool(
+            tool, modified_args, source_file, output_dir
+        )
 
-            # Print to stdout/stderr
+
+        if stdout:
             print(stdout, end='')
+        if stderr:
             print(stderr, end='', file=sys.stderr)
 
-            # Store in cache with dependency hashes
-            self.cache.store(source_file, tool_cmd, local_files, output_files, stdout, stderr, returncode, repo_dir)
+        self.cache.store(
+            source_file, tool_name, modified_args, local_files, output_files,
+            stdout, stderr, returncode, repo_dir,
+            repo_mode=False,
+            output_base_dir=output_dir
+        )
+        self.logger.info(f"CACHE MISS - source_file: {source_file}, tool: {tool_name}, "
+                       f"Time: {time.perf_counter()-start_time:.3f} seconds, "
+                       f"args: {modified_args}, dependencies: {len(local_files)}, "
+                       f"returncode: {returncode}, output_files: {len(output_files)}")
 
-            return returncode
+        return returncode
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
                       main_file: Path, dependency_patterns: List[str],
@@ -727,101 +742,70 @@ class Quicken:
         Args:
             repo_dir: Repository root directory
             tool_name: Tool to run (e.g., "doxygen")
-            tool_args: Arguments for the tool
+            tool_args: Arguments for the tool (WITHOUT main_file path)
             main_file: Main file for the tool (e.g., Doxyfile path)
-                       Used as cache index key
             dependency_patterns: Glob patterns for dependencies
-                                 (e.g., ["*.cpp", "*.hpp", "*.h"])
             output_dir: Directory where tool creates output files
             optimization: Optimization level (0-3, or None to accept any cached level)
 
         Returns:
             Tool exit code (integer)
         """
-        cache_entry = None
-        modified_args = None
-        tool_cmd = None
+        start_time = time.perf_counter();
 
-        # Check if this tool supports optimization
-        optimization_flags = self.config.get("optimization_flags", {})
-        tool_supports_optimization = tool_name in optimization_flags
+        tool_path = ToolCmd.get_tool_path(self.config, tool_name)
+        tool = ToolRegistry.create(
+            tool_name, tool_path, tool_args,
+            self.logger, self.config, self.cache, self, optimization
+        )
 
-        if tool_supports_optimization:
-            # If optimization is None, try to find cache hit with ANY optimization level
-            if optimization is None:
-                for opt_level in range(4):  # Try 0, 1, 2, 3
-                    # Add optimization flag for this level
-                    test_args = self._add_optimization_flag(tool_name, tool_args, opt_level)
-                    # Build tool command string for cache key
-                    test_cmd = f"{tool_name} {' '.join(test_args)}"
-                    # Try lookup
-                    cache_entry = self.cache.lookup(main_file, test_cmd, repo_dir)
-                    if cache_entry:
-                        modified_args = test_args
-                        tool_cmd = test_cmd
-                        break
-
-                # If no cache hit found, default to O0 for execution
-                if not cache_entry:
-                    modified_args = self._add_optimization_flag(tool_name, tool_args, 0)
-                    tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-            else:
-                # Specific optimization level requested
-                modified_args = self._add_optimization_flag(tool_name, tool_args, optimization)
-                tool_cmd = f"{tool_name} {' '.join(modified_args)}"
-                cache_entry = self.cache.lookup(main_file, tool_cmd, repo_dir)
+        if optimization is None:
+            cache_entry, modified_args = tool.try_all_optimization_levels(
+                tool_name, tool_args, main_file, repo_dir
+            )
         else:
-            # Tool doesn't support optimization - use args as-is
-            modified_args = tool_args
-            tool_cmd = f"{tool_name} {' '.join(tool_args)}"
-            cache_entry = self.cache.lookup(main_file, tool_cmd, repo_dir)
+            modified_args = tool.add_optimization_flags(tool_args)
+            cache_entry = self.cache.lookup(main_file, tool_name, modified_args, repo_dir)
 
         if cache_entry:
-            # Cache hit - restore files and print output (fast path!)
             stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
             self.logger.info(f"CACHE HIT (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
-                           f"args: {modified_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
-                           f"output_dir: {output_dir}, optimization: {optimization}, "
+                           f"Time: {time.perf_counter()-start_time:.3f} seconds, "
+                           f"args: {modified_args}, main_file: {main_file}, "
                            f"cache_entry: {cache_entry.name}, returncode: {returncode}")
-            # Print to stdout/stderr
             if stdout:
                 print(stdout, end='')
             if stderr:
                 print(stderr, end='', file=sys.stderr)
             return returncode
-        else:
-            # Cache miss - need to detect dependencies and run tool
-            # Get repo dependencies using glob patterns (only on cache miss)
-            repo_files = self._get_repo_dependencies(repo_dir, dependency_patterns)
 
-            # Run the tool
-            output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
-                tool_name, modified_args, work_dir=repo_dir, output_dir=output_dir
+        repo_files = self._get_repo_dependencies(repo_dir, dependency_patterns)
+
+        output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
+            tool, modified_args, main_file, work_dir=repo_dir, output_dir=output_dir
+        )
+
+        if stdout:
+            print(stdout, end='')
+        if stderr:
+            print(stderr, end='', file=sys.stderr)
+
+        if returncode == 0:
+            self.cache.store(
+                main_file, tool_name, modified_args, repo_files, output_files,
+                stdout, stderr, returncode, repo_dir,
+                repo_mode=True,
+                dependency_patterns=dependency_patterns,
+                output_base_dir=output_dir
             )
 
-            self.logger.info(f"CACHE MISS (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
-                           f"args: {modified_args}, main_file: {main_file}, patterns: {dependency_patterns}, "
-                           f"output_dir: {output_dir}, optimization: {optimization}, "
-                           f"dependencies: {len(repo_files)}, returncode: {returncode}, "
-                           f"output_files: {len(output_files)}, will_cache: {returncode == 0}")
+        self.logger.info(f"CACHE MISS (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
+                       f"Time: {time.perf_counter()-start_time:.3f} seconds, "
+                       f"args: {modified_args}, main_file: {main_file}, "
+                       f"dependencies: {len(repo_files)}, returncode: {returncode}, "
+                       f"output_files: {len(output_files)}")
 
-            # Print to stdout/stderr
-            if stdout:
-                print(stdout, end='')
-            if stderr:
-                print(stderr, end='', file=sys.stderr)
-
-            # Cache successful runs
-            if returncode == 0:
-                self.cache.store(
-                    main_file, tool_cmd, repo_files, output_files,
-                    stdout, stderr, returncode, repo_dir,
-                    repo_mode=True,
-                    dependency_patterns=dependency_patterns,
-                    output_base_dir=output_dir
-                )
-
-            return returncode
+        return returncode
 
     def clear_cache(self):
         """Clear the entire cache."""

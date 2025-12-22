@@ -136,14 +136,15 @@ class TestStdoutStderrCapture:
         output_file.write_text("fake object file")
 
         dependencies = [source_file]
-        tool_cmd = "cl /c"
+        tool_name = "cl"
+        tool_args = ["/c"]
         stdout = "Compilation successful\n"
         stderr = "Warning: something\n"
         returncode = 0
 
         # Store in cache
         cache_entry = cache.store(
-            source_file, tool_cmd, dependencies, [output_file],
+            source_file, tool_name, tool_args, dependencies, [output_file],
             stdout, stderr, returncode, temp_dir
         )
 
@@ -171,14 +172,15 @@ class TestStdoutStderrCapture:
         output_file.write_text("fake object file")
 
         dependencies = [source_file]
-        tool_cmd = "cl /c"
+        tool_name = "cl"
+        tool_args = ["/c"]
         original_stdout = "Build output line 1\nBuild output line 2\n"
         original_stderr = "Warning: unused variable\n"
         returncode = 0
 
         # Store in cache
         cache_entry = cache.store(
-            source_file, tool_cmd, dependencies, [output_file],
+            source_file, tool_name, tool_args, dependencies, [output_file],
             original_stdout, original_stderr, returncode, temp_dir
         )
 
@@ -206,11 +208,12 @@ class TestStdoutStderrCapture:
         output_file.write_text("fake object file")
 
         dependencies = [source_file]
-        tool_cmd = "cl /c /nologo"
+        tool_name = "cl"
+        tool_args = ["/c", "/nologo"]
 
         # Store with empty stdout and stderr
         cache_entry = cache.store(
-            source_file, tool_cmd, dependencies, [output_file],
+            source_file, tool_name, tool_args, dependencies, [output_file],
             "", "", 0, temp_dir
         )
 
@@ -235,14 +238,15 @@ class TestStdoutStderrCapture:
         output_file.write_text("fake object file")
 
         dependencies = [source_file]
-        tool_cmd = "cl /c"
+        tool_name = "cl"
+        tool_args = ["/c"]
 
         # Create multiline output with various line endings
         original_stdout = "Line 1\nLine 2\nLine 3\n"
         original_stderr = "Error on line 10\nError on line 20\n"
 
         cache_entry = cache.store(
-            source_file, tool_cmd, dependencies, [output_file],
+            source_file, tool_name, tool_args, dependencies, [output_file],
             original_stdout, original_stderr, 0, temp_dir
         )
 
@@ -267,14 +271,15 @@ class TestStdoutStderrCapture:
         output_file.write_text("fake object file")
 
         dependencies = [source_file]
-        tool_cmd = "cl /c"
+        tool_name = "cl"
+        tool_args = ["/c"]
 
         # Include special characters, unicode, paths with backslashes
         original_stdout = "C:\\Path\\To\\File.cpp\nTest: 100% complete\n"
         original_stderr = "Warning: '\t' tab and \"quotes\"\n"
 
         cache_entry = cache.store(
-            source_file, tool_cmd, dependencies, [output_file],
+            source_file, tool_name, tool_args, dependencies, [output_file],
             original_stdout, original_stderr, 0, temp_dir
         )
 
@@ -549,14 +554,15 @@ class TestRepoToolStdoutStderr:
         output_file.write_text("<html></html>")
 
         dependencies = [main_file, cpp_file]
-        tool_cmd = "doxygen Doxyfile"
+        tool_name = "doxygen"
+        tool_args = []
         stdout = "Generating documentation...\nDone.\n"
         stderr = ""
         returncode = 0
 
         # Store as repo-level cache entry
         cache_entry = cache.store(
-            main_file, tool_cmd, dependencies, [output_file],
+            main_file, tool_name, tool_args, dependencies, [output_file],
             stdout, stderr, returncode, temp_dir,
             repo_mode=True,
             dependency_patterns=["*.cpp", "*.h"],
@@ -585,7 +591,8 @@ class TestErrorCases:
         source_file.write_text("int main() { return 0; }")
 
         dependencies = [source_file]
-        tool_cmd = "cl /c"
+        tool_name = "cl"
+        tool_args = ["/c"]
 
         # Simulate compilation error
         stdout = ""
@@ -594,7 +601,7 @@ class TestErrorCases:
 
         # Store error result (no output files created)
         cache_entry = cache.store(
-            source_file, tool_cmd, dependencies, [],
+            source_file, tool_name, tool_args, dependencies, [],
             stdout, stderr, returncode, temp_dir
         )
 

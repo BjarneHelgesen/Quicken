@@ -5,11 +5,9 @@
 Quicken is an **independent, standalone** Python library that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and file hashes.
 
 **IMPORTANT: Independence**
-- Quicken is designed to be completely independent - it has NO dependencies on LevelUp or any parent project
 - Can be used as a Python library: `from quicken import Quicken`
 - Can be integrated into any build system or project
 - Maintains its own configuration (`tools.json`)
-- Should never import or reference LevelUp-specific code
 
 ## Architecture
 
@@ -31,7 +29,7 @@ Quicken is an **independent, standalone** Python library that provides caching f
 **OPTIMIZED FOR CACHE HITS** - The cache is designed assuming 10-100 cache hits per cache miss.
 
 **Cache Lookup (Fast Path - No Tool Execution):**
-1. Look up source file in index by absolute path
+1. Look up source file by absolute path
 2. For each cached entry for that file:
    - Compare tool command string (direct comparison)
    - Compare file hashes for all dependencies
