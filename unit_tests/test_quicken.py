@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from quicken import Quicken, QuickenCache
+from quicken import Quicken, QuickenCache, RepoPath
 
 
 # Sample C++ code for testing
@@ -121,8 +121,9 @@ class TestQuickenCache:
         # After storing an entry, next_id should increment
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
-        dependencies = [source_file]
-        cache.store(source_file, "cl", ["/c"], dependencies, [], "", "", 0, temp_dir)
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
+        cache.store(source_repo_path, "cl", ["/c"], dep_repo_paths, [], "", "", 0, temp_dir)
 
         assert cache._next_id == 2
 
@@ -137,7 +138,8 @@ class TestQuickenCache:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
         stdout = "Compilation output"
@@ -145,16 +147,16 @@ class TestQuickenCache:
         returncode = 0
 
         # Store in cache
-        cache_entry = cache.store(source_file, tool_name, tool_args, dependencies, [output_file], stdout, stderr, returncode, temp_dir)
+        cache_entry = cache.store(source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file], stdout, stderr, returncode, temp_dir)
         assert cache_entry.exists()
 
         # Lookup should find it
-        found = cache.lookup(source_file, tool_name, tool_args, temp_dir)
+        found = cache.lookup(source_repo_path, tool_name, tool_args, temp_dir)
         assert found is not None
         assert found == cache_entry
 
         # Different command should not find it
-        not_found = cache.lookup(source_file, tool_name, ["/c", "/W4"], temp_dir)
+        not_found = cache.lookup(source_repo_path, tool_name, ["/c", "/W4"], temp_dir)
         assert not_found is None
 
     def test_cache_restore(self, cache_dir, temp_dir):
@@ -170,14 +172,15 @@ class TestQuickenCache:
         output_content = "fake object file content"
         output_file.write_text(output_content)
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
         stdout = "Build succeeded"
         stderr = "No warnings"
         returncode = 0
 
-        cache_entry = cache.store(source_file, tool_name, tool_args, dependencies, [output_file], stdout, stderr, returncode, temp_dir)
+        cache_entry = cache.store(source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file], stdout, stderr, returncode, temp_dir)
 
         # Delete the original file
         output_file.unlink()

@@ -18,6 +18,73 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
 
+
+class RepoPath:
+    """Stores a path to a file in the repo, relative to the repo. The file does not have to exist"""
+    def __init__(self, path: Path):
+        """Creates a relative path. Use this when you are sure that path is valid"""
+        self.path = path
+
+    @classmethod
+    def fromAbsolutePath(cls, repo: Path, file_path: Path):
+        """The repo and file_path need to be of type Path - not string, etc"""
+        try:
+            return RepoPath(file_path.relative_to(repo))
+        except ValueError:
+            return None # The requested file path was outside the repo
+
+    @classmethod
+    def fromRelativePath(cls, repo: Path, file_path: Path):
+        """Create a RepoPath from a relative path. The repo and file_path need to be of type Path - not string, etc"""
+        absolute_file_path = (repo / file_path).resolve() # Resolve handles any ../ etc.
+        return cls.fromAbsolutePath(repo, absolute_file_path) # Validates the absolute path as the path may be outside the repo.
+
+    def toAbsolutePath(self, repo: Path) -> Path:
+        """Convert this repo-relative path to an absolute path.
+
+        Args:
+            repo: Repository root directory
+
+        Returns:
+            Absolute path by joining repo with relative path
+        """
+        return (repo / self.path).resolve()
+
+    def __str__(self) -> str:
+        """Return POSIX-style string representation for serialization.
+
+        Uses forward slashes for cross-platform compatibility in JSON.
+        """
+        return self.path.as_posix()
+
+    @classmethod
+    def fromString(cls, path_str: str):
+        """Create RepoPath from serialized string (trusted).
+
+        Used when loading paths from cache - no validation needed.
+        Returns RepoPath with path using forward slashes.
+        """
+        return RepoPath(Path(path_str))
+
+    def calculateHash(self, repo: Path) -> str:
+        """Calculate 64-bit hash of the file this path points to.
+
+        Args:
+            repo: Repository root to resolve relative path
+
+        Returns:
+            16-character hex string (64-bit BLAKE2b hash)
+        """
+        file_path = self.toAbsolutePath(repo)
+        hash_obj = hashlib.blake2b(digest_size=8)  # 64-bit hash
+        with open(file_path, 'rb') as f:
+            # Read in chunks for efficiency with large files
+            while chunk := f.read(8192):
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest() 
+
+
+
 class QuickenCache:
     """Manages caching of tool outputs based on source file and dependency metadata."""
 
@@ -33,12 +100,15 @@ class QuickenCache:
 
         Index structure:
         {
-            "source_filename": [
+            "src/main.cpp": [
                 {
                     "cache_key": "entry_001",
-                    "tool_cmd": "cl /c /W4",
+                    "tool_name": "cl",
+                    "tool_args": ["/c", "/W4"],
+                    "main_file_path": "src/main.cpp",
                     "dependencies": [
-                        {"name": "file.cpp", "hash": "a1b2c3d4e5f60708"},
+                        {"path": "src/main.cpp", "hash": "a1b2c3d4e5f60708"},
+                        {"path": "include/header.h", "hash": "b2c3d4e5f6071809"},
                         ...
                     ]
                 },
@@ -80,58 +150,70 @@ class QuickenCache:
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()
 
-    def _get_file_metadata(self, file_path: Path, repo_dir: Path) -> Dict:
-        """Get metadata for a single file.
+    def _get_file_metadata(self, repo_path: RepoPath, repo_dir: Path) -> Dict:
+        """Get metadata for a single file using repo-relative path.
 
-        Stores only filename (not path) for portability across different
-        directories, including temporary directories.
+        Args:
+            repo_path: RepoPath instance for the file
+            repo_dir: Repository root for hash calculation
+
+        Returns:
+            Dict with path (as string) and hash
         """
         return {
-            "name": file_path.name,
-            "hash": self._get_file_hash(file_path)
+            "path": str(repo_path),  # Uses RepoPath.__str__() for POSIX format
+            "hash": repo_path.calculateHash(repo_dir)
         }
 
     def _dependencies_match(self, cached_deps: List[Dict], repo_dir: Path) -> bool:
-        """Check if all cached dependencies still match their file hashes.
+        """Check if cached dependencies match current file hashes.
 
-        Searches repo_dir for files with matching names and verifies their hashes.
-        This allows cache hits even when files are in different directories
-        (e.g., different temporary directories).
+        Uses direct path lookup with repo-relative paths.
+
+        Args:
+            cached_deps: List of dicts with 'path' and 'hash' keys
+            repo_dir: Repository root
+
+        Returns:
+            True if all dependencies match, False otherwise
         """
         for dep in cached_deps:
-            dep_name = dep["name"]
+            dep_path_str = dep["path"]
             expected_hash = dep["hash"]
 
-            # Search for file with this name in repo_dir
-            matching_files = list(repo_dir.rglob(dep_name))
+            # Load path from cache (trusted)
+            repo_path = RepoPath.fromString(dep_path_str)
 
-            if not matching_files:
+            # Convert to absolute path and check if file exists
+            file_path = repo_path.toAbsolutePath(repo_dir)
+
+            if not file_path.is_file():
                 return False
 
-            # Check if any matching file has the correct hash
-            found_match = False
-            for file_path in matching_files:
-                if file_path.is_file():
-                    current_hash = self._get_file_hash(file_path)
-                    if current_hash == expected_hash:
-                        found_match = True
-                        break
-
-            if not found_match:
+            # Calculate current hash and compare
+            current_hash = repo_path.calculateHash(repo_dir)
+            if current_hash != expected_hash:
                 return False
 
         return True
 
-    def lookup(self, source_file: Path, tool_name: str, tool_args: List[str],
+    def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
                repo_dir: Path) -> Optional[Path]:
         """Look up cached output for given source file and tool command.
 
         This is the optimized fast path that doesn't run /showIncludes.
         It only checks file hashes against cached values.
 
-        Uses filename (not path) for portability across different locations.
+        Args:
+            source_repo_path: RepoPath for source file
+            tool_name: Name of the tool
+            tool_args: Tool arguments list
+            repo_dir: Repository root
+
+        Returns:
+            Cache entry directory path if found, None otherwise
         """
-        source_key = source_file.name
+        source_key = str(source_repo_path)  # Use repo-relative path as key
 
         if source_key not in self.index:
             return None
@@ -141,12 +223,12 @@ class QuickenCache:
                 continue
             if entry.get("tool_args") != tool_args:
                 continue
-            if entry.get("main_file_name") != source_file.name:
+            if entry.get("main_file_path") != source_key:
                 continue
 
             # For repo mode, verify main_file content hasn't changed
             if entry.get("repo_mode", False) and "main_file_hash" in entry:
-                if self._get_file_hash(source_file) != entry["main_file_hash"]:
+                if source_repo_path.calculateHash(repo_dir) != entry["main_file_hash"]:
                     continue
 
             if not self._dependencies_match(entry["dependencies"], repo_dir):
@@ -158,8 +240,8 @@ class QuickenCache:
 
         return None
 
-    def store(self, source_file: Path, tool_name: str, tool_args: List[str],
-              dependencies: List[Path], output_files: List[Path],
+    def store(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
+              dependency_repo_paths: List[RepoPath], output_files: List[Path],
               stdout: str, stderr: str, returncode: int,
               repo_dir: Path, repo_mode: bool = False,
               dependency_patterns: List[str] = None,
@@ -167,10 +249,10 @@ class QuickenCache:
         """Store tool output in cache with dependency hashes.
 
         Args:
-            source_file: Source file path (or main file for repo mode)
+            source_repo_path: RepoPath for source file (or main file for repo mode)
             tool_name: Name of the tool
             tool_args: Tool arguments (without main_file path)
-            dependencies: List of dependency file paths
+            dependency_repo_paths: List of RepoPath instances for dependencies
             output_files: List of output file paths
             stdout: Tool stdout
             stderr: Tool stderr
@@ -183,7 +265,7 @@ class QuickenCache:
         Returns:
             Path to cache entry directory
         """
-        source_key = source_file.name
+        source_key = str(source_repo_path)  # repo-relative path
 
         cache_key = f"entry_{self._next_id:06d}"
         self._next_id += 1
@@ -210,14 +292,14 @@ class QuickenCache:
                 shutil.copy2(output_file, dest)
                 stored_files.append(file_path_str)
 
-        dep_metadata = [self._get_file_metadata(dep, repo_dir) for dep in dependencies]
+        dep_metadata = [self._get_file_metadata(dep, repo_dir) for dep in dependency_repo_paths]
 
         metadata = {
             "cache_key": cache_key,
             "source_file": source_key,
             "tool_name": tool_name,
             "tool_args": tool_args,
-            "main_file_name": source_file.name,
+            "main_file_path": source_key,  # repo-relative path
             "dependencies": dep_metadata,
             "files": stored_files,
             "stdout": stdout,
@@ -227,7 +309,7 @@ class QuickenCache:
 
         if repo_mode:
             metadata["repo_mode"] = True
-            metadata["main_file_hash"] = self._get_file_hash(source_file)
+            metadata["main_file_hash"] = source_repo_path.calculateHash(repo_dir)
             if dependency_patterns:
                 metadata["dependency_patterns"] = dependency_patterns
 
@@ -241,13 +323,13 @@ class QuickenCache:
             "cache_key": cache_key,
             "tool_name": tool_name,
             "tool_args": tool_args,
-            "main_file_name": source_file.name,
+            "main_file_path": source_key,  # repo-relative path
             "dependencies": dep_metadata
         }
 
         if repo_mode:
             index_entry["repo_mode"] = True
-            index_entry["main_file_hash"] = self._get_file_hash(source_file)
+            index_entry["main_file_hash"] = source_repo_path.calculateHash(repo_dir)
             if dependency_patterns:
                 index_entry["dependency_patterns"] = dependency_patterns
 
@@ -385,26 +467,26 @@ class ToolCmd(ABC):
         return cmd
 
     def try_all_optimization_levels(self, tool_name: str, tool_args: List[str],
-                                   source_file: Path, repo_dir: Path) -> Tuple[Optional[Path], List[str]]:
+                                   source_repo_path: RepoPath, repo_dir: Path) -> Tuple[Optional[Path], List[str]]:
         """Try to find cache hit with any optimization level.
 
         Args:
             tool_name: Name of the tool
             tool_args: Tool arguments (without source_file/main_file)
-            source_file: Source file path
+            source_repo_path: RepoPath for source file
             repo_dir: Repository directory
 
         Returns:
             Tuple of (cache_entry, modified_args) or (None, original_args)
         """
         if not self.supports_optimization:
-            cache_entry = self.cache.lookup(source_file, tool_name, tool_args, repo_dir)
+            cache_entry = self.cache.lookup(source_repo_path, tool_name, tool_args, repo_dir)
             return cache_entry, tool_args
 
         for opt_level in range(len(self.optimization_flags)):
             self.optimization = opt_level
             modified_args = self.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(source_file, tool_name, modified_args, repo_dir)
+            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir)
             if cache_entry:
                 return cache_entry, modified_args
 
@@ -670,7 +752,7 @@ class Quicken:
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
         Args:
-            source_file: C++ file to process
+            source_file: C++ file to process (absolute or relative path)
             tool_name: Tool to run
             tool_args: Arguments for the tool
             repo_dir: Repository directory (for dependency filtering)
@@ -680,6 +762,27 @@ class Quicken:
         Returns:
             Tool exit code (integer)
         """
+        # VALIDATE: Convert source_file to RepoPath at API entry
+        if source_file.is_absolute():
+            source_repo_path = RepoPath.fromAbsolutePath(repo_dir, source_file)
+        else:
+            source_repo_path = RepoPath.fromRelativePath(repo_dir, source_file)
+
+        if source_repo_path is None:
+            raise ValueError(f"Source file {source_file} is outside repository {repo_dir}")
+
+        # VALIDATE: output_dir must be within repo
+        if output_dir.is_absolute():
+            output_repo_path = RepoPath.fromAbsolutePath(repo_dir, output_dir)
+        else:
+            output_repo_path = RepoPath.fromRelativePath(repo_dir, output_dir)
+
+        if output_repo_path is None:
+            raise ValueError(f"Output directory {output_dir} is outside repository {repo_dir}")
+
+        # Convert RepoPath back to absolute paths for tool execution
+        abs_source_file = source_repo_path.toAbsolutePath(repo_dir)
+        abs_output_dir = output_repo_path.toAbsolutePath(repo_dir)
 
         start_time = time.perf_counter()
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
@@ -690,28 +793,35 @@ class Quicken:
 
         if optimization is None:
             cache_entry, modified_args = tool.try_all_optimization_levels(
-                tool_name, tool_args, source_file, repo_dir
+                tool_name, tool_args, source_repo_path, repo_dir
             )
         else:
             modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(source_file, tool_name, modified_args, repo_dir)
+            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir)
 
         if cache_entry:
-            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+            stdout, stderr, returncode = self.cache.restore(cache_entry, abs_output_dir)
             if stdout:
                 print(stdout, end='')
             if stderr:
                 print(stderr, end='', file=sys.stderr)
-            self.logger.info(f"CACHE HIT - source_file: {source_file}, tool: {tool_name}, "
+            self.logger.info(f"CACHE HIT - source_file: {source_repo_path}, tool: {tool_name}, "
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                            f"args: {modified_args}, cache_entry: {cache_entry.name}, "
                            f"returncode: {returncode}")
             return returncode
 
-        local_files = self._get_local_dependencies(source_file, repo_dir)
+        local_files = self._get_local_dependencies(abs_source_file, repo_dir)
+
+        # Convert absolute dependency paths to RepoPath
+        local_dep_repo_paths = []
+        for dep_path in local_files:
+            dep_repo_path = RepoPath.fromAbsolutePath(repo_dir, dep_path)
+            if dep_repo_path is not None:  # Should always succeed for local deps
+                local_dep_repo_paths.append(dep_repo_path)
 
         output_files, stdout, stderr, returncode = self._run_tool(
-            tool, modified_args, source_file, output_dir
+            tool, modified_args, abs_source_file, abs_output_dir
         )
 
 
@@ -721,14 +831,14 @@ class Quicken:
             print(stderr, end='', file=sys.stderr)
 
         self.cache.store(
-            source_file, tool_name, modified_args, local_files, output_files,
+            source_repo_path, tool_name, modified_args, local_dep_repo_paths, output_files,
             stdout, stderr, returncode, repo_dir,
             repo_mode=False,
-            output_base_dir=output_dir
+            output_base_dir=abs_output_dir
         )
-        self.logger.info(f"CACHE MISS - source_file: {source_file}, tool: {tool_name}, "
+        self.logger.info(f"CACHE MISS - source_file: {source_repo_path}, tool: {tool_name}, "
                        f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                       f"args: {modified_args}, dependencies: {len(local_files)}, "
+                       f"args: {modified_args}, dependencies: {len(local_dep_repo_paths)}, "
                        f"returncode: {returncode}, output_files: {len(output_files)}")
 
         return returncode
@@ -743,14 +853,36 @@ class Quicken:
             repo_dir: Repository root directory
             tool_name: Tool to run (e.g., "doxygen")
             tool_args: Arguments for the tool (WITHOUT main_file path)
-            main_file: Main file for the tool (e.g., Doxyfile path)
+            main_file: Main file for the tool (e.g., Doxyfile path - absolute or relative)
             dependency_patterns: Glob patterns for dependencies
-            output_dir: Directory where tool creates output files
+            output_dir: Directory where tool creates output files (absolute or relative)
             optimization: Optimization level (0-3, or None to accept any cached level)
 
         Returns:
             Tool exit code (integer)
         """
+        # VALIDATE: Convert main_file to RepoPath at API entry
+        if main_file.is_absolute():
+            main_repo_path = RepoPath.fromAbsolutePath(repo_dir, main_file)
+        else:
+            main_repo_path = RepoPath.fromRelativePath(repo_dir, main_file)
+
+        if main_repo_path is None:
+            raise ValueError(f"Main file {main_file} is outside repository {repo_dir}")
+
+        # VALIDATE: output_dir must be within repo
+        if output_dir.is_absolute():
+            output_repo_path = RepoPath.fromAbsolutePath(repo_dir, output_dir)
+        else:
+            output_repo_path = RepoPath.fromRelativePath(repo_dir, output_dir)
+
+        if output_repo_path is None:
+            raise ValueError(f"Output directory {output_dir} is outside repository {repo_dir}")
+
+        # Convert RepoPath back to absolute paths for tool execution
+        abs_main_file = main_repo_path.toAbsolutePath(repo_dir)
+        abs_output_dir = output_repo_path.toAbsolutePath(repo_dir)
+
         start_time = time.perf_counter();
 
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
@@ -761,17 +893,17 @@ class Quicken:
 
         if optimization is None:
             cache_entry, modified_args = tool.try_all_optimization_levels(
-                tool_name, tool_args, main_file, repo_dir
+                tool_name, tool_args, main_repo_path, repo_dir
             )
         else:
             modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(main_file, tool_name, modified_args, repo_dir)
+            cache_entry = self.cache.lookup(main_repo_path, tool_name, modified_args, repo_dir)
 
         if cache_entry:
-            stdout, stderr, returncode = self.cache.restore(cache_entry, output_dir)
+            stdout, stderr, returncode = self.cache.restore(cache_entry, abs_output_dir)
             self.logger.info(f"CACHE HIT (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                           f"args: {modified_args}, main_file: {main_file}, "
+                           f"args: {modified_args}, main_file: {main_repo_path}, "
                            f"cache_entry: {cache_entry.name}, returncode: {returncode}")
             if stdout:
                 print(stdout, end='')
@@ -781,8 +913,15 @@ class Quicken:
 
         repo_files = self._get_repo_dependencies(repo_dir, dependency_patterns)
 
+        # Convert absolute dependency paths to RepoPath
+        repo_dep_repo_paths = []
+        for dep_path in repo_files:
+            dep_repo_path = RepoPath.fromAbsolutePath(repo_dir, dep_path)
+            if dep_repo_path is not None:  # Should always succeed for repo deps
+                repo_dep_repo_paths.append(dep_repo_path)
+
         output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
-            tool, modified_args, main_file, work_dir=repo_dir, output_dir=output_dir
+            tool, modified_args, abs_main_file, work_dir=repo_dir, output_dir=abs_output_dir
         )
 
         if stdout:
@@ -792,17 +931,17 @@ class Quicken:
 
         if returncode == 0:
             self.cache.store(
-                main_file, tool_name, modified_args, repo_files, output_files,
+                main_repo_path, tool_name, modified_args, repo_dep_repo_paths, output_files,
                 stdout, stderr, returncode, repo_dir,
                 repo_mode=True,
                 dependency_patterns=dependency_patterns,
-                output_base_dir=output_dir
+                output_base_dir=abs_output_dir
             )
 
         self.logger.info(f"CACHE MISS (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
                        f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                       f"args: {modified_args}, main_file: {main_file}, "
-                       f"dependencies: {len(repo_files)}, returncode: {returncode}, "
+                       f"args: {modified_args}, main_file: {main_repo_path}, "
+                       f"dependencies: {len(repo_dep_repo_paths)}, returncode: {returncode}, "
                        f"output_files: {len(output_files)}")
 
         return returncode

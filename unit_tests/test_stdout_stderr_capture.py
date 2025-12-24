@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from quicken import Quicken, QuickenCache
+from quicken import Quicken, QuickenCache, RepoPath
 
 
 # Sample C++ code for testing
@@ -135,7 +135,8 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
         stdout = "Compilation successful\n"
@@ -144,7 +145,7 @@ class TestStdoutStderrCapture:
 
         # Store in cache
         cache_entry = cache.store(
-            source_file, tool_name, tool_args, dependencies, [output_file],
+            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
             stdout, stderr, returncode, temp_dir
         )
 
@@ -171,7 +172,8 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
         original_stdout = "Build output line 1\nBuild output line 2\n"
@@ -180,7 +182,7 @@ class TestStdoutStderrCapture:
 
         # Store in cache
         cache_entry = cache.store(
-            source_file, tool_name, tool_args, dependencies, [output_file],
+            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
             original_stdout, original_stderr, returncode, temp_dir
         )
 
@@ -207,13 +209,14 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c", "/nologo"]
 
         # Store with empty stdout and stderr
         cache_entry = cache.store(
-            source_file, tool_name, tool_args, dependencies, [output_file],
+            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
             "", "", 0, temp_dir
         )
 
@@ -237,7 +240,8 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
 
@@ -246,7 +250,7 @@ class TestStdoutStderrCapture:
         original_stderr = "Error on line 10\nError on line 20\n"
 
         cache_entry = cache.store(
-            source_file, tool_name, tool_args, dependencies, [output_file],
+            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
             original_stdout, original_stderr, 0, temp_dir
         )
 
@@ -270,7 +274,8 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
 
@@ -279,7 +284,7 @@ class TestStdoutStderrCapture:
         original_stderr = "Warning: '\t' tab and \"quotes\"\n"
 
         cache_entry = cache.store(
-            source_file, tool_name, tool_args, dependencies, [output_file],
+            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
             original_stdout, original_stderr, 0, temp_dir
         )
 
@@ -553,7 +558,9 @@ class TestRepoToolStdoutStderr:
         output_file = output_dir / "index.html"
         output_file.write_text("<html></html>")
 
-        dependencies = [main_file, cpp_file]
+        main_repo_path = RepoPath.fromAbsolutePath(temp_dir, main_file)
+        cpp_repo_path = RepoPath.fromAbsolutePath(temp_dir, cpp_file)
+        dep_repo_paths = [main_repo_path, cpp_repo_path]
         tool_name = "doxygen"
         tool_args = []
         stdout = "Generating documentation...\nDone.\n"
@@ -562,7 +569,7 @@ class TestRepoToolStdoutStderr:
 
         # Store as repo-level cache entry
         cache_entry = cache.store(
-            main_file, tool_name, tool_args, dependencies, [output_file],
+            main_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
             stdout, stderr, returncode, temp_dir,
             repo_mode=True,
             dependency_patterns=["*.cpp", "*.h"],
@@ -590,7 +597,8 @@ class TestErrorCases:
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
 
-        dependencies = [source_file]
+        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
 
@@ -601,7 +609,7 @@ class TestErrorCases:
 
         # Store error result (no output files created)
         cache_entry = cache.store(
-            source_file, tool_name, tool_args, dependencies, [],
+            source_repo_path, tool_name, tool_args, dep_repo_paths, [],
             stdout, stderr, returncode, temp_dir
         )
 
