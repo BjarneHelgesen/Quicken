@@ -123,6 +123,7 @@ def capture_output(func, *args, **kwargs):
 class TestStdoutStderrCapture:
     """Test stdout/stderr capturing and reproduction."""
 
+    @pytest.mark.pedantic
     def test_cache_stores_stdout_stderr_metadata(self, cache_dir, temp_dir):
         """Test that cache stores stdout and stderr in metadata."""
         cache = QuickenCache(cache_dir)
@@ -160,6 +161,7 @@ class TestStdoutStderrCapture:
         assert metadata["stderr"] == stderr
         assert metadata["returncode"] == returncode
 
+    @pytest.mark.pedantic
     def test_cache_restore_returns_correct_stdout_stderr(self, cache_dir, temp_dir):
         """Test that cache.restore() returns the correct stdout and stderr."""
         cache = QuickenCache(cache_dir)
@@ -230,6 +232,7 @@ class TestStdoutStderrCapture:
         assert restored_stderr == ""
         assert restored_returncode == 0
 
+    @pytest.mark.pedantic
     def test_multiline_stdout_stderr_preservation(self, cache_dir, temp_dir):
         """Test that multiline stdout and stderr are preserved correctly."""
         cache = QuickenCache(cache_dir)
@@ -264,6 +267,7 @@ class TestStdoutStderrCapture:
         assert len(restored_stdout.splitlines()) == 3
         assert len(restored_stderr.splitlines()) == 2
 
+    @pytest.mark.pedantic
     def test_special_characters_in_output(self, cache_dir, temp_dir):
         """Test that special characters in stdout and stderr are preserved."""
         cache = QuickenCache(cache_dir)

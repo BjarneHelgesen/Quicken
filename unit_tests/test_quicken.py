@@ -103,6 +103,7 @@ def quicken_instance(config_file, cache_dir, monkeypatch):
 class TestQuickenCache:
     """Test the QuickenCache class."""
 
+    @pytest.mark.pedantic
     def test_cache_initialization(self, cache_dir):
         """Test that cache initializes correctly."""
         cache = QuickenCache(cache_dir)
@@ -110,6 +111,7 @@ class TestQuickenCache:
         assert cache.index_file.exists() or not cache.index_file.exists()  # May or may not exist initially
         assert isinstance(cache.index, dict)
 
+    @pytest.mark.pedantic
     def test_cache_key_generation(self, cache_dir, temp_dir):
         """Test cache entry counter generation."""
         cache = QuickenCache(cache_dir)
@@ -127,6 +129,7 @@ class TestQuickenCache:
 
         assert cache._next_id == 2
 
+    @pytest.mark.pedantic
     def test_cache_store_and_lookup(self, cache_dir, temp_dir):
         """Test storing and looking up cache entries."""
         cache = QuickenCache(cache_dir)
@@ -159,6 +162,7 @@ class TestQuickenCache:
         not_found = cache.lookup(source_repo_path, tool_name, ["/c", "/W4"], temp_dir)
         assert not_found is None
 
+    @pytest.mark.pedantic
     def test_cache_restore(self, cache_dir, temp_dir):
         """Test restoring cached files."""
         cache = QuickenCache(cache_dir)
