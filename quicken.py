@@ -553,7 +553,7 @@ class ToolRegistry:
         tool_class = cls._registry[tool_name]
 
         # Get environment if tool needs vcvars
-        env = quicken._get_msvc_environment() if tool_class.needs_vcvars else None
+        env = quicken._msvc_env if tool_class.needs_vcvars else None
 
         return tool_class(tool_path, arguments, logger, config, cache,
                          env, optimization)
@@ -564,8 +564,9 @@ class Quicken:
     def __init__(self, config_path: Path):
         self.config = self._load_config(config_path)
         self.cache = QuickenCache(Path.home() / ".quicken" / "cache")
-        self._msvc_env = None  # Cached MSVC environment
         self._setup_logging()
+        # Eagerly fetch and cache MSVC environment (assumes MSVC is installed)
+        self._msvc_env = self._get_msvc_environment()
 
     def _load_config(self, config_path: Path) -> Dict:
         """Load tools configuration."""
@@ -596,10 +597,7 @@ class Quicken:
         self.logger.addHandler(handler)
 
     def _get_msvc_environment(self) -> Dict:
-        """Get MSVC environment variables (cached after first call)."""
-        if self._msvc_env is not None:
-            return self._msvc_env
-
+        """Get MSVC environment variables."""
         vcvarsall = ToolCmd.get_tool_path(self.config, "vcvarsall")
         msvc_arch = self.config.get("msvc_arch", "x64")
 
@@ -620,13 +618,11 @@ class Quicken:
                 key, _, value = line.partition('=')
                 env[key] = value
 
-        self._msvc_env = env
-        return self._msvc_env
+        return env
 
     def _get_local_dependencies(self, source_file: Path, repo_dir: Path) -> List[Path]:
         """Get list of local (repo) file dependencies using MSVC /showIncludes."""
         cl_path = ToolCmd.get_tool_path(self.config, "cl")
-        env = self._get_msvc_environment()
 
         # Pre-resolve repo_dir once for faster filtering
         repo_dir_resolved = repo_dir.resolve()
@@ -635,7 +631,7 @@ class Quicken:
         # This is much faster than full preprocessing
         result = subprocess.run(
             [cl_path, '/showIncludes', '/Zs', str(source_file)],
-            env=env,
+            env=self._msvc_env,
             capture_output=True,
             text=True,
             check=False
