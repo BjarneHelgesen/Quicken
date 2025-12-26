@@ -158,25 +158,33 @@ class QuickenCache:
             repo_dir: Repository root for hash calculation
 
         Returns:
-            Dict with path (as string) and hash
+            Dict with path, hash, mtime, and size
         """
+        file_path = repo_path.toAbsolutePath(repo_dir)
+        stat = file_path.stat()
         return {
             "path": str(repo_path),  # Uses RepoPath.__str__() for POSIX format
-            "hash": repo_path.calculateHash(repo_dir)
+            "hash": repo_path.calculateHash(repo_dir),
+            "mtime": stat.st_mtime,
+            "size": stat.st_size
         }
 
-    def _dependencies_match(self, cached_deps: List[Dict], repo_dir: Path) -> bool:
+    def _dependencies_match(self, cached_deps: List[Dict], repo_dir: Path) -> Tuple[bool, bool]:
         """Check if cached dependencies match current file hashes.
 
-        Uses direct path lookup with repo-relative paths.
+        Fast path: Check mtime+size first, only hash if mtime changed.
 
         Args:
-            cached_deps: List of dicts with 'path' and 'hash' keys
+            cached_deps: List of dicts with 'path', 'hash', 'mtime', 'size' keys
             repo_dir: Repository root
 
         Returns:
-            True if all dependencies match, False otherwise
+            Tuple of (matches, needs_update) where:
+            - matches: True if all dependencies match
+            - needs_update: True if mtime was updated in cached_deps
         """
+        needs_update = False
+
         for dep in cached_deps:
             dep_path_str = dep["path"]
             expected_hash = dep["hash"]
@@ -188,14 +196,37 @@ class QuickenCache:
             file_path = repo_path.toAbsolutePath(repo_dir)
 
             if not file_path.is_file():
-                return False
+                return False, False
 
-            # Calculate current hash and compare
+            # Get current file stats
+            stat = file_path.stat()
+            current_mtime = stat.st_mtime
+            current_size = stat.st_size
+
+            cached_mtime = dep.get("mtime")
+            cached_size = dep.get("size")
+
+            # Fast path: mtime and size unchanged - skip hashing
+            if cached_mtime is not None and cached_size is not None:
+                if current_mtime == cached_mtime and current_size == cached_size:
+                    continue
+
+                # Size changed - file is definitely different
+                if current_size != cached_size:
+                    return False, False
+
+            # Only mtime changed (or no cached mtime/size) - need to hash
             current_hash = repo_path.calculateHash(repo_dir)
             if current_hash != expected_hash:
-                return False
+                return False, False
 
-        return True
+            # Hash matches but mtime changed - update cache with new mtime
+            if cached_mtime != current_mtime or cached_size != current_size:
+                dep["mtime"] = current_mtime
+                dep["size"] = current_size
+                needs_update = True
+
+        return True, needs_update
 
     def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
                repo_dir: Path) -> Optional[Path]:
@@ -231,11 +262,25 @@ class QuickenCache:
                 if source_repo_path.calculateHash(repo_dir) != entry["main_file_hash"]:
                     continue
 
-            if not self._dependencies_match(entry["dependencies"], repo_dir):
+            matches, needs_update = self._dependencies_match(entry["dependencies"], repo_dir)
+            if not matches:
                 continue
 
             cache_entry_dir = self.cache_dir / entry["cache_key"]
             if cache_entry_dir.exists():
+                # Update metadata if mtime changed but hash matched
+                if needs_update:
+                    # Update metadata.json in cache entry
+                    metadata_file = cache_entry_dir / "metadata.json"
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                    metadata["dependencies"] = entry["dependencies"]
+                    with open(metadata_file, 'w') as f:
+                        json.dump(metadata, f, indent=2)
+
+                    # Save updated index
+                    self._save_index()
+
                 return cache_entry_dir
 
         return None
@@ -597,9 +642,25 @@ class Quicken:
         self.logger.addHandler(handler)
 
     def _get_msvc_environment(self) -> Dict:
-        """Get MSVC environment variables."""
+        """Get MSVC environment variables, cached to avoid repeated vcvarsall.bat calls."""
         vcvarsall = ToolCmd.get_tool_path(self.config, "vcvarsall")
         msvc_arch = self.config.get("msvc_arch", "x64")
+
+        # Cache file location
+        cache_file = Path.home() / ".quicken" / "msvc_env.json"
+
+        # Try to load from cache
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+                    # Verify cache is for same vcvarsall and arch
+                    if (cached_data.get("vcvarsall") == vcvarsall and
+                        cached_data.get("msvc_arch") == msvc_arch):
+                        return cached_data.get("env", {})
+            except (json.JSONDecodeError, KeyError):
+                # Cache corrupted, will regenerate
+                pass
 
         # Run vcvarsall and capture environment
         cmd = f'"{vcvarsall}" {msvc_arch} >nul && set'
@@ -617,6 +678,21 @@ class Quicken:
             if '=' in line:
                 key, _, value = line.partition('=')
                 env[key] = value
+
+        # Save to cache
+        cache_data = {
+            "vcvarsall": vcvarsall,
+            "msvc_arch": msvc_arch,
+            "env": env
+        }
+
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+        except Exception:
+            # If caching fails, still return the environment
+            pass
 
         return env
 
