@@ -103,29 +103,30 @@ class QuickenCache:
     def _load_index(self) -> Dict:
         """Load the cache index.
 
-        Index structure:
+        Index structure (flat dictionary with compound keys):
         {
-            "src/main.cpp": [
-                {
-                    "cache_key": "entry_001",
-                    "tool_name": "cl",
-                    "tool_args": ["/c", "/W4"],
-                    "main_file_path": "src/main.cpp",
-                    "dependencies": [
-                        {"path": "src/main.cpp", "hash": "a1b2c3d4e5f60708"},
-                        {"path": "include/header.h", "hash": "b2c3d4e5f6071809"},
-                        ...
-                    ]
-                },
-                ...
-            ],
+            "src/main.cpp::cl::['/c','/W4']": {
+                "cache_key": "entry_001",
+                "dependencies": [
+                    {"path": "src/main.cpp", "hash": "a1b2c3d4e5f60708", "mtime_ns": ..., "size": ...},
+                    {"path": "include/header.h", "hash": "b2c3d4e5f6071809", "mtime_ns": ..., "size": ...},
+                    ...
+                ]
+            },
             ...
         }
         """
         if self.index_file.exists():
             try:
                 with open(self.index_file, 'r') as f:
-                    return json.load(f)
+                    index = json.load(f)
+
+                # Detect old format (values are lists instead of dicts)
+                if index and isinstance(next(iter(index.values()), None), list):
+                    # Old format detected - start fresh (no backwards compatibility)
+                    return {}
+
+                return index
             except json.JSONDecodeError:
                 # Index file is empty or corrupted, start fresh
                 return {}
@@ -139,12 +140,11 @@ class QuickenCache:
     def _get_next_id(self) -> int:
         """Get next available cache entry ID."""
         max_id = 0
-        for entries in self.index.values():
-            for entry in entries:
-                cache_key = entry.get("cache_key", "")
-                if cache_key.startswith("entry_"):
-                    entry_id = int(cache_key.split("_")[1])
-                    max_id = max(max_id, entry_id)
+        for entry in self.index.values():
+            cache_key = entry.get("cache_key", "")
+            if cache_key.startswith("entry_"):
+                entry_id = int(cache_key.split("_")[1])
+                max_id = max(max_id, entry_id)
         return max_id + 1
 
     def _get_file_hash(self, file_path: Path) -> str:
@@ -158,6 +158,21 @@ class QuickenCache:
             while chunk := f.read(8192):
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()
+
+    def _make_cache_key(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str]) -> str:
+        """Build compound cache key from source file, tool, and args.
+
+        Args:
+            source_repo_path: RepoPath for source file
+            tool_name: Name of the tool
+            tool_args: Tool arguments list
+
+        Returns:
+            Compound key string in format: "file::tool::args"
+        """
+        source_key = str(source_repo_path)
+        args_str = json.dumps(tool_args, separators=(',', ':'))
+        return f"{source_key}::{tool_name}::{args_str}"
 
     def _get_file_metadata(self, repo_path: RepoPath, repo_dir: Path) -> Dict:
         """Get metadata for a single file using repo-relative path.
@@ -253,46 +268,41 @@ class QuickenCache:
         Returns:
             Cache entry directory path if found, None otherwise
         """
-        source_key = str(source_repo_path)  # Use repo-relative path as key
+        # Build compound key for O(1) lookup
+        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args)
 
-        if source_key not in self.index:
+        if compound_key not in self.index:
             return None
 
-        for entry in self.index[source_key]:
-            if entry.get("tool_name") != tool_name:
-                continue
-            if entry.get("tool_args") != tool_args:
-                continue
-            if entry.get("main_file_path") != source_key:
-                continue
+        entry = self.index[compound_key]
 
-            # For repo mode, verify main_file content hasn't changed
-            if entry.get("repo_mode", False) and "main_file_hash" in entry:
-                if source_repo_path.calculateHash(repo_dir) != entry["main_file_hash"]:
-                    continue
+        # For repo mode, verify main_file content hasn't changed
+        if entry.get("repo_mode", False) and "main_file_hash" in entry:
+            if source_repo_path.calculateHash(repo_dir) != entry["main_file_hash"]:
+                return None
 
-            matches, needs_update = self._dependencies_match(entry["dependencies"], repo_dir)
-            if not matches:
-                continue
+        matches, needs_update = self._dependencies_match(entry["dependencies"], repo_dir)
+        if not matches:
+            return None
 
-            cache_entry_dir = self.cache_dir / entry["cache_key"]
-            if cache_entry_dir.exists():
-                # Update metadata if mtime changed but hash matched
-                if needs_update:
-                    # Update metadata.json in cache entry
-                    metadata_file = cache_entry_dir / "metadata.json"
-                    with open(metadata_file, 'r') as f:
-                        metadata = json.load(f)
-                    metadata["dependencies"] = entry["dependencies"]
-                    with open(metadata_file, 'w') as f:
-                        json.dump(metadata, f, indent=2)
+        cache_entry_dir = self.cache_dir / entry["cache_key"]
+        if not cache_entry_dir.exists():
+            return None
 
-                    # Save updated index
-                    self._save_index()
+        # Update metadata if mtime changed but hash matched
+        if needs_update:
+            # Update metadata.json in cache entry
+            metadata_file = cache_entry_dir / "metadata.json"
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            metadata["dependencies"] = entry["dependencies"]
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
 
-                return cache_entry_dir
+            # Save updated index
+            self._save_index()
 
-        return None
+        return cache_entry_dir
 
     def store(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
               dependency_repo_paths: List[RepoPath], output_files: List[Path],
@@ -370,14 +380,12 @@ class QuickenCache:
         with open(cache_entry_dir / "metadata.json", 'w') as f:
             json.dump(metadata, f, indent=2)
 
-        if source_key not in self.index:
-            self.index[source_key] = []
+        # Build compound key for flat dictionary
+        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args)
 
+        # Create minimized index entry (no redundant fields)
         index_entry = {
             "cache_key": cache_key,
-            "tool_name": tool_name,
-            "tool_args": tool_args,
-            "main_file_path": source_key,  # repo-relative path
             "dependencies": dep_metadata
         }
 
@@ -387,7 +395,8 @@ class QuickenCache:
             if dependency_patterns:
                 index_entry["dependency_patterns"] = dependency_patterns
 
-        self.index[source_key].append(index_entry)
+        # Store directly at compound key (flat dictionary, not nested list)
+        self.index[compound_key] = index_entry
         self._save_index()
 
         return cache_entry_dir
