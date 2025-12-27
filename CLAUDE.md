@@ -8,7 +8,9 @@ Quicken is an **independent, standalone** Python library that provides caching f
 - Can be used as a Python library: `from quicken import Quicken`
 - Can be integrated into any build system or project
 - Maintains its own configuration (`tools.json`)
-
+- Requires a file system with high accuracy. E.g. local NTFS, not containeraized or network drives.
+- Dont make any changes backward compatible. Users will have to clear their cache and update their api calls 
+ 
 ## Architecture
 
 ### Core Components
@@ -29,11 +31,12 @@ Quicken is an **independent, standalone** Python library that provides caching f
 **OPTIMIZED FOR CACHE HITS** - The cache is designed assuming 10-100 cache hits per cache miss.
 
 **Cache Lookup (Fast Path - No Tool Execution):**
-1. Look up source file by repo-relative path
-2. For each cached entry for that file:
-   - Compare tool command string (direct comparison)
-   - Compare file hashes for all dependencies
-   - If all match → Cache HIT!
+1. Look up the cached entry based on repo-relative path, tool and arguments. 
+   - If it does not exist, we have a Cache MISS
+   - If it exists, but the file size is different, we have a Cache MISS.
+   - If the mtime matches → File HIT (maybe a Cache hit)!
+   - If the mtime does not match, but the hashes matche → File HIT (maybe a Cache hit)!
+   - If we have a File hit, test all dependencies. If we get file hit for all dependencies, we have a Cache HIT!
 
 **Cache Miss (Slow Path - Runs Tool):**
 1. Run MSVC `/showIncludes` to detect dependencies for Cpp files 
@@ -65,40 +68,7 @@ Quicken automatically logs every request to `~/.quicken/quicken.log` with inform
 
 Quicken supports caching for **repo-level tools** (e.g., Doxygen, cppcheck) that operate on entire repositories rather than individual source files.
 
-
-### Example: Doxygen Integration
-
-**First Run (Cache MISS):**
-- Glob for all C++ files matching patterns (~50-100ms)
-- Calculate hashes for all files (~100-500ms)
-- Run Doxygen (~10-60 seconds)
-- Store directory tree in cache (~500-2000ms)
-- **Total: ~10-60 seconds + ~650-2600ms overhead**
-
-**Second Run (Cache HIT):**
-- Lookup cache by doxyfile path (<1ms)
-- Calculate and compare hashes for all C++ files (~100-500ms)
-- Restore directory tree from cache (~1-2 seconds)
-- **Total: ~1-3 seconds (5-30x speedup!)**
-
-### How It Works
-
-**1. Dependency Detection:**
-- Uses glob patterns instead of `/showIncludes`
-- Recursively finds all files matching patterns
-- Calculates 64-bit hash for all matched files
-
-**2. Cache Validation:**
-- Same hash-based approach as file-level caching
-- Compares hashes for ALL matched files
-- ANY file content change invalidates the cache
-
-**3. Directory Tree Caching:**
-- Preserves directory structure in cache
-- Stores relative paths in metadata
-- Restores complete directory hierarchy
-
-- 
+ 
 ### Multiple Runs with Different Configurations
 
 Each run with a different main file creates a separate cache entry:
@@ -126,10 +96,11 @@ Special keys:
 
 ### Why Hash Comparison?
 
-**Approach:** Store dependency hashes in cache, compare hashes on lookup
+**Approach:** Store dependency mtime, sizes and hashes in cache, compare on lookup
 
 **Benefits:**
-- Content-based comparison (~10-50ms for 50 files)
+- mtime and size comparison is very fast
+- Content-based comparison (hasing ~10-50ms for 50 files, is still fast if mtime has changed for the same content)
 - No `/showIncludes` needed on cache hits
 - No false cache invalidations from file touches
 - Detects actual content changes reliably
@@ -163,9 +134,16 @@ See `unit_tests/` directory for automated tests
 ## Conclusion
 
 Quicken provides transparent caching for C++ build tools with:
+- Artifacts are retrieved in 1ms when there is a cache hit
 - Minimal overhead on cache miss (~100-200ms)
 - Massive speedup on cache hit (100-1000x)
 - Easy integration with existing workflows
 - Simple, maintainable codebase
 
 The metadata-based approach prioritizes speed while the local-dependency tracking ensures practical correctness for iterative development.
+
+
+## Additional Instructions for Claude
+- Don't commit changes
+- Don't create documents explaining issues unless specifically asked to create documents
+- Do only what is requested. If more tasks are necessary, ask to clarify

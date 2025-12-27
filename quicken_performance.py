@@ -52,6 +52,9 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
         print(f"[{tool_name}] Skipping this tool.")
         return None
 
+    # Wait for async file operations to complete
+    quicken.cache.flush()
+
     # Verify expected outputs exist
     for output_file in expected_outputs:
         if not output_file.exists():
@@ -74,6 +77,9 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     if returncode2 != 0:
         print(f"[{tool_name}] ERROR: Cache hit failed with return code {returncode2}")
         return None
+
+    # Wait for async file restoration to complete
+    quicken.cache.flush()
 
     # Verify outputs restored from cache
     for output_file in expected_outputs:

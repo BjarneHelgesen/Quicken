@@ -17,6 +17,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 
 
 class RepoPath:
@@ -43,12 +44,13 @@ class RepoPath:
         """Convert this repo-relative path to an absolute path.
 
         Args:
-            repo: Repository root directory
+            repo: Repository root directory (should already be resolved for performance)
 
         Returns:
             Absolute path by joining repo with relative path
         """
-        return (repo / self.path).resolve()
+        # Assume repo is already resolved for performance - just join paths
+        return repo / self.path
 
     def __str__(self) -> str:
         """Return POSIX-style string representation for serialization.
@@ -70,7 +72,7 @@ class RepoPath:
         """Calculate 64-bit hash of the file this path points to.
 
         Args:
-            repo: Repository root to resolve relative path
+            repo: Repository root to resolve relative path (should already be resolved)
 
         Returns:
             16-character hex string (64-bit BLAKE2b hash)
@@ -94,6 +96,9 @@ class QuickenCache:
         self.index_file = cache_dir / "index.json"
         self.index = self._load_index()
         self._next_id = self._get_next_id()
+        # Thread pool for async file restoration (max 4 concurrent copy operations)
+        self._copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="quicken_copy")
+        self._pending_copies = []  # Track pending copy futures
 
     def _load_index(self) -> Dict:
         """Load the cache index.
@@ -118,8 +123,12 @@ class QuickenCache:
         }
         """
         if self.index_file.exists():
-            with open(self.index_file, 'r') as f:
-                return json.load(f)
+            try:
+                with open(self.index_file, 'r') as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                # Index file is empty or corrupted, start fresh
+                return {}
         return {}
 
     def _save_index(self):
@@ -155,33 +164,33 @@ class QuickenCache:
 
         Args:
             repo_path: RepoPath instance for the file
-            repo_dir: Repository root for hash calculation
+            repo_dir: Repository root for hash calculation (should already be resolved)
 
         Returns:
-            Dict with path, hash, mtime, and size
+            Dict with path, hash, mtime_ns (nanosecond precision), and size
         """
         file_path = repo_path.toAbsolutePath(repo_dir)
         stat = file_path.stat()
         return {
             "path": str(repo_path),  # Uses RepoPath.__str__() for POSIX format
             "hash": repo_path.calculateHash(repo_dir),
-            "mtime": stat.st_mtime,
+            "mtime_ns": stat.st_mtime_ns,  # Nanosecond precision timestamp
             "size": stat.st_size
         }
 
     def _dependencies_match(self, cached_deps: List[Dict], repo_dir: Path) -> Tuple[bool, bool]:
         """Check if cached dependencies match current file hashes.
 
-        Fast path: Check mtime+size first, only hash if mtime changed.
+        Fast path: Check mtime_ns+size first, only hash if mtime_ns changed.
 
         Args:
-            cached_deps: List of dicts with 'path', 'hash', 'mtime', 'size' keys
-            repo_dir: Repository root
+            cached_deps: List of dicts with 'path', 'hash', 'mtime_ns', 'size' keys
+            repo_dir: Repository root (should already be resolved)
 
         Returns:
             Tuple of (matches, needs_update) where:
             - matches: True if all dependencies match
-            - needs_update: True if mtime was updated in cached_deps
+            - needs_update: True if mtime_ns was updated in cached_deps
         """
         needs_update = False
 
@@ -200,15 +209,15 @@ class QuickenCache:
 
             # Get current file stats
             stat = file_path.stat()
-            current_mtime = stat.st_mtime
+            current_mtime_ns = stat.st_mtime_ns  # Nanosecond precision
             current_size = stat.st_size
 
-            cached_mtime = dep.get("mtime")
+            cached_mtime_ns = dep.get("mtime_ns")
             cached_size = dep.get("size")
 
-            # Fast path: mtime and size unchanged - skip hashing
-            if cached_mtime is not None and cached_size is not None:
-                if current_mtime == cached_mtime and current_size == cached_size:
+            # Fast path: mtime_ns and size unchanged - skip hashing
+            if cached_mtime_ns is not None and cached_size is not None:
+                if current_mtime_ns == cached_mtime_ns and current_size == cached_size:
                     continue
 
                 # Size changed - file is definitely different
@@ -220,9 +229,9 @@ class QuickenCache:
             if current_hash != expected_hash:
                 return False, False
 
-            # Hash matches but mtime changed - update cache with new mtime
-            if cached_mtime != current_mtime or cached_size != current_size:
-                dep["mtime"] = current_mtime
+            # Hash matches but mtime changed - update cache with new mtime_ns
+            if cached_mtime_ns != current_mtime_ns or cached_size != current_size:
+                dep["mtime_ns"] = current_mtime_ns
                 dep["size"] = current_size
                 needs_update = True
 
@@ -239,7 +248,7 @@ class QuickenCache:
             source_repo_path: RepoPath for source file
             tool_name: Name of the tool
             tool_args: Tool arguments list
-            repo_dir: Repository root
+            repo_dir: Repository root (should already be resolved)
 
         Returns:
             Cache entry directory path if found, None otherwise
@@ -302,7 +311,7 @@ class QuickenCache:
             stdout: Tool stdout
             stderr: Tool stderr
             returncode: Tool exit code
-            repo_dir: Repository directory (for hashing dependencies)
+            repo_dir: Repository directory (for hashing dependencies, should already be resolved)
             repo_mode: If True, this is a repo-level cache entry
             dependency_patterns: Glob patterns used (for repo mode)
             output_base_dir: Base directory for preserving relative paths
@@ -334,7 +343,7 @@ class QuickenCache:
                     file_path_str = output_file.name
 
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(output_file, dest)
+                shutil.copyfile(output_file, dest)
                 stored_files.append(file_path_str)
 
         dep_metadata = [self._get_file_metadata(dep, repo_dir) for dep in dependency_repo_paths]
@@ -383,8 +392,28 @@ class QuickenCache:
 
         return cache_entry_dir
 
+    def _copy_files(self, cache_entry_dir: Path, output_dir: Path, files ):
+        """Worker method to copy files in background thread.
+
+        Args:
+            cache_entry_dir: Cache entry directory containing source files
+            output_dir: Destination directory for restored files
+            files: List of file names 
+        """
+        for file_path_str in files:
+            # file_path_str may be relative path (e.g., "xml/index.xml")
+            src = cache_entry_dir / file_path_str
+            dest = output_dir / file_path_str
+
+            # Create parent directories if needed
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+
     def restore(self, cache_entry_dir: Path, output_dir: Path) -> Tuple[str, str, int]:
-        """Restore cached files to output directory.
+        """Restore cached files to output directory (async).
+
+        Files are copied in a background thread pool, allowing this method
+        to return quickly. Files will appear in output_dir within a few ms.
 
         Handles both flat files and directory trees using relative paths.
 
@@ -395,16 +424,11 @@ class QuickenCache:
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
 
-        # Restore output files (preserving directory structure)
-        for file_path_str in metadata["files"]:
-            # file_path_str may be relative path (e.g., "xml/index.xml")
-            src = cache_entry_dir / file_path_str
-            dest = output_dir / file_path_str
-
-            if src.exists():
-                # Create parent directories if needed
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
+        files = metadata["files"]
+ 
+        # Submit file copy job to thread pool (non-blocking) and track it
+        future = self._copy_executor.submit(self._copy_files, cache_entry_dir, output_dir, files)
+        self._pending_copies.append(future)
 
         return metadata["stdout"], metadata["stderr"], metadata["returncode"]
 
@@ -421,7 +445,24 @@ class QuickenCache:
         # Clear the index
         self.index = {}
         self._save_index()
-        
+
+    def flush(self, timeout: float = 5.0):
+        """Wait for all pending copy operations to complete.
+
+        This ensures all files have been restored before continuing.
+        The thread pool remains active for future operations.
+
+        Args:
+            timeout: Maximum seconds to wait for each copy (None = wait forever)
+        """
+        from concurrent.futures import wait, FIRST_EXCEPTION
+
+        if self._pending_copies:
+            # Wait for all pending copies to complete
+            wait(self._pending_copies, timeout=timeout, return_when=FIRST_EXCEPTION)
+            # Clear completed futures
+            self._pending_copies = [f for f in self._pending_copies if not f.done()]
+
 
 class ToolCmd(ABC):
     """Base class for tool command wrappers."""
@@ -519,7 +560,7 @@ class ToolCmd(ABC):
             tool_name: Name of the tool
             tool_args: Tool arguments (without source_file/main_file)
             source_repo_path: RepoPath for source file
-            repo_dir: Repository directory
+            repo_dir: Repository directory (should already be resolved)
 
         Returns:
             Tuple of (cache_entry, modified_args) or (None, original_args)
@@ -697,11 +738,13 @@ class Quicken:
         return env
 
     def _get_local_dependencies(self, source_file: Path, repo_dir: Path) -> List[Path]:
-        """Get list of local (repo) file dependencies using MSVC /showIncludes."""
-        cl_path = ToolCmd.get_tool_path(self.config, "cl")
+        """Get list of local (repo) file dependencies using MSVC /showIncludes.
 
-        # Pre-resolve repo_dir once for faster filtering
-        repo_dir_resolved = repo_dir.resolve()
+        Args:
+            source_file: Source file to analyze
+            repo_dir: Repository directory (should already be resolved)
+        """
+        cl_path = ToolCmd.get_tool_path(self.config, "cl")
 
         # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
         # This is much faster than full preprocessing
@@ -725,7 +768,7 @@ class Quicken:
 
                 # Only include files within the repository
                 try:
-                    file_path.resolve().relative_to(repo_dir_resolved)
+                    file_path.resolve().relative_to(repo_dir)
                     dependencies.append(file_path)
                 except ValueError:
                     # File is outside repo, skip it
@@ -834,6 +877,9 @@ class Quicken:
         Returns:
             Tool exit code (integer)
         """
+        # OPTIMIZATION: Resolve repo_dir once at entry point to avoid repeated resolve() calls
+        repo_dir = repo_dir.resolve()
+
         # VALIDATE: Convert source_file to RepoPath at API entry
         if source_file.is_absolute():
             source_repo_path = RepoPath.fromAbsolutePath(repo_dir, source_file)
@@ -881,6 +927,8 @@ class Quicken:
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                            f"args: {modified_args}, cache_entry: {cache_entry.name}, "
                            f"returncode: {returncode}")
+            # Flush to ensure all async file copies are complete
+            self.cache.flush()
             return returncode
 
         local_files = self._get_local_dependencies(abs_source_file, repo_dir)
@@ -913,6 +961,9 @@ class Quicken:
                        f"args: {modified_args}, dependencies: {len(local_dep_repo_paths)}, "
                        f"returncode: {returncode}, output_files: {len(output_files)}")
 
+        # Flush to ensure all async file copies are complete
+        self.cache.flush()
+
         return returncode
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
@@ -933,6 +984,9 @@ class Quicken:
         Returns:
             Tool exit code (integer)
         """
+        # OPTIMIZATION: Resolve repo_dir once at entry point to avoid repeated resolve() calls
+        repo_dir = repo_dir.resolve()
+
         # VALIDATE: Convert main_file to RepoPath at API entry
         if main_file.is_absolute():
             main_repo_path = RepoPath.fromAbsolutePath(repo_dir, main_file)
@@ -981,6 +1035,8 @@ class Quicken:
                 print(stdout, end='')
             if stderr:
                 print(stderr, end='', file=sys.stderr)
+            # Flush to ensure all async file copies are complete
+            self.cache.flush()
             return returncode
 
         repo_files = self._get_repo_dependencies(repo_dir, dependency_patterns)
@@ -1016,8 +1072,22 @@ class Quicken:
                        f"dependencies: {len(repo_dep_repo_paths)}, returncode: {returncode}, "
                        f"output_files: {len(output_files)}")
 
+        # Flush to ensure all async file copies are complete
+        self.cache.flush()
+
         return returncode
 
     def clear_cache(self):
         """Clear the entire cache."""
         self.cache.clear()
+
+    def flush(self, timeout: float = 5.0):
+        """Wait for all pending copy operations to complete.
+
+        Call this to ensure all async file copies have finished before
+        accessing output files or exiting the application.
+
+        Args:
+            timeout: Maximum seconds to wait for copies (None = wait forever)
+        """
+        self.cache.flush(timeout=timeout)

@@ -374,7 +374,7 @@ class TestMSVCStdoutStderr:
             repo_dir=cpp_file.parent,
             output_dir=cpp_file.parent
         )
-
+        
         # Verify exact reproduction
         assert returncode1 == returncode2
         assert stdout1 == stdout2

@@ -409,6 +409,7 @@ class TestQuickenClang:
                                            repo_dir=test_cpp_file.parent,
                                            output_dir=test_cpp_file.parent,
                                            optimization=None)
+
         assert obj_file.exists(), ".o file should be restored from cache again"
 
     def test_clang_with_warnings(self, quicken_instance, temp_dir):
@@ -436,6 +437,7 @@ class TestQuickenClang:
                                            repo_dir=cpp_file.parent,
                                            output_dir=cpp_file.parent)
         assert returncode2 == returncode1
+
         assert obj_file.exists()
 
 
