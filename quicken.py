@@ -807,6 +807,25 @@ class Quicken:
         # Return absolute paths
         return [d.resolve() for d in unique_deps]
 
+    def _get_file_timestamps(self, directory: Path) -> Dict[Path, int]:
+        """Get dictionary of file paths to their modification timestamps.
+
+        Arg directory: Directory to scan
+        Returns: Dictionary mapping file paths to st_mtime_ns timestamps
+        """
+        if not directory.exists():
+            return {}
+         
+        file_timestamps = {}
+        for f in directory.rglob("*"): 
+            if f.is_file():
+                try:
+                    file_timestamps[f] = f.stat().st_mtime_ns
+                except (OSError, FileNotFoundError):
+                    pass
+
+        return file_timestamps
+
     def _run_repo_tool_impl(self, tool: ToolCmd, tool_args: List[str],
                             main_file: Path, work_dir: Path, output_dir: Path) -> Tuple[List[Path], str, str, int]:
         """Run repo-level tool and detect all output files.
@@ -821,7 +840,7 @@ class Quicken:
         Returns:
             Tuple of (output_files, stdout, stderr, returncode)
         """
-        files_before = set(output_dir.rglob("*")) if output_dir.exists() else set()
+        files_before = self._get_file_timestamps(output_dir)
 
         cmd = tool.build_execution_command(main_file)
 
@@ -833,9 +852,13 @@ class Quicken:
             env=tool.env
         )
 
-        files_after = set(output_dir.rglob("*")) if output_dir.exists() else set()
-        new_files = files_after - files_before
-        output_files = [f for f in new_files if f.is_file()]
+        files_after = self._get_file_timestamps(output_dir)
+
+        # Detect output files: new files OR files with updated timestamps
+        output_files = [
+            f for f, mtime in files_after.items()
+            if f not in files_before or mtime > files_before[f]
+        ]
 
         return output_files, result.stdout, result.stderr, result.returncode
 
@@ -852,7 +875,7 @@ class Quicken:
         Returns:
             Tuple of (output_files, stdout, stderr, returncode)
         """
-        files_before = set(work_dir.iterdir()) if work_dir.exists() else set()
+        files_before = self._get_file_timestamps(work_dir)
 
         cmd = tool.build_execution_command(source_file)
 
@@ -864,9 +887,13 @@ class Quicken:
             env=tool.env
         )
 
-        files_after = set(work_dir.iterdir()) if work_dir.exists() else set()
-        new_files = files_after - files_before
-        output_files = [f for f in new_files if f.is_file() and f != source_file]
+        files_after = self._get_file_timestamps(work_dir)
+
+        # Detect output files: new files OR files with updated timestamps (excluding source file)
+        output_files = [
+            f for f, mtime in files_after.items()
+            if f != source_file and (f not in files_before or mtime > files_before[f])
+        ]
 
         return output_files, result.stdout, result.stderr, result.returncode
 
