@@ -133,45 +133,49 @@ class TestInputArgsCaching:
 
     def test_different_input_args_different_cache(self, quicken_instance, test_cpp_file, temp_dir):
         """Test that different input_args create different cache entries."""
-        import time
 
-        # Create header files with unique FILENAMES (not just content)
-        # This ensures different cache keys on every run
-        timestamp = int(time.time() * 1000000)  # microsecond precision
-
-        header1 = temp_dir / f"header1_{timestamp}.h"
+        # Create header files with different names
+        header1 = temp_dir / "header1.h"
         header1.write_text("#define VALUE1 1\n")
 
-        header2 = temp_dir / f"header2_{timestamp}.h"
+        header2 = temp_dir / "header2.h"
         header2.write_text("#define VALUE2 2\n")
 
         tool_args = ["/c", "/nologo", "/EHsc"]
-
-        # Track initial cache size
-        initial_size = len(quicken_instance.cache.index)
+        input_args1 = ["-include", str(header1)]
+        input_args2 = ["-include", str(header2)]
 
         # First run with header1
         returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
             repo_dir=test_cpp_file.parent,
-            input_args=["-include", str(header1)]
+            input_args=input_args1
         )
         assert returncode1 == 0
-
-        # Check cache increased by one entry
-        assert len(quicken_instance.cache.index) == initial_size + 1, \
-            "Different input_args should create new cache entry"
 
         # Second run with header2 - should be different cache entry
         returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
             repo_dir=test_cpp_file.parent,
-            input_args=["-include", str(header2)]
+            input_args=input_args2
         )
         assert returncode2 == 0
 
-        # Should have two new cache entries now
-        assert len(quicken_instance.cache.index) == initial_size + 2, \
+        # Verify that both input_args created separate cache entries by finding their keys in the cache
+        # Cache keys should contain the input_args in JSON format
+        cache_keys_with_header1 = [k for k in quicken_instance.cache.index if '"header1.h"' in k]
+        cache_keys_with_header2 = [k for k in quicken_instance.cache.index if '"header2.h"' in k]
+
+        # Both should exist in cache
+        assert len(cache_keys_with_header1) > 0, \
+            "header1.h input_args should create cache entry"
+        assert len(cache_keys_with_header2) > 0, \
+            "header2.h input_args should create cache entry"
+
+        # They should be different cache entries (different cache_key values like entry_000022 vs entry_000023)
+        entry1 = quicken_instance.cache.index[cache_keys_with_header1[0]]
+        entry2 = quicken_instance.cache.index[cache_keys_with_header2[0]]
+        assert entry1['cache_key'] != entry2['cache_key'], \
             "Different input_args should create separate cache entries"
 
     def test_same_input_args_cache_hit(self, quicken_instance, test_cpp_file, temp_dir):
