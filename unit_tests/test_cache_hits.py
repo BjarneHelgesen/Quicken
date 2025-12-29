@@ -92,7 +92,6 @@ class TestCacheHits:
             "cl",
             args_config1,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
         assert returncode1 == 0
 
@@ -101,7 +100,6 @@ class TestCacheHits:
             "cl",
             args_config2,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
         assert returncode2 == 0
 

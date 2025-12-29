@@ -107,7 +107,6 @@ class TestArtifactOverwrite:
         returncode1 = quicken_instance.run(
             cpp_file, "cl", tool_args,
             repo_dir=temp_dir,
-            output_dir=temp_dir
         )
         assert returncode1 == 0, "Initial compilation should succeed"
         assert obj_file.exists(), "Initial .obj file should be created"
@@ -128,7 +127,6 @@ class TestArtifactOverwrite:
         returncode2 = quicken_instance.run(
             cpp_file, "cl", tool_args,
             repo_dir=temp_dir,
-            output_dir=temp_dir
         )
         assert returncode2 == 0, "Modified compilation should succeed"
         assert obj_file.exists(), "New .obj file should exist after recompilation"
@@ -148,7 +146,6 @@ class TestArtifactOverwrite:
         returncode3 = quicken_instance.run(
             cpp_file, "cl", tool_args,
             repo_dir=temp_dir,
-            output_dir=temp_dir
         )
         assert returncode3 == 0, "Cache hit compilation should succeed"
         assert obj_file.exists(), "Cached .obj file should be restored"
@@ -186,7 +183,6 @@ class TestArtifactOverwrite:
         returncode = quicken_instance.run(
             cpp_file, "cl", tool_args,
             repo_dir=temp_dir,
-            output_dir=temp_dir
         )
         assert returncode == 0, "Compilation should succeed"
         assert obj_file.exists(), "New .obj file should exist"
@@ -205,7 +201,6 @@ class TestArtifactOverwrite:
         returncode2 = quicken_instance.run(
             cpp_file, "cl", tool_args,
             repo_dir=temp_dir,
-            output_dir=temp_dir
         )
         assert returncode2 == 0, "Cache hit should succeed"
         assert obj_file.exists(), "Cached .obj should be restored"

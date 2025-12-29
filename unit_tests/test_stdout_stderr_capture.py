@@ -147,7 +147,7 @@ class TestStdoutStderrCapture:
         # Store in cache
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            stdout, stderr, returncode, temp_dir
+            stdout, stderr, returncode, temp_dir, output_base_dir=temp_dir
         )
 
         # Verify metadata.json contains stdout and stderr
@@ -185,7 +185,7 @@ class TestStdoutStderrCapture:
         # Store in cache
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, returncode, temp_dir
+            original_stdout, original_stderr, returncode, temp_dir, output_base_dir=temp_dir
         )
 
         # Delete output file
@@ -195,6 +195,9 @@ class TestStdoutStderrCapture:
         restored_stdout, restored_stderr, restored_returncode = cache.restore(
             cache_entry, temp_dir
         )
+
+        # Wait for async file copy to complete
+        cache.flush()
 
         # Verify exact match
         assert restored_stdout == original_stdout
@@ -219,7 +222,7 @@ class TestStdoutStderrCapture:
         # Store with empty stdout and stderr
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            "", "", 0, temp_dir
+            "", "", 0, temp_dir, output_base_dir=temp_dir
         )
 
         # Restore
@@ -254,7 +257,7 @@ class TestStdoutStderrCapture:
 
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, 0, temp_dir
+            original_stdout, original_stderr, 0, temp_dir, output_base_dir=temp_dir
         )
 
         # Restore and verify exact preservation
@@ -289,7 +292,7 @@ class TestStdoutStderrCapture:
 
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, 0, temp_dir
+            original_stdout, original_stderr, 0, temp_dir, output_base_dir=temp_dir
         )
 
         # Restore and verify
@@ -315,7 +318,6 @@ class TestMSVCStdoutStderr:
             quicken_instance.run,
             test_cpp_file, "cl", tool_args,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
 
         if returncode1 != 0:
@@ -331,7 +333,6 @@ class TestMSVCStdoutStderr:
             quicken_instance.run,
             test_cpp_file, "cl", tool_args,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
 
         # Verify outputs are identical
@@ -352,7 +353,6 @@ class TestMSVCStdoutStderr:
             quicken_instance.run,
             cpp_file, "cl", tool_args,
             repo_dir=cpp_file.parent,
-            output_dir=cpp_file.parent
         )
 
         # Should succeed with warnings
@@ -372,7 +372,6 @@ class TestMSVCStdoutStderr:
             quicken_instance.run,
             cpp_file, "cl", tool_args,
             repo_dir=cpp_file.parent,
-            output_dir=cpp_file.parent
         )
         
         # Verify exact reproduction
@@ -393,7 +392,6 @@ class TestMSVCStdoutStderr:
             quicken_instance.run,
             test_cpp_file, "cl", tool_args_banner,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
 
         if returncode1 != 0:
@@ -410,7 +408,6 @@ class TestMSVCStdoutStderr:
             quicken_instance.run,
             test_cpp_file, "cl", tool_args_nologo,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
 
         if returncode2 != 0:
@@ -437,7 +434,6 @@ class TestClangStdoutStderr:
             quicken_instance.run,
             test_cpp_file, "clang++", tool_args,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
 
         if returncode1 != 0:
@@ -453,7 +449,6 @@ class TestClangStdoutStderr:
             quicken_instance.run,
             test_cpp_file, "clang++", tool_args,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
 
         # Verify exact reproduction
@@ -473,7 +468,6 @@ class TestClangStdoutStderr:
             quicken_instance.run,
             cpp_file, "clang++", tool_args,
             repo_dir=cpp_file.parent,
-            output_dir=cpp_file.parent
         )
 
         if returncode1 != 0:
@@ -492,7 +486,6 @@ class TestClangStdoutStderr:
             quicken_instance.run,
             cpp_file, "clang++", tool_args,
             repo_dir=cpp_file.parent,
-            output_dir=cpp_file.parent
         )
 
         # Verify exact reproduction
@@ -518,7 +511,6 @@ class TestClangTidyStdoutStderr:
                 quicken_instance.run,
                 test_cpp_file, "clang-tidy", tool_args,
                 repo_dir=test_cpp_file.parent,
-                output_dir=test_cpp_file.parent
             )
         except Exception:
             pytest.skip("clang-tidy not available or failed")
@@ -532,7 +524,6 @@ class TestClangTidyStdoutStderr:
             quicken_instance.run,
             test_cpp_file, "clang-tidy", tool_args,
             repo_dir=test_cpp_file.parent,
-            output_dir=test_cpp_file.parent
         )
 
         # Verify exact reproduction
@@ -614,7 +605,7 @@ class TestErrorCases:
         # Store error result (no output files created)
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [],
-            stdout, stderr, returncode, temp_dir
+            stdout, stderr, returncode, temp_dir, output_base_dir=temp_dir
         )
 
         # Restore

@@ -37,8 +37,7 @@ def example_library_usage_verbose():
             source_file=Path(source_file),
             tool_name="cl",
             tool_args=["/c"],
-            repo_dir=Path.cwd(),
-            output_dir=Path.cwd()
+            repo_dir=Path.cwd()
         )
     elapsed = time.perf_counter() - start
 
@@ -61,8 +60,7 @@ def example_library_usage_quiet():
             source_file=Path(source_file),
             tool_name="cl",
             tool_args=["/c"],
-            repo_dir=Path.cwd(),
-            output_dir=Path.cwd()
+            repo_dir=Path.cwd()
         )
         if returncode != 0:
             print(f"ERROR: {source_file} failed with code {returncode}")
@@ -88,8 +86,7 @@ def example_parallel_builds():
             source_file=Path(source_file),
             tool_name="cl",
             tool_args=["/c", "/W4"],
-            repo_dir=Path.cwd(),
-            output_dir=Path.cwd()
+            repo_dir=Path.cwd()
         )
         return source_file, returncode
 
@@ -137,6 +134,6 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("Summary:")
     print("  - Initialize Quicken once, call run() many times")
-    print("  - Always provide repo_dir and output_dir parameters")
-    print("  - Expected speedup: 40-100x vs subprocess approach")
+    print("  - Always provide repo_dir parameter")
+    print("  - Use output_args for output-specific flags (not part of cache key)")
     print("=" * 60)

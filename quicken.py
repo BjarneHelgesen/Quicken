@@ -368,7 +368,8 @@ class QuickenCache:
             "files": stored_files,
             "stdout": stdout,
             "stderr": stderr,
-            "returncode": returncode
+            "returncode": returncode,
+            "repo_dir": str(repo_dir)  # Normalized absolute path for path translation
         }
 
         if repo_mode:
@@ -401,30 +402,84 @@ class QuickenCache:
 
         return cache_entry_dir
 
-    def _copy_files(self, cache_entry_dir: Path, output_dir: Path, files ):
+    def _copy_files(self, cache_entry_dir: Path, repo_dir: Path, files ):
         """Worker method to copy files in background thread.
 
         Args:
             cache_entry_dir: Cache entry directory containing source files
-            output_dir: Destination directory for restored files
-            files: List of file names 
+            repo_dir: Repository directory where files will be restored
+            files: List of repo-relative file paths
         """
         for file_path_str in files:
-            # file_path_str may be relative path (e.g., "xml/index.xml")
+            # file_path_str is repo-relative path (e.g., "build/output.o" or "xml/index.xml")
             src = cache_entry_dir / file_path_str
-            dest = output_dir / file_path_str
+            dest = repo_dir / file_path_str
 
             # Create parent directories if needed
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)
 
-    def restore(self, cache_entry_dir: Path, output_dir: Path) -> Tuple[str, str, int]:
-        """Restore cached files to output directory (async).
+    def _translate_paths(self, text: str, old_repo_dir: str, new_repo_dir: str,
+                        main_file_path: str, dependencies: List[Dict], files: List[str]) -> str:
+        """Translate absolute paths in text from old repo location to new repo location.
+
+        Only translates paths for explicitly tracked files (main file, dependencies, artifacts).
+        Paths are normalized (no ..) before replacement.
+
+        Args:
+            text: Text to translate (stdout or stderr)
+            old_repo_dir: Old repository root (normalized)
+            new_repo_dir: New repository root (normalized)
+            main_file_path: Repo-relative path to main source file
+            dependencies: List of dependency dicts with 'path' keys
+            files: List of repo-relative artifact paths
+
+        Returns:
+            Text with translated paths
+        """
+        if not text or old_repo_dir == new_repo_dir:
+            return text
+
+        # Build list of (old_absolute_path, new_absolute_path) tuples
+        path_mappings = []
+
+        # Add main file
+        old_main = str(Path(old_repo_dir) / main_file_path)
+        new_main = str(Path(new_repo_dir) / main_file_path)
+        path_mappings.append((old_main, new_main))
+
+        # Add all dependencies
+        for dep in dependencies:
+            dep_rel_path = dep["path"]
+            old_dep = str(Path(old_repo_dir) / dep_rel_path)
+            new_dep = str(Path(new_repo_dir) / dep_rel_path)
+            path_mappings.append((old_dep, new_dep))
+
+        # Add all artifacts
+        for file_rel_path in files:
+            old_file = str(Path(old_repo_dir) / file_rel_path)
+            new_file = str(Path(new_repo_dir) / file_rel_path)
+            path_mappings.append((old_file, new_file))
+
+        # Sort by length descending to replace longer paths first (avoid partial matches)
+        path_mappings.sort(key=lambda x: len(x[0]), reverse=True)
+
+        # Replace all old paths with new paths
+        result = text
+        for old_path, new_path in path_mappings:
+            result = result.replace(old_path, new_path)
+
+        return result
+
+    def restore(self, cache_entry_dir: Path, repo_dir: Path) -> Tuple[str, str, int]:
+        """Restore cached files to repository (async).
 
         Files are copied in a background thread pool, allowing this method
-        to return quickly. Files will appear in output_dir within a few ms.
+        to return quickly. Files will appear in their repo-relative locations within a few ms.
 
         Handles both flat files and directory trees using relative paths.
+
+        Translates absolute paths in stdout/stderr from cached repo location to current location.
 
         Returns:
             Tuple of (stdout, stderr, returncode)
@@ -434,12 +489,23 @@ class QuickenCache:
             metadata = json.load(f)
 
         files = metadata["files"]
- 
+
         # Submit file copy job to thread pool (non-blocking) and track it
-        future = self._copy_executor.submit(self._copy_files, cache_entry_dir, output_dir, files)
+        future = self._copy_executor.submit(self._copy_files, cache_entry_dir, repo_dir, files)
         self._pending_copies.append(future)
 
-        return metadata["stdout"], metadata["stderr"], metadata["returncode"]
+        # Translate paths in stdout/stderr from old repo location to new location
+        old_repo_dir = metadata.get("repo_dir", str(repo_dir))  # Default to current if not stored
+        new_repo_dir = str(repo_dir)
+        main_file_path = metadata["main_file_path"]
+        dependencies = metadata["dependencies"]
+
+        stdout = self._translate_paths(metadata["stdout"], old_repo_dir, new_repo_dir,
+                                       main_file_path, dependencies, files)
+        stderr = self._translate_paths(metadata["stderr"], old_repo_dir, new_repo_dir,
+                                       main_file_path, dependencies, files)
+
+        return stdout, stderr, metadata["returncode"]
 
     def clear(self):
         """Clear all cached entries."""
@@ -481,7 +547,7 @@ class ToolCmd(ABC):
     optimization_flags = []
     needs_vcvars = False
 
-    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, env, optimization=None):
+    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, env, optimization=None, output_args=None):
         self.tool_path = tool_path
         self.arguments = arguments
         self.optimization = optimization
@@ -489,6 +555,7 @@ class ToolCmd(ABC):
         self.logger = logger
         self.cache = cache
         self.env = env  # Environment dict or None
+        self.output_args = output_args if output_args is not None else []  # Output-specific arguments (not part of cache key)
 
     @staticmethod
     def get_tool_path(config: Dict, tool_name: str) -> str:
@@ -556,8 +623,13 @@ class ToolCmd(ABC):
         modified_args = self.add_optimization_flags(self.arguments)
         cmd = [self.tool_path] + modified_args
 
+        # Add main file before output args (some tools expect source file before -o)
         if main_file:
             cmd.append(str(main_file))
+
+        # Append output_args at the end (these are not part of the cache key)
+        if self.output_args:
+            cmd.extend(self.output_args)
 
         return cmd
 
@@ -623,18 +695,19 @@ class ToolRegistry:
 
     @classmethod
     def create(cls, tool_name: str, tool_path: str, arguments: List[str],
-               logger, config, cache, quicken, optimization=None) -> ToolCmd:
+               logger, config, cache, quicken, optimization=None, output_args=None) -> ToolCmd:
         """Create ToolCmd instance for the given tool name.
 
         Args:
             tool_name: Name of the tool (must be registered)
             tool_path: Full path to tool executable
-            arguments: Command-line arguments
+            arguments: Command-line arguments (part of cache key)
             logger: Logger instance
             config: Configuration dict
             cache: QuickenCache instance
             quicken: Quicken instance (for environment access if needed)
             optimization: Optional optimization level
+            output_args: Output-specific arguments (NOT part of cache key)
 
         Returns:
             ToolCmd subclass instance
@@ -651,7 +724,7 @@ class ToolRegistry:
         env = quicken._msvc_env if tool_class.needs_vcvars else None
 
         return tool_class(tool_path, arguments, logger, config, cache,
-                         env, optimization)
+                         env, optimization, output_args)
 
 class Quicken:
     """Main Quicken application."""
@@ -827,20 +900,19 @@ class Quicken:
         return file_timestamps
 
     def _run_repo_tool_impl(self, tool: ToolCmd, tool_args: List[str],
-                            main_file: Path, work_dir: Path, output_dir: Path) -> Tuple[List[Path], str, str, int]:
+                            main_file: Path, work_dir: Path) -> Tuple[List[Path], str, str, int]:
         """Run repo-level tool and detect all output files.
 
         Args:
             tool: ToolCmd instance
             tool_args: Arguments to pass to tool (already includes optimization)
             main_file: Main file path (e.g., Doxyfile)
-            work_dir: Working directory for tool execution
-            output_dir: Directory where tool creates output files
+            work_dir: Working directory for tool execution (repo_dir)
 
         Returns:
             Tuple of (output_files, stdout, stderr, returncode)
         """
-        files_before = self._get_file_timestamps(output_dir)
+        files_before = self._get_file_timestamps(work_dir)
 
         cmd = tool.build_execution_command(main_file)
 
@@ -852,7 +924,7 @@ class Quicken:
             env=tool.env
         )
 
-        files_after = self._get_file_timestamps(output_dir)
+        files_after = self._get_file_timestamps(work_dir)
 
         # Detect output files: new files OR files with updated timestamps
         output_files = [
@@ -863,19 +935,19 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def _run_tool(self, tool: ToolCmd, tool_args: List[str], source_file: Path,
-                  work_dir: Path) -> Tuple[List[Path], str, str, int]:
+                  repo_dir: Path) -> Tuple[List[Path], str, str, int]:
         """Run the specified tool with arguments.
 
         Args:
             tool: ToolCmd instance
             tool_args: Arguments to pass to tool (already includes optimization flags)
             source_file: Path to C++ file to process
-            work_dir: Directory to look for output files
+            repo_dir: Repository directory to scan for output files
 
         Returns:
             Tuple of (output_files, stdout, stderr, returncode)
         """
-        files_before = self._get_file_timestamps(work_dir)
+        files_before = self._get_file_timestamps(repo_dir)
 
         cmd = tool.build_execution_command(source_file)
 
@@ -887,7 +959,7 @@ class Quicken:
             env=tool.env
         )
 
-        files_after = self._get_file_timestamps(work_dir)
+        files_after = self._get_file_timestamps(repo_dir)
 
         # Detect output files: new files OR files with updated timestamps (excluding source file)
         output_files = [
@@ -898,17 +970,17 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
-            repo_dir: Path, output_dir: Path, optimization: int = None) -> int:
+            repo_dir: Path, optimization: int = None, output_args: List[str] = None) -> int:
         """
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
         Args:
             source_file: C++ file to process (absolute or relative path)
             tool_name: Tool to run
-            tool_args: Arguments for the tool
-            repo_dir: Repository directory (for dependency filtering)
-            output_dir: Directory where tool creates output files (for detection and cache restoration)
+            tool_args: Arguments for the tool (part of cache key)
+            repo_dir: Repository directory
             optimization: Optimization level (0-3, or None to accept any cached level)
+            output_args: Output-specific arguments (NOT part of cache key, e.g., ['-o', 'output.s'])
 
         Returns:
             Tool exit code (integer)
@@ -925,24 +997,14 @@ class Quicken:
         if source_repo_path is None:
             raise ValueError(f"Source file {source_file} is outside repository {repo_dir}")
 
-        # VALIDATE: output_dir must be within repo
-        if output_dir.is_absolute():
-            output_repo_path = RepoPath.fromAbsolutePath(repo_dir, output_dir)
-        else:
-            output_repo_path = RepoPath.fromRelativePath(repo_dir, output_dir)
-
-        if output_repo_path is None:
-            raise ValueError(f"Output directory {output_dir} is outside repository {repo_dir}")
-
-        # Convert RepoPath back to absolute paths for tool execution
+        # Convert RepoPath back to absolute path for tool execution
         abs_source_file = source_repo_path.toAbsolutePath(repo_dir)
-        abs_output_dir = output_repo_path.toAbsolutePath(repo_dir)
 
         start_time = time.perf_counter()
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
         tool = ToolRegistry.create(
             tool_name, tool_path, tool_args,
-            self.logger, self.config, self.cache, self, optimization
+            self.logger, self.config, self.cache, self, optimization, output_args
         )
 
         if optimization is None:
@@ -954,7 +1016,7 @@ class Quicken:
             cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir)
 
         if cache_entry:
-            stdout, stderr, returncode = self.cache.restore(cache_entry, abs_output_dir)
+            stdout, stderr, returncode = self.cache.restore(cache_entry, repo_dir)
             if stdout:
                 print(stdout, end='')
             if stderr:
@@ -977,7 +1039,7 @@ class Quicken:
                 local_dep_repo_paths.append(dep_repo_path)
 
         output_files, stdout, stderr, returncode = self._run_tool(
-            tool, modified_args, abs_source_file, abs_output_dir
+            tool, modified_args, abs_source_file, repo_dir
         )
 
 
@@ -990,7 +1052,7 @@ class Quicken:
             source_repo_path, tool_name, modified_args, local_dep_repo_paths, output_files,
             stdout, stderr, returncode, repo_dir,
             repo_mode=False,
-            output_base_dir=abs_output_dir
+            output_base_dir=repo_dir
         )
         self.logger.info(f"CACHE MISS - source_file: {source_repo_path}, tool: {tool_name}, "
                        f"Time: {time.perf_counter()-start_time:.3f} seconds, "
@@ -1004,18 +1066,18 @@ class Quicken:
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
                       main_file: Path, dependency_patterns: List[str],
-                      output_dir: Path, optimization: int = None) -> int:
+                      optimization: int = None, output_args: List[str] = None) -> int:
         """
         Run a repo-level tool with caching based on dependency patterns.
 
         Args:
             repo_dir: Repository root directory
             tool_name: Tool to run (e.g., "doxygen")
-            tool_args: Arguments for the tool (WITHOUT main_file path)
+            tool_args: Arguments for the tool (part of cache key, WITHOUT main_file path)
             main_file: Main file for the tool (e.g., Doxyfile path - absolute or relative)
             dependency_patterns: Glob patterns for dependencies
-            output_dir: Directory where tool creates output files (absolute or relative)
             optimization: Optimization level (0-3, or None to accept any cached level)
+            output_args: Output-specific arguments (NOT part of cache key)
 
         Returns:
             Tool exit code (integer)
@@ -1032,25 +1094,15 @@ class Quicken:
         if main_repo_path is None:
             raise ValueError(f"Main file {main_file} is outside repository {repo_dir}")
 
-        # VALIDATE: output_dir must be within repo
-        if output_dir.is_absolute():
-            output_repo_path = RepoPath.fromAbsolutePath(repo_dir, output_dir)
-        else:
-            output_repo_path = RepoPath.fromRelativePath(repo_dir, output_dir)
-
-        if output_repo_path is None:
-            raise ValueError(f"Output directory {output_dir} is outside repository {repo_dir}")
-
-        # Convert RepoPath back to absolute paths for tool execution
+        # Convert RepoPath back to absolute path for tool execution
         abs_main_file = main_repo_path.toAbsolutePath(repo_dir)
-        abs_output_dir = output_repo_path.toAbsolutePath(repo_dir)
 
         start_time = time.perf_counter();
 
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
         tool = ToolRegistry.create(
             tool_name, tool_path, tool_args,
-            self.logger, self.config, self.cache, self, optimization
+            self.logger, self.config, self.cache, self, optimization, output_args
         )
 
         if optimization is None:
@@ -1062,7 +1114,7 @@ class Quicken:
             cache_entry = self.cache.lookup(main_repo_path, tool_name, modified_args, repo_dir)
 
         if cache_entry:
-            stdout, stderr, returncode = self.cache.restore(cache_entry, abs_output_dir)
+            stdout, stderr, returncode = self.cache.restore(cache_entry, repo_dir)
             self.logger.info(f"CACHE HIT (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                            f"args: {modified_args}, main_file: {main_repo_path}, "
@@ -1085,7 +1137,7 @@ class Quicken:
                 repo_dep_repo_paths.append(dep_repo_path)
 
         output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
-            tool, modified_args, abs_main_file, work_dir=repo_dir, output_dir=abs_output_dir
+            tool, modified_args, abs_main_file, work_dir=repo_dir
         )
 
         if stdout:
@@ -1099,7 +1151,7 @@ class Quicken:
                 stdout, stderr, returncode, repo_dir,
                 repo_mode=True,
                 dependency_patterns=dependency_patterns,
-                output_base_dir=abs_output_dir
+                output_base_dir=repo_dir
             )
 
         self.logger.info(f"CACHE MISS (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "

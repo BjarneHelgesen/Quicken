@@ -147,3 +147,6 @@ The metadata-based approach prioritizes speed while the local-dependency trackin
 - Don't commit changes
 - Don't create documents explaining issues unless specifically asked to create documents
 - Do only what is requested. If more tasks are necessary, ask to clarify
+- When updating code, update unit tests also
+- When making unit tests, don't make tests that prints results. Make proper pytest unit tests with asserts. 
+- When a unit tests passes where the opretion did not succeed, make the unit tests stricter or make a new unit test to cover the isse

@@ -117,7 +117,7 @@ def profile_happy_path(scenario_name: str, num_headers: int, touch_files: bool):
 
         # Populate cache
         quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"],
-                   repo_dir=main_cpp.parent, output_dir=main_cpp.parent)
+                   repo_dir=main_cpp.parent)
 
         obj_file = main_cpp.parent / "main.obj"
         obj_file.unlink()
@@ -133,12 +133,10 @@ def profile_happy_path(scenario_name: str, num_headers: int, touch_files: bool):
         profiler.enable()
 
         quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"],
-                   repo_dir=main_cpp.parent, output_dir=main_cpp.parent)
+                   repo_dir=main_cpp.parent)
 
         profiler.disable()
 
-        # Flush pending copies before cleanup
-        quicken.flush(timeout=5.0)
 
         return analyze_profiler_detailed(profiler)
 
