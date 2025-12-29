@@ -24,13 +24,6 @@ int main() {
 
 
 @pytest.fixture
-def temp_dir():
-    """Create a temporary directory for test files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir)
-
-
-@pytest.fixture
 def test_cpp_file(temp_dir):
     """Create a test.cpp file."""
     cpp_file = temp_dir / "test.cpp"

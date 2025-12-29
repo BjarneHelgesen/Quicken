@@ -159,19 +159,83 @@ class QuickenCache:
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()
 
-    def _make_cache_key(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str]) -> str:
+    def _translate_input_args_for_cache_key(self, input_args: List[str], repo_dir: Path) -> List[str]:
+        """Translate file/folder paths in input_args to repo-relative for cache key portability.
+
+        Converts absolute paths to files/folders in the repo to repo-relative paths.
+        Keeps paths outside the repo as absolute paths.
+        Preserves flag arguments (starting with - or /) and non-path arguments as-is.
+
+        Args:
+            input_args: Input arguments containing file paths
+            repo_dir: Repository root directory (should already be resolved)
+
+        Returns:
+            List of arguments with repo paths made relative and external paths absolute
+        """
+        if not input_args:
+            return []
+
+        translated = []
+        for arg in input_args:
+            # Skip obvious flag arguments
+            if arg.startswith('-') or arg.startswith('/'):
+                translated.append(arg)
+                continue
+
+            try:
+                path = Path(arg.strip())
+
+                # Handle absolute paths
+                if path.is_absolute():
+                    # Resolve and check if in repo
+                    resolved_path = path.resolve()
+                    repo_path = RepoPath.fromAbsolutePath(repo_dir, resolved_path)
+                    if repo_path:
+                        # In repo - use repo-relative path
+                        translated.append(str(repo_path))
+                    else:
+                        # Outside repo - use normalized absolute path
+                        translated.append(str(resolved_path))
+                else:
+                    # Relative path - resolve relative to repo_dir
+                    repo_path = RepoPath.fromRelativePath(repo_dir, path)
+                    if repo_path:
+                        # Valid repo-relative path
+                        translated.append(str(repo_path))
+                    else:
+                        # Path resolves outside repo - use absolute
+                        abs_path = (repo_dir / path).resolve()
+                        translated.append(str(abs_path))
+
+            except (ValueError, OSError):
+                # Can't parse as path, keep as-is
+                translated.append(arg)
+
+        return translated
+
+    def _make_cache_key(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str], input_args: List[str] = None, repo_dir: Path = None) -> str:
         """Build compound cache key from source file, tool, and args.
 
         Args:
             source_repo_path: RepoPath for source file
             tool_name: Name of the tool
             tool_args: Tool arguments list
+            input_args: Optional input arguments (paths will be translated)
+            repo_dir: Repository root for translating input_args paths
 
         Returns:
-            Compound key string in format: "file::tool::args"
+            Compound key string in format: "file::tool::args" or "file::tool::args::input_args"
         """
         source_key = str(source_repo_path)
         args_str = json.dumps(tool_args, separators=(',', ':'))
+
+        if input_args and repo_dir:
+            # Translate paths in input_args for cache portability
+            translated_input_args = self._translate_input_args_for_cache_key(input_args, repo_dir)
+            input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
+            return f"{source_key}::{tool_name}::{args_str}::{input_args_str}"
+
         return f"{source_key}::{tool_name}::{args_str}"
 
     def _get_file_metadata(self, repo_path: RepoPath, repo_dir: Path) -> Dict:
@@ -253,7 +317,7 @@ class QuickenCache:
         return True, needs_update
 
     def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-               repo_dir: Path) -> Optional[Path]:
+               repo_dir: Path, input_args: List[str] = None) -> Optional[Path]:
         """Look up cached output for given source file and tool command.
 
         This is the optimized fast path that doesn't run /showIncludes.
@@ -264,12 +328,13 @@ class QuickenCache:
             tool_name: Name of the tool
             tool_args: Tool arguments list
             repo_dir: Repository root (should already be resolved)
+            input_args: Optional input arguments with file paths
 
         Returns:
             Cache entry directory path if found, None otherwise
         """
         # Build compound key for O(1) lookup
-        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args)
+        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
 
         if compound_key not in self.index:
             return None
@@ -309,7 +374,8 @@ class QuickenCache:
               stdout: str, stderr: str, returncode: int,
               repo_dir: Path, repo_mode: bool = False,
               dependency_patterns: List[str] = None,
-              output_base_dir: Path = None) -> Path:
+              output_base_dir: Path = None,
+              input_args: List[str] = None) -> Path:
         """Store tool output in cache with dependency hashes.
 
         Args:
@@ -325,6 +391,7 @@ class QuickenCache:
             repo_mode: If True, this is a repo-level cache entry
             dependency_patterns: Glob patterns used (for repo mode)
             output_base_dir: Base directory for preserving relative paths
+            input_args: Optional input arguments with file paths
 
         Returns:
             Path to cache entry directory
@@ -382,7 +449,7 @@ class QuickenCache:
             json.dump(metadata, f, indent=2)
 
         # Build compound key for flat dictionary
-        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args)
+        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
 
         # Create minimized index entry (no redundant fields)
         index_entry = {
@@ -547,7 +614,7 @@ class ToolCmd(ABC):
     optimization_flags = []
     needs_vcvars = False
 
-    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, env, optimization=None, output_args=None):
+    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, env, optimization=None, output_args=None, input_args=None):
         self.tool_path = tool_path
         self.arguments = arguments
         self.optimization = optimization
@@ -556,6 +623,7 @@ class ToolCmd(ABC):
         self.cache = cache
         self.env = env  # Environment dict or None
         self.output_args = output_args if output_args is not None else []  # Output-specific arguments (not part of cache key)
+        self.input_args = input_args if input_args is not None else []  # Input-specific arguments (part of cache key)
 
     @staticmethod
     def get_tool_path(config: Dict, tool_name: str) -> str:
@@ -623,6 +691,10 @@ class ToolCmd(ABC):
         modified_args = self.add_optimization_flags(self.arguments)
         cmd = [self.tool_path] + modified_args
 
+        # Add input_args (these are part of the cache key). Note that they are joined as a single argument, as the called decides the spacing.
+        if self.input_args:
+            cmd.append(''.join(self.input_args))
+
         # Add main file before output args (some tools expect source file before -o)
         if main_file:
             cmd.append(str(main_file))
@@ -647,13 +719,13 @@ class ToolCmd(ABC):
             Tuple of (cache_entry, modified_args) or (None, original_args)
         """
         if not self.supports_optimization:
-            cache_entry = self.cache.lookup(source_repo_path, tool_name, tool_args, repo_dir)
+            cache_entry = self.cache.lookup(source_repo_path, tool_name, tool_args, repo_dir, self.input_args)
             return cache_entry, tool_args
 
         for opt_level in range(len(self.optimization_flags)):
             self.optimization = opt_level
             modified_args = self.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir)
+            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir, self.input_args)
             if cache_entry:
                 return cache_entry, modified_args
 
@@ -695,7 +767,7 @@ class ToolRegistry:
 
     @classmethod
     def create(cls, tool_name: str, tool_path: str, arguments: List[str],
-               logger, config, cache, quicken, optimization=None, output_args=None) -> ToolCmd:
+               logger, config, cache, quicken, optimization=None, output_args=None, input_args=None) -> ToolCmd:
         """Create ToolCmd instance for the given tool name.
 
         Args:
@@ -708,6 +780,7 @@ class ToolRegistry:
             quicken: Quicken instance (for environment access if needed)
             optimization: Optional optimization level
             output_args: Output-specific arguments (NOT part of cache key)
+            input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
 
         Returns:
             ToolCmd subclass instance
@@ -724,7 +797,7 @@ class ToolRegistry:
         env = quicken._msvc_env if tool_class.needs_vcvars else None
 
         return tool_class(tool_path, arguments, logger, config, cache,
-                         env, optimization, output_args)
+                         env, optimization, output_args, input_args)
 
 class Quicken:
     """Main Quicken application."""
@@ -970,7 +1043,7 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
-            repo_dir: Path, optimization: int = None, output_args: List[str] = None) -> int:
+            repo_dir: Path, optimization: int = None, output_args: List[str] = None, input_args: List[str] = None) -> int:
         """
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
@@ -981,6 +1054,7 @@ class Quicken:
             repo_dir: Repository directory
             optimization: Optimization level (0-3, or None to accept any cached level)
             output_args: Output-specific arguments (NOT part of cache key, e.g., ['-o', 'output.s'])
+            input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
 
         Returns:
             Tool exit code (integer)
@@ -1004,7 +1078,7 @@ class Quicken:
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
         tool = ToolRegistry.create(
             tool_name, tool_path, tool_args,
-            self.logger, self.config, self.cache, self, optimization, output_args
+            self.logger, self.config, self.cache, self, optimization, output_args, input_args
         )
 
         if optimization is None:
@@ -1013,7 +1087,7 @@ class Quicken:
             )
         else:
             modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir)
+            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir, input_args)
 
         if cache_entry:
             stdout, stderr, returncode = self.cache.restore(cache_entry, repo_dir)
@@ -1052,7 +1126,8 @@ class Quicken:
             source_repo_path, tool_name, modified_args, local_dep_repo_paths, output_files,
             stdout, stderr, returncode, repo_dir,
             repo_mode=False,
-            output_base_dir=repo_dir
+            output_base_dir=repo_dir,
+            input_args=input_args
         )
         self.logger.info(f"CACHE MISS - source_file: {source_repo_path}, tool: {tool_name}, "
                        f"Time: {time.perf_counter()-start_time:.3f} seconds, "
@@ -1066,7 +1141,7 @@ class Quicken:
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
                       main_file: Path, dependency_patterns: List[str],
-                      optimization: int = None, output_args: List[str] = None) -> int:
+                      optimization: int = None, output_args: List[str] = None, input_args: List[str] = None) -> int:
         """
         Run a repo-level tool with caching based on dependency patterns.
 
@@ -1078,6 +1153,7 @@ class Quicken:
             dependency_patterns: Glob patterns for dependencies
             optimization: Optimization level (0-3, or None to accept any cached level)
             output_args: Output-specific arguments (NOT part of cache key)
+            input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
 
         Returns:
             Tool exit code (integer)
@@ -1102,7 +1178,7 @@ class Quicken:
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
         tool = ToolRegistry.create(
             tool_name, tool_path, tool_args,
-            self.logger, self.config, self.cache, self, optimization, output_args
+            self.logger, self.config, self.cache, self, optimization, output_args, input_args
         )
 
         if optimization is None:
@@ -1111,7 +1187,7 @@ class Quicken:
             )
         else:
             modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(main_repo_path, tool_name, modified_args, repo_dir)
+            cache_entry = self.cache.lookup(main_repo_path, tool_name, modified_args, repo_dir, input_args)
 
         if cache_entry:
             stdout, stderr, returncode = self.cache.restore(cache_entry, repo_dir)
@@ -1151,7 +1227,8 @@ class Quicken:
                 stdout, stderr, returncode, repo_dir,
                 repo_mode=True,
                 dependency_patterns=dependency_patterns,
-                output_base_dir=repo_dir
+                output_base_dir=repo_dir,
+                input_args=input_args
             )
 
         self.logger.info(f"CACHE MISS (REPO) - repo_dir: {repo_dir}, tool: {tool_name}, "

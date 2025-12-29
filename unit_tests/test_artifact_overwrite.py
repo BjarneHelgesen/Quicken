@@ -37,13 +37,6 @@ int main() {
 
 
 @pytest.fixture
-def temp_dir():
-    """Create a temporary directory for test files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir)
-
-
-@pytest.fixture
 def cache_dir(temp_dir):
     """Create a temporary cache directory."""
     cache = temp_dir / "cache"

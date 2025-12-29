@@ -48,13 +48,6 @@ int main() {
 
 
 @pytest.fixture
-def temp_dir():
-    """Create a temporary directory for test files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir)
-
-
-@pytest.fixture
 def test_cpp_file(temp_dir):
     """Create a test C++ file."""
     cpp_file = temp_dir / "test.cpp"
@@ -70,34 +63,12 @@ def cache_dir(temp_dir):
     return cache
 
 
+# Most tests now use quicken_with_persistent_cache from conftest.py
+# This alias allows tests to use their familiar name
 @pytest.fixture
-def config_file(temp_dir):
-    """Create a test config file pointing to the real tools.json."""
-    # Use the actual tools.json from the project
-    project_tools = Path(__file__).parent / "tools.json"
-    if project_tools.exists():
-        return project_tools
-
-    # Fallback: create a minimal config
-    config = temp_dir / "tools.json"
-    config_data = {
-        "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
-        "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
-        "msvc_arch": "x64",
-        "clang++": "clang++",
-        "clang-tidy": "clang-tidy"
-    }
-    config.write_text(json.dumps(config_data, indent=2))
-    return config
-
-
-@pytest.fixture
-def quicken_instance(config_file, cache_dir, monkeypatch):
-    """Create a Quicken instance with a custom cache directory."""
-    quicken = Quicken(config_file)
-    # Override the cache directory to use our temp one
-    quicken.cache = QuickenCache(cache_dir)
-    return quicken
+def quicken_instance(quicken_with_persistent_cache, test_cpp_file):
+    """Alias for quicken_with_persistent_cache for backward compatibility."""
+    return quicken_with_persistent_cache
 
 
 class TestQuickenCache:
@@ -236,6 +207,7 @@ class TestQuickenMSVC:
         # .obj file should be restored from cache
         assert obj_file.exists()
 
+    @pytest.mark.pedantic
     def test_msvc_different_flags_different_cache(self, quicken_instance, test_cpp_file):
         """Test that different compilation flags create different cache entries."""
         # Compile with /W3
@@ -252,6 +224,7 @@ class TestQuickenMSVC:
                                            repo_dir=test_cpp_file.parent)
         assert returncode2 == 0
 
+    @pytest.mark.pedantic
     def test_msvc_file_modification_invalidates_cache(self, quicken_instance, test_cpp_file):
         """Test that modifying the source file invalidates the cache."""
         tool_args = ["/c", "/nologo", "/EHsc"]
@@ -338,6 +311,7 @@ class TestQuickenClang:
         # .o file should be restored from cache
         assert obj_file.exists()
 
+    @pytest.mark.pedantic
     def test_clang_different_optimization_levels(self, quicken_instance, test_cpp_file):
         """Test that different optimization levels create different cache entries."""
         # Compile with -O0
@@ -399,6 +373,7 @@ class TestQuickenClang:
 
         assert obj_file.exists(), ".o file should be restored from cache again"
 
+    @pytest.mark.pedantic
     def test_clang_with_warnings(self, quicken_instance, temp_dir):
         """Test clang++ compilation with warnings."""
         cpp_file = temp_dir / "test_warn.cpp"
@@ -445,6 +420,7 @@ class TestQuickenClangTidy:
         # Return codes should match
         assert returncode1 == returncode2
 
+    @pytest.mark.pedantic
     def test_clang_tidy_different_checks(self, quicken_instance, test_cpp_file):
         """Test that different check sets create different cache entries."""
         # Run with modernize checks
@@ -561,6 +537,7 @@ class TestQuickenIntegration:
         assert isinstance(returncode_tidy, int)
 
 
+    @pytest.mark.pedantic
     def test_cache_index_persistence(self, quicken_instance, test_cpp_file, cache_dir, config_file):
         """Test that cache index persists across Quicken instances."""
         tool_args = ["/c", "/nologo", "/EHsc"]

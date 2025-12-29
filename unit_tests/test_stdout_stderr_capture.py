@@ -43,13 +43,6 @@ int main() {
 
 
 @pytest.fixture
-def temp_dir():
-    """Create a temporary directory for test files."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir)
-
-
-@pytest.fixture
 def test_cpp_file(temp_dir):
     """Create a test C++ file."""
     cpp_file = temp_dir / "test.cpp"
@@ -65,34 +58,11 @@ def cache_dir(temp_dir):
     return cache
 
 
+# Most tests now use quicken_with_persistent_cache from conftest.py
 @pytest.fixture
-def config_file(temp_dir):
-    """Create a test config file pointing to the real tools.json."""
-    # Use the actual tools.json from the project
-    project_tools = Path(__file__).parent.parent / "tools.json"
-    if project_tools.exists():
-        return project_tools
-
-    # Fallback: create a minimal config
-    config = temp_dir / "tools.json"
-    config_data = {
-        "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
-        "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
-        "msvc_arch": "x64",
-        "clang++": "clang++",
-        "clang-tidy": "clang-tidy"
-    }
-    config.write_text(json.dumps(config_data, indent=2))
-    return config
-
-
-@pytest.fixture
-def quicken_instance(config_file, cache_dir):
-    """Create a Quicken instance with a custom cache directory."""
-    quicken = Quicken(config_file)
-    # Override the cache directory to use our temp one
-    quicken.cache = QuickenCache(cache_dir)
-    return quicken
+def quicken_instance(quicken_with_persistent_cache, test_cpp_file):
+    """Alias for quicken_with_persistent_cache for backward compatibility."""
+    return quicken_with_persistent_cache
 
 
 def capture_output(func, *args, **kwargs):
@@ -204,6 +174,7 @@ class TestStdoutStderrCapture:
         assert restored_stderr == original_stderr
         assert restored_returncode == returncode
 
+    @pytest.mark.pedantic
     def test_empty_stdout_stderr_handling(self, cache_dir, temp_dir):
         """Test that empty stdout and stderr are handled correctly."""
         cache = QuickenCache(cache_dir)
@@ -340,6 +311,7 @@ class TestMSVCStdoutStderr:
         assert stdout1 == stdout2, f"Stdout mismatch:\nCache miss: {repr(stdout1)}\nCache hit: {repr(stdout2)}"
         assert stderr1 == stderr2, f"Stderr mismatch:\nCache miss: {repr(stderr1)}\nCache hit: {repr(stderr2)}"
 
+    @pytest.mark.pedantic
     def test_msvc_with_warnings_stdout_stderr(self, quicken_instance, temp_dir):
         """Test that MSVC warnings are reproduced correctly."""
         # Create file with warning
@@ -456,6 +428,7 @@ class TestClangStdoutStderr:
         assert stdout1 == stdout2, f"Stdout mismatch:\nCache miss: {repr(stdout1)}\nCache hit: {repr(stdout2)}"
         assert stderr1 == stderr2, f"Stderr mismatch:\nCache miss: {repr(stderr1)}\nCache hit: {repr(stderr2)}"
 
+    @pytest.mark.pedantic
     def test_clang_with_warnings_reproduction(self, quicken_instance, temp_dir):
         """Test that clang++ warnings are reproduced correctly."""
         cpp_file = temp_dir / "test_warn.cpp"
@@ -585,6 +558,7 @@ class TestRepoToolStdoutStderr:
 class TestErrorCases:
     """Test error case handling for stdout/stderr."""
 
+    @pytest.mark.pedantic
     def test_non_zero_returncode_with_stderr(self, cache_dir, temp_dir):
         """Test that compilation errors (non-zero return codes) preserve stderr."""
         cache = QuickenCache(cache_dir)
