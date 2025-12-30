@@ -120,7 +120,63 @@ Special keys:
 
 ### Unit Tests
 
-See `unit_tests/` directory for automated tests 
+See `unit_tests/` directory for automated tests.
+
+Run all unit tests (excluding regression tests):
+```bash
+pytest unit_tests/
+```
+
+### Regression Tests
+
+Regression tests verify that previously fixed bugs remain fixed. They are stored in `regression_test/` directory and marked with `@pytest.mark.regression_test`.
+
+**When to Create a Regression Test:**
+
+When a bug is found, the user should create a failing regression test BEFORE the fix is implemented:
+
+1. **User finds a bug** - Create a regression test that demonstrates the bug (test fails)
+2. **Fix the bug** - Update the code to fix the issue
+3. **Verify the fix** - The regression test should now pass
+4. **Commit together** - Commit both the fix and the regression test
+
+**If API is Used Incorrectly:**
+- Document legal and illegal usage patterns
+- Add error handling for incorrect usage
+- Either update the regression test to verify error handling, or delete it
+
+**If API is Used Correctly:**
+- Fix the bug in the implementation
+- Ensure the regression test passes
+- Commit both the fix and the test together
+
+**Running Regression Tests:**
+
+Run only regression tests:
+```bash
+pytest -m regression_test
+```
+
+Run all tests including regression tests:
+```bash
+pytest
+```
+
+Run all tests EXCEPT regression tests:
+```bash
+pytest -m "not regression_test"
+```
+
+**Example Regression Test:**
+
+See `regression_test/test_cache_entry_reuse_regression.py` for a complete example. This test verifies the fix for commit 4a5ba0f, which prevented duplicate cache entries when files were reverted to previous content.
+
+Key elements of a good regression test:
+- Clear documentation of the bug and the fix
+- Reference to the commit that fixed it
+- Explicit verification that the bug is fixed
+- Uses the Quicken API correctly (as users would use it)
+- Marked with `@pytest.mark.regression_test`
 
 ### Expected Behavior
 
