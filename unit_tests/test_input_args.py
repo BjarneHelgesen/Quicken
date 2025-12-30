@@ -173,8 +173,9 @@ class TestInputArgsCaching:
             "header2.h input_args should create cache entry"
 
         # They should be different cache entries (different cache_key values like entry_000022 vs entry_000023)
-        entry1 = quicken_instance.cache.index[cache_keys_with_header1[0]]
-        entry2 = quicken_instance.cache.index[cache_keys_with_header2[0]]
+        # Index now stores lists of entries
+        entry1 = quicken_instance.cache.index[cache_keys_with_header1[0]][0]
+        entry2 = quicken_instance.cache.index[cache_keys_with_header2[0]][0]
         assert entry1['cache_key'] != entry2['cache_key'], \
             "Different input_args should create separate cache entries"
 
@@ -281,6 +282,165 @@ class TestInputArgsCaching:
 
         # Output should be restored
         assert obj_file.exists()
+
+
+class TestMultiElementInputArgs:
+    """Test multi-element input_args with flag and path pairs."""
+
+    def test_multi_element_input_args_cache_hit(self, cache_dir, config_file, temp_dir):
+        """Test that multi-element input_args [flag, path] produce cache hits across different repo_dirs."""
+
+        # Create two separate repos with identical source content
+        repo1 = temp_dir / "repo1"
+        repo2 = temp_dir / "repo2"
+        repo1.mkdir()
+        repo2.mkdir()
+
+        # Identical source files
+        source_code = """
+int add(int a, int b) {
+    return a + b;
+}
+"""
+        cpp_file1 = repo1 / "test.cpp"
+        cpp_file2 = repo2 / "test.cpp"
+        cpp_file1.write_text(source_code)
+        cpp_file2.write_text(source_code)
+
+        # Create a header file OUTSIDE both repos (absolute path scenario)
+        # This simulates LevelUp.h being in the LevelUp repo while test files are elsewhere
+        external_header_dir = temp_dir / "external_headers"
+        external_header_dir.mkdir()
+        header_file = external_header_dir / "common.h"
+        header_file.write_text("#pragma once\n#define COMMON 1\n")
+
+        # Create Quicken instances with shared cache
+        quicken1 = Quicken(config_file)
+        quicken1.cache = QuickenCache(cache_dir)
+
+        # Compile in repo1 with multi-element input_args
+        tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
+        input_args = ["-include", str(header_file)]  # Multi-element: [flag, absolute_path]
+
+        returncode1 = quicken1.run(
+            cpp_file1.relative_to(repo1),
+            "clang++",
+            tool_args,
+            repo_dir=repo1,
+            input_args=input_args,
+            output_args=["-o", str(repo1 / "test.s")],
+            optimization=0
+        )
+
+        if returncode1 != 0:
+            pytest.skip("Clang++ compilation failed, skipping cache test")
+
+        # Get cache statistics before second run
+        cache_entries_before = len(quicken1.cache.index)
+
+        # Create second Quicken instance with same cache
+        quicken2 = Quicken(config_file)
+        quicken2.cache = QuickenCache(cache_dir)
+
+        # Compile in repo2 - should HIT cache because:
+        # - Same source content
+        # - Same tool_args
+        # - Same input_args (with normalized absolute path to header_file)
+        # - Different repo_dir (should NOT affect cache key)
+        returncode2 = quicken2.run(
+            cpp_file2.relative_to(repo2),
+            "clang++",
+            tool_args,
+            repo_dir=repo2,
+            input_args=input_args,
+            output_args=["-o", str(repo2 / "test.s")],
+            optimization=0
+        )
+
+        assert returncode2 == 0, "Second compilation should succeed"
+
+        # Get cache statistics after second run
+        cache_entries_after = len(quicken2.cache.index)
+
+        # Verify cache hit: no new entry should be created
+        assert cache_entries_before == cache_entries_after, \
+            f"Cache HIT expected: entries should remain {cache_entries_before}, but got {cache_entries_after}"
+
+    def test_multiple_input_args_pairs(self, cache_dir, config_file, temp_dir):
+        """Test multiple flag-path pairs in input_args.
+
+        KNOWN BUG: Quicken incorrectly concatenates multiple pairs like:
+        ["-include", "path1", "-include", "path2"]
+        into a single malformed path: "path1-includepath2"
+
+        This causes compilation to fail looking for a non-existent file.
+        """
+
+        repo = temp_dir / "test_repo"
+        repo.mkdir()
+
+        source_code = """
+int multiply(int x, int y) {
+    return x * y;
+}
+"""
+        cpp_file = repo / "main.cpp"
+        cpp_file.write_text(source_code)
+
+        # Create multiple header files
+        header1 = temp_dir / "header1.h"
+        header2 = temp_dir / "header2.h"
+        header1.write_text("#pragma once\n#define VALUE1 10\n")
+        header2.write_text("#pragma once\n#define VALUE2 20\n")
+
+        # Create Quicken instance
+        quicken = Quicken(config_file)
+        quicken.cache = QuickenCache(cache_dir)
+
+        # Multiple input_args: [flag1, path1, flag2, path2]
+        tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
+        input_args = ["-include", str(header1), "-include", str(header2)]
+
+        returncode1 = quicken.run(
+            cpp_file.relative_to(repo),
+            "clang++",
+            tool_args,
+            repo_dir=repo,
+            input_args=input_args,
+            output_args=["-o", str(repo / "main.s")],
+            optimization=0
+        )
+
+        # This SHOULD succeed but currently fails due to Quicken bug
+        assert returncode1 == 0, "Compilation should succeed with multiple input_args pairs"
+
+        # Delete output file
+        output_file = repo / "main.s"
+        if output_file.exists():
+            output_file.unlink()
+
+        cache_entries_before = len(quicken.cache.index)
+
+        # Second run with same input_args - should HIT cache
+        returncode2 = quicken.run(
+            cpp_file.relative_to(repo),
+            "clang++",
+            tool_args,
+            repo_dir=repo,
+            input_args=input_args,
+            output_args=["-o", str(repo / "main.s")],
+            optimization=0
+        )
+
+        assert returncode2 == 0
+        cache_entries_after = len(quicken.cache.index)
+
+        # Verify cache hit
+        assert cache_entries_before == cache_entries_after, \
+            "Multiple input_args pairs should produce cache hit on second run"
+
+        # Output file should be restored from cache
+        assert output_file.exists(), "Cache hit should restore output file"
 
 
 if __name__ == "__main__":

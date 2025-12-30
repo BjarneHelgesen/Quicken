@@ -15,7 +15,7 @@ import subprocess
 import sys
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
@@ -96,6 +96,7 @@ class QuickenCache:
         self.index_file = cache_dir / "index.json"
         self.index = self._load_index()
         self._next_id = self._get_next_id()
+        self.dep_hash_index = self._build_dep_hash_index()
         # Thread pool for async file restoration (max 4 concurrent copy operations)
         self._copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="quicken_copy")
         self._pending_copies = []  # Track pending copy futures
@@ -103,16 +104,22 @@ class QuickenCache:
     def _load_index(self) -> Dict:
         """Load the cache index.
 
-        Index structure (flat dictionary with compound keys):
+        Index structure (flat dictionary with compound keys, supporting collisions):
         {
-            "src/main.cpp::cl::['/c','/W4']": {
-                "cache_key": "entry_001",
-                "dependencies": [
-                    {"path": "src/main.cpp", "hash": "a1b2c3d4e5f60708", "mtime_ns": ..., "size": ...},
-                    {"path": "include/header.h", "hash": "b2c3d4e5f6071809", "mtime_ns": ..., "size": ...},
-                    ...
-                ]
-            },
+            "src/main.cpp::1234::cl::['/c','/W4']": [
+                {
+                    "cache_key": "entry_001",
+                    "dependencies": [
+                        {"path": "src/main.cpp", "hash": "a1b2c3d4e5f60708", "mtime_ns": ..., "size": ...},
+                        {"path": "include/header.h", "hash": "b2c3d4e5f6071809", "mtime_ns": ..., "size": ...},
+                        ...
+                    ]
+                },
+                {
+                    "cache_key": "entry_005",
+                    "dependencies": [...]  # Different content, same size
+                }
+            ],
             ...
         }
         """
@@ -121,10 +128,12 @@ class QuickenCache:
                 with open(self.index_file, 'r') as f:
                     index = json.load(f)
 
-                # Detect old format (values are lists instead of dicts)
-                if index and isinstance(next(iter(index.values()), None), list):
-                    # Old format detected - start fresh (no backwards compatibility)
-                    return {}
+                # Detect old format (values are dicts instead of lists, or key doesn't include size)
+                if index:
+                    first_value = next(iter(index.values()), None)
+                    if isinstance(first_value, dict):
+                        # Old format detected - start fresh (no backwards compatibility)
+                        return {}
 
                 return index
             except json.JSONDecodeError:
@@ -140,12 +149,50 @@ class QuickenCache:
     def _get_next_id(self) -> int:
         """Get next available cache entry ID."""
         max_id = 0
-        for entry in self.index.values():
-            cache_key = entry.get("cache_key", "")
-            if cache_key.startswith("entry_"):
-                entry_id = int(cache_key.split("_")[1])
-                max_id = max(max_id, entry_id)
+        for entries in self.index.values():
+            # entries is now a list of cache entries
+            for entry in entries:
+                cache_key = entry.get("cache_key", "")
+                if cache_key.startswith("entry_"):
+                    entry_id = int(cache_key.split("_")[1])
+                    max_id = max(max_id, entry_id)
         return max_id + 1
+
+    def _build_dep_hash_index(self) -> Dict[Tuple[str, str], str]:
+        """Build index mapping (compound_key, dependency_hash) to cache keys.
+
+        This allows finding existing cache entries with the same dependencies
+        for the same compound key (file+size+tool+args) to avoid creating duplicates.
+
+        Returns:
+            Dict mapping (compound_key, dep_hash) to cache_key
+        """
+        dep_hash_index = {}
+        for compound_key, entries in self.index.items():
+            # entries is now a list of cache entries
+            for entry in entries:
+                cache_key = entry.get("cache_key", "")
+                dependencies = entry.get("dependencies", [])
+                if dependencies:
+                    dep_hash_str = self._hash_dependencies(dependencies)
+                    dep_hash_index[(compound_key, dep_hash_str)] = cache_key
+        return dep_hash_index
+
+    def _hash_dependencies(self, dependencies: List[Dict]) -> str:
+        """Calculate hash of all dependency hashes combined.
+
+        Args:
+            dependencies: List of dependency dicts with 'path' and 'hash' keys
+
+        Returns:
+            16-character hex string (64-bit hash of all dependency hashes)
+        """
+        hash_obj = hashlib.blake2b(digest_size=8)
+        for dep in dependencies:
+            # Hash combination of path and content hash for uniqueness
+            dep_str = f"{dep['path']}:{dep['hash']}"
+            hash_obj.update(dep_str.encode('utf-8'))
+        return hash_obj.hexdigest()
 
     def _get_file_hash(self, file_path: Path) -> str:
         """Calculate 64-bit hash of file content.
@@ -214,18 +261,19 @@ class QuickenCache:
 
         return translated
 
-    def _make_cache_key(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str], input_args: List[str] = None, repo_dir: Path = None) -> str:
-        """Build compound cache key from source file, tool, and args.
+    def _make_cache_key(self, source_repo_path: RepoPath, file_size: int, tool_name: str, tool_args: List[str], input_args: List[str] = None, repo_dir: Path = None) -> str:
+        """Build compound cache key from source file, size, tool, and args.
 
         Args:
             source_repo_path: RepoPath for source file
+            file_size: Size of source file in bytes
             tool_name: Name of the tool
             tool_args: Tool arguments list
             input_args: Optional input arguments (paths will be translated)
             repo_dir: Repository root for translating input_args paths
 
         Returns:
-            Compound key string in format: "file::tool::args" or "file::tool::args::input_args"
+            Compound key string in format: "file::size::tool::args" or "file::size::tool::args::input_args"
         """
         source_key = str(source_repo_path)
         args_str = json.dumps(tool_args, separators=(',', ':'))
@@ -234,9 +282,9 @@ class QuickenCache:
             # Translate paths in input_args for cache portability
             translated_input_args = self._translate_input_args_for_cache_key(input_args, repo_dir)
             input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
-            return f"{source_key}::{tool_name}::{args_str}::{input_args_str}"
+            return f"{source_key}::{file_size}::{tool_name}::{args_str}::{input_args_str}"
 
-        return f"{source_key}::{tool_name}::{args_str}"
+        return f"{source_key}::{file_size}::{tool_name}::{args_str}"
 
     def _get_file_metadata(self, repo_path: RepoPath, repo_dir: Path) -> Dict:
         """Get metadata for a single file using repo-relative path.
@@ -333,41 +381,51 @@ class QuickenCache:
         Returns:
             Cache entry directory path if found, None otherwise
         """
+        # Get file size (fast - from stat)
+        file_path = source_repo_path.toAbsolutePath(repo_dir)
+        file_size = file_path.stat().st_size
+
         # Build compound key for O(1) lookup
-        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
+        compound_key = self._make_cache_key(source_repo_path, file_size, tool_name, tool_args, input_args, repo_dir)
 
         if compound_key not in self.index:
             return None
 
-        entry = self.index[compound_key]
+        # Get list of entries with this key (may have collisions)
+        entries = self.index[compound_key]
 
-        # For repo mode, verify main_file content hasn't changed
-        if entry.get("repo_mode", False) and "main_file_hash" in entry:
-            if source_repo_path.calculateHash(repo_dir) != entry["main_file_hash"]:
-                return None
+        # Try each entry until we find a match
+        for entry in entries:
+            # For repo mode, verify main_file content hasn't changed
+            if entry.get("repo_mode", False) and "main_file_hash" in entry:
+                if source_repo_path.calculateHash(repo_dir) != entry["main_file_hash"]:
+                    continue  # Try next entry
 
-        matches, needs_update = self._dependencies_match(entry["dependencies"], repo_dir)
-        if not matches:
-            return None
+            matches, needs_update = self._dependencies_match(entry["dependencies"], repo_dir)
+            if not matches:
+                continue  # Try next entry
 
-        cache_entry_dir = self.cache_dir / entry["cache_key"]
-        if not cache_entry_dir.exists():
-            return None
+            cache_entry_dir = self.cache_dir / entry["cache_key"]
+            if not cache_entry_dir.exists():
+                continue  # Try next entry
 
-        # Update metadata if mtime changed but hash matched
-        if needs_update:
-            # Update metadata.json in cache entry
-            metadata_file = cache_entry_dir / "metadata.json"
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            metadata["dependencies"] = entry["dependencies"]
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
+            # Found a match! Update metadata if needed
+            if needs_update:
+                # Update metadata.json in cache entry
+                metadata_file = cache_entry_dir / "metadata.json"
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                metadata["dependencies"] = entry["dependencies"]
+                with open(metadata_file, 'w') as f:
+                    json.dump(metadata, f, indent=2)
 
-            # Save updated index
-            self._save_index()
+                # Save updated index
+                self._save_index()
 
-        return cache_entry_dir
+            return cache_entry_dir
+
+        # No matching entry found
+        return None
 
     def store(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
               dependency_repo_paths: List[RepoPath], output_files: List[Path],
@@ -398,58 +456,83 @@ class QuickenCache:
         """
         source_key = str(source_repo_path)  # repo-relative path
 
-        cache_key = f"entry_{self._next_id:06d}"
-        self._next_id += 1
-
-        cache_entry_dir = self.cache_dir / cache_key
-        cache_entry_dir.mkdir(parents=True, exist_ok=True)
-
-        stored_files = []
-        for output_file in output_files:
-            if output_file.exists():
-                if output_base_dir:
-                    try:
-                        rel_path = output_file.relative_to(output_base_dir)
-                        dest = cache_entry_dir / rel_path
-                        file_path_str = str(rel_path)
-                    except ValueError:
-                        dest = cache_entry_dir / output_file.name
-                        file_path_str = output_file.name
-                else:
-                    dest = cache_entry_dir / output_file.name
-                    file_path_str = output_file.name
-
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(output_file, dest)
-                stored_files.append(file_path_str)
-
         dep_metadata = [self._get_file_metadata(dep, repo_dir) for dep in dependency_repo_paths]
 
-        metadata = {
-            "cache_key": cache_key,
-            "source_file": source_key,
-            "tool_name": tool_name,
-            "tool_args": tool_args,
-            "main_file_path": source_key,  # repo-relative path
-            "dependencies": dep_metadata,
-            "files": stored_files,
-            "stdout": stdout,
-            "stderr": stderr,
-            "returncode": returncode,
-            "repo_dir": str(repo_dir)  # Normalized absolute path for path translation
-        }
+        # Get file size (fast - from stat)
+        file_path = source_repo_path.toAbsolutePath(repo_dir)
+        file_size = file_path.stat().st_size
 
-        if repo_mode:
-            metadata["repo_mode"] = True
-            metadata["main_file_hash"] = source_repo_path.calculateHash(repo_dir)
-            if dependency_patterns:
-                metadata["dependency_patterns"] = dependency_patterns
+        # Build compound key to check for existing entry with same dependencies
+        compound_key = self._make_cache_key(source_repo_path, file_size, tool_name, tool_args, input_args, repo_dir)
 
-        with open(cache_entry_dir / "metadata.json", 'w') as f:
-            json.dump(metadata, f, indent=2)
+        # Check if an entry with these exact dependencies already exists for this compound key
+        dep_hash_str = self._hash_dependencies(dep_metadata)
+        existing_cache_key = self.dep_hash_index.get((compound_key, dep_hash_str))
 
-        # Build compound key for flat dictionary
-        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
+        if existing_cache_key:
+            # Reuse existing cache entry - just update the index to point to it
+            cache_key = existing_cache_key
+            cache_entry_dir = self.cache_dir / cache_key
+
+            # Update metadata with current mtime values
+            metadata_file = cache_entry_dir / "metadata.json"
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            metadata["dependencies"] = dep_metadata
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+        else:
+            # Create new cache entry
+            cache_key = f"entry_{self._next_id:06d}"
+            self._next_id += 1
+
+            cache_entry_dir = self.cache_dir / cache_key
+            cache_entry_dir.mkdir(parents=True, exist_ok=True)
+
+            stored_files = []
+            for output_file in output_files:
+                if output_file.exists():
+                    if output_base_dir:
+                        try:
+                            rel_path = output_file.relative_to(output_base_dir)
+                            dest = cache_entry_dir / rel_path
+                            file_path_str = str(rel_path)
+                        except ValueError:
+                            dest = cache_entry_dir / output_file.name
+                            file_path_str = output_file.name
+                    else:
+                        dest = cache_entry_dir / output_file.name
+                        file_path_str = output_file.name
+
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(output_file, dest)
+                    stored_files.append(file_path_str)
+
+            metadata = {
+                "cache_key": cache_key,
+                "source_file": source_key,
+                "tool_name": tool_name,
+                "tool_args": tool_args,
+                "main_file_path": source_key,  # repo-relative path
+                "dependencies": dep_metadata,
+                "files": stored_files,
+                "stdout": stdout,
+                "stderr": stderr,
+                "returncode": returncode,
+                "repo_dir": str(repo_dir)  # Normalized absolute path for path translation
+            }
+
+            if repo_mode:
+                metadata["repo_mode"] = True
+                metadata["main_file_hash"] = source_repo_path.calculateHash(repo_dir)
+                if dependency_patterns:
+                    metadata["dependency_patterns"] = dependency_patterns
+
+            with open(cache_entry_dir / "metadata.json", 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            # Add to dep_hash_index
+            self.dep_hash_index[(compound_key, dep_hash_str)] = cache_key
 
         # Create minimized index entry (no redundant fields)
         index_entry = {
@@ -463,8 +546,10 @@ class QuickenCache:
             if dependency_patterns:
                 index_entry["dependency_patterns"] = dependency_patterns
 
-        # Store directly at compound key (flat dictionary, not nested list)
-        self.index[compound_key] = index_entry
+        # Append to list at compound key (supports collisions)
+        if compound_key not in self.index:
+            self.index[compound_key] = []
+        self.index[compound_key].append(index_entry)
         self._save_index()
 
         return cache_entry_dir
@@ -584,8 +669,10 @@ class QuickenCache:
                 elif entry != self.index_file:
                     entry.unlink()
 
-        # Clear the index
+        # Clear the index and dep_hash_index
         self.index = {}
+        self.dep_hash_index = {}
+        self._next_id = 1
         self._save_index()
 
     def flush(self, timeout: float = 5.0):
@@ -693,7 +780,7 @@ class ToolCmd(ABC):
 
         # Add input_args (these are part of the cache key). Note that they are joined as a single argument, as the called decides the spacing.
         if self.input_args:
-            cmd.append(''.join(self.input_args))
+            cmd.extend(self.input_args)
 
         # Add main file before output args (some tools expect source file before -o)
         if main_file:
