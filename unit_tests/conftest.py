@@ -96,13 +96,10 @@ def _get_fixture_cache_hash():
 @pytest.fixture(scope="session")
 def persistent_tool_cache():
     """Persistent cache of tool results that survives across test runs.
-
     This cache is keyed by a hash of tools.json and test source code.
     If any of those change, a new cache is created.
-
     The cache is populated naturally as tests run on first execution,
-    then reused on subsequent runs for dramatic speedup.
-    """
+    then reused on subsequent runs for dramatic speedup."""
     cache_hash = _get_fixture_cache_hash()
     cache_dir = FIXTURE_CACHE_DIR / cache_hash
 
@@ -145,9 +142,7 @@ def config_file():
 @pytest.fixture(scope="session")
 def persistent_temp_dir():
     """Persistent temp directory for test files that survives across test runs.
-
-    Uses the same hash as the cache to ensure consistency.
-    """
+    Uses the same hash as the cache to ensure consistency."""
     cache_hash = _get_fixture_cache_hash()
     temp_dir = FIXTURE_TEMP_DIR / cache_hash
 
@@ -163,9 +158,7 @@ def persistent_temp_dir():
 @pytest.fixture
 def temp_dir(persistent_temp_dir, request):
     """Test-specific subdirectory within persistent temp dir.
-
-    Each test gets its own subdirectory to avoid conflicts.
-    """
+    Each test gets its own subdirectory to avoid conflicts."""
     # Use test name as subdirectory (safe for file system)
     test_name = request.node.name.replace("[", "_").replace("]", "_")
     test_dir = persistent_temp_dir / test_name
@@ -183,9 +176,7 @@ def temp_dir(persistent_temp_dir, request):
 @pytest.fixture
 def quicken_with_persistent_cache(config_file, persistent_tool_cache):
     """Quicken instance that uses persistent fixture cache for faster tests.
-
-    Uses the same cache instance directly (no copying) for maximum speed.
-    """
+    Uses the same cache instance directly (no copying) for maximum speed."""
     quicken = Quicken(config_file)
     # Use persistent cache directly - no copying needed!
     quicken.cache = persistent_tool_cache

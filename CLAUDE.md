@@ -117,15 +117,15 @@ Special keys:
 
 
 ## Testing
+Test are categories as follows: 
+* pedantic: Low leve tests that are covered by other tests. Useful when there is a regression
+* regression_test: Tests that verify previously fixed bugs remain fixed
+* The rest are unit tests
+
 
 ### Unit Tests
 
-See `unit_tests/` directory for automated tests.
-
-Run all unit tests (excluding regression tests):
-```bash
-pytest unit_tests/
-```
+See `unit_tests/` directory 
 
 ### Regression Tests
 
@@ -149,9 +149,6 @@ When a bug is found, the user should create a failing regression test BEFORE the
 - Fix the bug in the implementation
 - Ensure the regression test passes
 - Commit both the fix and the test together
-
-**Running Regression Tests:**
-
 
 
 
