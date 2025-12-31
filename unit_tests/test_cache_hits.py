@@ -51,9 +51,9 @@ def config_file(temp_dir):
 
 
 @pytest.fixture
-def quicken_instance(config_file):
+def quicken_instance(config_file, temp_dir):
     """Create a Quicken instance."""
-    return Quicken(config_file)
+    return Quicken(config_file, temp_dir)
 
 
 class TestCacheHits:
@@ -83,16 +83,14 @@ class TestCacheHits:
         returncode1 = quicken_instance.run(
             test_cpp_file,
             "cl",
-            args_config1,
-            repo_dir=test_cpp_file.parent,
+            args_config1
         )
         assert returncode1 == 0
 
         returncode2 = quicken_instance.run(
             test_cpp_file,
             "cl",
-            args_config2,
-            repo_dir=test_cpp_file.parent,
+            args_config2
         )
         assert returncode2 == 0
 

@@ -148,7 +148,6 @@ class TestInputArgsCaching:
         # First run with header1
         returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent,
             input_args=input_args1
         )
         assert returncode1 == 0
@@ -156,7 +155,6 @@ class TestInputArgsCaching:
         # Second run with header2 - should be different cache entry
         returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent,
             input_args=input_args2
         )
         assert returncode2 == 0
@@ -195,7 +193,6 @@ class TestInputArgsCaching:
         # First run
         returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent,
             input_args=input_args
         )
         assert returncode1 == 0
@@ -208,7 +205,6 @@ class TestInputArgsCaching:
         # Second run with same input_args - should hit cache
         returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent,
             input_args=input_args
         )
         assert returncode2 == 0
@@ -227,13 +223,12 @@ class TestInputArgsCaching:
         header1.write_text("#pragma once\n")
 
         # Create Quicken instance with shared cache
-        quicken1 = Quicken(config_file)
+        quicken1 = Quicken(config_file, temp_dir)
         quicken1.cache = QuickenCache(cache_dir)
 
         # Run compilation in first location with input_args
         returncode1 = quicken1.run(
             cpp_file1, "cl", ["/c", "/nologo", "/EHsc"],
-            repo_dir=repo1,
             input_args=["-include", str(header1)]
         )
         if returncode1 != 0:
@@ -248,13 +243,12 @@ class TestInputArgsCaching:
         header2.write_text("#pragma once\n")
 
         # Create new Quicken instance with same cache
-        quicken2 = Quicken(config_file)
+        quicken2 = Quicken(config_file, temp_dir)
         quicken2.cache = QuickenCache(cache_dir)
 
         # Run in second location - should hit cache because paths are repo-relative
         returncode2 = quicken2.run(
             cpp_file2, "cl", ["/c", "/nologo", "/EHsc"],
-            repo_dir=repo2,
             input_args=["-include", str(header2)]
         )
 
@@ -267,9 +261,7 @@ class TestInputArgsCaching:
 
         # Run without input_args (should work as before)
         returncode1 = quicken_instance.run(
-            test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent
-        )
+            test_cpp_file, "cl", tool_args)
         assert returncode1 == 0
 
         # Delete output
@@ -279,9 +271,7 @@ class TestInputArgsCaching:
 
         # Second run should hit cache
         returncode2 = quicken_instance.run(
-            test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent
-        )
+            test_cpp_file, "cl", tool_args)
         assert returncode2 == 0
 
         # Output should be restored
@@ -318,9 +308,12 @@ int add(int a, int b) {
         header_file = external_header_dir / "common.h"
         header_file.write_text("#pragma once\n#define COMMON 1\n")
 
-        # Create Quicken instances with shared cache
-        quicken1 = Quicken(config_file)
-        quicken1.cache = QuickenCache(cache_dir)
+        # Create shared cache
+        shared_cache = QuickenCache(cache_dir)
+
+        # Create Quicken instance for repo1
+        quicken1 = Quicken(config_file, repo1)
+        quicken1.cache = shared_cache
 
         # Compile in repo1 with multi-element input_args
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
@@ -330,7 +323,6 @@ int add(int a, int b) {
             cpp_file1.relative_to(repo1),
             "clang++",
             tool_args,
-            repo_dir=repo1,
             input_args=input_args,
             output_args=["-o", str(repo1 / "test.s")],
             optimization=0
@@ -340,11 +332,11 @@ int add(int a, int b) {
             pytest.skip("Clang++ compilation failed, skipping cache test")
 
         # Get cache statistics before second run
-        cache_entries_before = len(quicken1.cache.index)
+        cache_entries_before = len(shared_cache.index)
 
-        # Create second Quicken instance with same cache
-        quicken2 = Quicken(config_file)
-        quicken2.cache = QuickenCache(cache_dir)
+        # Create second Quicken instance for repo2 with same cache
+        quicken2 = Quicken(config_file, repo2)
+        quicken2.cache = shared_cache
 
         # Compile in repo2 - should HIT cache because:
         # - Same source content
@@ -355,7 +347,6 @@ int add(int a, int b) {
             cpp_file2.relative_to(repo2),
             "clang++",
             tool_args,
-            repo_dir=repo2,
             input_args=input_args,
             output_args=["-o", str(repo2 / "test.s")],
             optimization=0
@@ -364,7 +355,7 @@ int add(int a, int b) {
         assert returncode2 == 0, "Second compilation should succeed"
 
         # Get cache statistics after second run
-        cache_entries_after = len(quicken2.cache.index)
+        cache_entries_after = len(shared_cache.index)
 
         # Verify cache hit: no new entry should be created
         assert cache_entries_before == cache_entries_after, \
@@ -397,8 +388,8 @@ int multiply(int x, int y) {
         header1.write_text("#pragma once\n#define VALUE1 10\n")
         header2.write_text("#pragma once\n#define VALUE2 20\n")
 
-        # Create Quicken instance
-        quicken = Quicken(config_file)
+        # Create Quicken instance for the repo
+        quicken = Quicken(config_file, repo)
         quicken.cache = QuickenCache(cache_dir)
 
         # Multiple input_args: [flag1, path1, flag2, path2]
@@ -409,7 +400,6 @@ int multiply(int x, int y) {
             cpp_file.relative_to(repo),
             "clang++",
             tool_args,
-            repo_dir=repo,
             input_args=input_args,
             output_args=["-o", str(repo / "main.s")],
             optimization=0
@@ -430,7 +420,6 @@ int multiply(int x, int y) {
             cpp_file.relative_to(repo),
             "clang++",
             tool_args,
-            repo_dir=repo,
             input_args=input_args,
             output_args=["-o", str(repo / "main.s")],
             optimization=0

@@ -64,9 +64,9 @@ def config_file(temp_dir):
 
 
 @pytest.fixture
-def quicken_instance(config_file, cache_dir):
+def quicken_instance(config_file, cache_dir, temp_dir):
     """Create a Quicken instance with a custom cache directory."""
-    quicken = Quicken(config_file)
+    quicken = Quicken(config_file, temp_dir)
     # Override the cache directory to use our temp one
     quicken.cache = QuickenCache(cache_dir)
     return quicken
@@ -99,7 +99,6 @@ class TestArtifactOverwrite:
 
         returncode1 = quicken_instance.run(
             cpp_file, "cl", tool_args,
-            repo_dir=temp_dir,
         )
         assert returncode1 == 0, "Initial compilation should succeed"
         assert obj_file.exists(), "Initial .obj file should be created"
@@ -119,7 +118,6 @@ class TestArtifactOverwrite:
 
         returncode2 = quicken_instance.run(
             cpp_file, "cl", tool_args,
-            repo_dir=temp_dir,
         )
         assert returncode2 == 0, "Modified compilation should succeed"
         assert obj_file.exists(), "New .obj file should exist after recompilation"
@@ -138,7 +136,6 @@ class TestArtifactOverwrite:
 
         returncode3 = quicken_instance.run(
             cpp_file, "cl", tool_args,
-            repo_dir=temp_dir,
         )
         assert returncode3 == 0, "Cache hit compilation should succeed"
         assert obj_file.exists(), "Cached .obj file should be restored"
@@ -175,7 +172,6 @@ class TestArtifactOverwrite:
         # Compile - should detect and cache the NEW obj file, not the old one
         returncode = quicken_instance.run(
             cpp_file, "cl", tool_args,
-            repo_dir=temp_dir,
         )
         assert returncode == 0, "Compilation should succeed"
         assert obj_file.exists(), "New .obj file should exist"
@@ -193,7 +189,6 @@ class TestArtifactOverwrite:
 
         returncode2 = quicken_instance.run(
             cpp_file, "cl", tool_args,
-            repo_dir=temp_dir,
         )
         assert returncode2 == 0, "Cache hit should succeed"
         assert obj_file.exists(), "Cached .obj should be restored"

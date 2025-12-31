@@ -288,7 +288,6 @@ class TestMSVCStdoutStderr:
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
             test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent,
         )
 
         if returncode1 != 0:
@@ -303,7 +302,6 @@ class TestMSVCStdoutStderr:
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
             test_cpp_file, "cl", tool_args,
-            repo_dir=test_cpp_file.parent,
         )
 
         # Verify outputs are identical
@@ -324,7 +322,6 @@ class TestMSVCStdoutStderr:
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
             cpp_file, "cl", tool_args,
-            repo_dir=cpp_file.parent,
         )
 
         # Should succeed with warnings
@@ -343,7 +340,6 @@ class TestMSVCStdoutStderr:
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
             cpp_file, "cl", tool_args,
-            repo_dir=cpp_file.parent,
         )
         
         # Verify exact reproduction
@@ -363,7 +359,6 @@ class TestMSVCStdoutStderr:
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
             test_cpp_file, "cl", tool_args_banner,
-            repo_dir=test_cpp_file.parent,
         )
 
         if returncode1 != 0:
@@ -379,7 +374,6 @@ class TestMSVCStdoutStderr:
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
             test_cpp_file, "cl", tool_args_nologo,
-            repo_dir=test_cpp_file.parent,
         )
 
         if returncode2 != 0:
@@ -405,7 +399,6 @@ class TestClangStdoutStderr:
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
             test_cpp_file, "clang++", tool_args,
-            repo_dir=test_cpp_file.parent,
         )
 
         if returncode1 != 0:
@@ -420,7 +413,6 @@ class TestClangStdoutStderr:
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
             test_cpp_file, "clang++", tool_args,
-            repo_dir=test_cpp_file.parent,
         )
 
         # Verify exact reproduction
@@ -440,7 +432,6 @@ class TestClangStdoutStderr:
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
             cpp_file, "clang++", tool_args,
-            repo_dir=cpp_file.parent,
         )
 
         if returncode1 != 0:
@@ -458,7 +449,6 @@ class TestClangStdoutStderr:
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
             cpp_file, "clang++", tool_args,
-            repo_dir=cpp_file.parent,
         )
 
         # Verify exact reproduction
@@ -483,7 +473,6 @@ class TestClangTidyStdoutStderr:
             returncode1, stdout1, stderr1 = capture_output(
                 quicken_instance.run,
                 test_cpp_file, "clang-tidy", tool_args,
-                repo_dir=test_cpp_file.parent,
             )
         except Exception:
             pytest.skip("clang-tidy not available or failed")
@@ -496,7 +485,6 @@ class TestClangTidyStdoutStderr:
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
             test_cpp_file, "clang-tidy", tool_args,
-            repo_dir=test_cpp_file.parent,
         )
 
         # Verify exact reproduction

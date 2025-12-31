@@ -35,7 +35,7 @@ def test_stale_mtime(config_file, temp_dir):
 
 	Note: the regression test is more compact than the test steps as it just touches the file instead of changing and reverting. 
         """
-    quicken = Quicken(config_file)
+    quicken = Quicken(config_file, temp_dir)
     quicken.clear_cache()
 
     test_cpp = temp_dir / "test.cpp"
@@ -44,7 +44,7 @@ def test_stale_mtime(config_file, temp_dir):
 
     # Compile V1
     test_cpp.write_text(TEST_CPP_V1)
-    returncode = quicken.run(test_cpp, "cl", args, repo_dir=temp_dir)
+    returncode = quicken.run(test_cpp, "cl", args)
     assert returncode == 0
 
     # Get original mtime from metadata
@@ -59,7 +59,7 @@ def test_stale_mtime(config_file, temp_dir):
     test_cpp.write_text(TEST_CPP_V1)
 
     # Compile again - should be cache hit with mtime update
-    returncode = quicken.run(test_cpp, "cl", args, repo_dir=temp_dir)
+    returncode = quicken.run(test_cpp, "cl", args)
     assert returncode == 0
 
     # Verify mtime was updated in metadata

@@ -60,9 +60,9 @@ def config_file(temp_dir):
 
 
 @pytest.fixture
-def quicken_instance(config_file):
+def quicken_instance(config_file, temp_dir):
     """Create a Quicken instance with clean cache."""
-    q = Quicken(config_file)
+    q = Quicken(config_file, temp_dir)
     q.clear_cache()
     return q
 
@@ -86,7 +86,7 @@ class TestCacheEntryReuse:
 
         # Step 1: Compile V1
         test_cpp.write_text(TEST_CPP_V1)
-        returncode = quicken_instance.run(test_cpp, "cl", args, repo_dir=temp_dir)
+        returncode = quicken_instance.run(test_cpp, "cl", args)
         assert returncode == 0
 
         # Verify entry_000001 was created
@@ -97,7 +97,7 @@ class TestCacheEntryReuse:
         # Step 2: Modify and compile V2
         time.sleep(0.01)  # Ensure different mtime
         test_cpp.write_text(TEST_CPP_V2)
-        returncode = quicken_instance.run(test_cpp, "cl", args, repo_dir=temp_dir)
+        returncode = quicken_instance.run(test_cpp, "cl", args)
         assert returncode == 0
 
         # Verify entry_000002 was created
@@ -107,7 +107,7 @@ class TestCacheEntryReuse:
         # Step 3: Revert to V1 and compile
         time.sleep(0.01)  # Ensure different mtime
         test_cpp.write_text(TEST_CPP_V1)
-        returncode = quicken_instance.run(test_cpp, "cl", args, repo_dir=temp_dir)
+        returncode = quicken_instance.run(test_cpp, "cl", args)
         assert returncode == 0
 
         # Step 4: Verify entry_000003 does NOT exist (entry_000001 was reused)
@@ -147,7 +147,7 @@ class TestCacheEntryReuse:
 
         # Step 1: Compile V1
         test_cpp.write_text(TEST_CPP_V1)
-        returncode = quicken_instance.run(test_cpp, "cl", args, repo_dir=temp_dir)
+        returncode = quicken_instance.run(test_cpp, "cl", args)
         assert returncode == 0
 
         # Get original mtime from metadata
@@ -163,7 +163,7 @@ class TestCacheEntryReuse:
         test_cpp.write_text(TEST_CPP_V1)  # Same content, new mtime
 
         # Step 3: Compile again - should be cache hit with mtime update
-        returncode = quicken_instance.run(test_cpp, "cl", args, repo_dir=temp_dir)
+        returncode = quicken_instance.run(test_cpp, "cl", args)
         assert returncode == 0
 
         # Step 4: Verify mtime was updated in metadata
@@ -185,11 +185,11 @@ class TestCacheEntryReuse:
         args2 = ['/c', '/nologo', '/EHsc', '/W4']
 
         # Compile with args1
-        returncode = quicken_instance.run(test_cpp, "cl", args1, repo_dir=temp_dir)
+        returncode = quicken_instance.run(test_cpp, "cl", args1)
         assert returncode == 0
 
         # Compile with args2 (different args, same content)
-        returncode = quicken_instance.run(test_cpp, "cl", args2, repo_dir=temp_dir)
+        returncode = quicken_instance.run(test_cpp, "cl", args2)
         assert returncode == 0
 
         # Verify 2 entries were created (not reused)

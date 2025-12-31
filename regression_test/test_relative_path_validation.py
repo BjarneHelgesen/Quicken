@@ -45,14 +45,15 @@ def test_relative_path_outside_repo_rejected(config_file, temp_dir):
 
     Fix: Call source_file.resolve() before creating RepoPath in run() and run_repo_tool()
     """
-    quicken = Quicken(config_file)
-    quicken.clear_cache()
-
     # Create repo directory with a source file
     repo_dir = temp_dir / "repo"
     repo_dir.mkdir()
     inside_file = repo_dir / "inside.cpp"
     inside_file.write_text(SIMPLE_CPP_CODE)
+
+    # Create Quicken instance for the repo
+    quicken = Quicken(config_file, repo_dir)
+    quicken.clear_cache()
 
     # Create a file OUTSIDE the repo
     outside_dir = temp_dir / "outside"
@@ -72,9 +73,7 @@ def test_relative_path_outside_repo_rejected(config_file, temp_dir):
         quicken.run(
             relative_path_to_outside,
             "cl",
-            ["/c", "/nologo", "/EHsc"],
-            repo_dir=repo_dir
-        )
+            ["/c", "/nologo", "/EHsc"])
 
 
 @pytest.mark.regression_test
@@ -85,9 +84,6 @@ def test_relative_path_inside_repo_accepted(config_file, temp_dir):
     This is the complement to test_relative_path_outside_repo_rejected.
     Relative paths that resolve to files inside the repo should work.
     """
-    quicken = Quicken(config_file)
-    quicken.clear_cache()
-
     # Create repo with subdirectory
     repo_dir = temp_dir / "repo"
     repo_dir.mkdir()
@@ -97,6 +93,10 @@ def test_relative_path_inside_repo_accepted(config_file, temp_dir):
     source_file = src_dir / "main.cpp"
     source_file.write_text(SIMPLE_CPP_CODE)
 
+    # Create Quicken instance for the repo
+    quicken = Quicken(config_file, repo_dir)
+    quicken.clear_cache()
+
     # Use relative path from repo root: "src/main.cpp"
     relative_path = Path("src/main.cpp")
 
@@ -104,9 +104,7 @@ def test_relative_path_inside_repo_accepted(config_file, temp_dir):
     returncode = quicken.run(
         relative_path,
         "cl",
-        ["/c", "/nologo", "/EHsc"],
-        repo_dir=repo_dir
-    )
+        ["/c", "/nologo", "/EHsc"])
 
     # Should succeed (0 or whatever the compilation returns)
     assert isinstance(returncode, int), "Should complete without ValueError"
@@ -120,9 +118,6 @@ def test_relative_path_with_dotdot_inside_repo(config_file, temp_dir):
     Example: repo/src/../lib/util.cpp resolves to repo/lib/util.cpp
     This should be accepted if it stays inside the repo.
     """
-    quicken = Quicken(config_file)
-    quicken.clear_cache()
-
     # Create repo structure:
     # repo/
     #   src/
@@ -138,6 +133,10 @@ def test_relative_path_with_dotdot_inside_repo(config_file, temp_dir):
     util_file = lib_dir / "util.cpp"
     util_file.write_text(SIMPLE_CPP_CODE)
 
+    # Create Quicken instance for the repo
+    quicken = Quicken(config_file, repo_dir)
+    quicken.clear_cache()
+
     # Use relative path with ../: "src/../lib/util.cpp" -> "lib/util.cpp"
     relative_path = Path("src/../lib/util.cpp")
 
@@ -145,9 +144,7 @@ def test_relative_path_with_dotdot_inside_repo(config_file, temp_dir):
     returncode = quicken.run(
         relative_path,
         "cl",
-        ["/c", "/nologo", "/EHsc"],
-        repo_dir=repo_dir
-    )
+        ["/c", "/nologo", "/EHsc"])
 
     assert isinstance(returncode, int), "Should complete without ValueError"
 
@@ -159,12 +156,13 @@ def test_absolute_path_outside_repo_rejected(config_file, temp_dir):
 
     This should already work, but let's ensure it's not broken.
     """
-    quicken = Quicken(config_file)
-    quicken.clear_cache()
-
     # Create repo directory
     repo_dir = temp_dir / "repo"
     repo_dir.mkdir()
+
+    # Create Quicken instance for the repo
+    quicken = Quicken(config_file, repo_dir)
+    quicken.clear_cache()
 
     # Create file outside repo
     outside_dir = temp_dir / "outside"
@@ -177,9 +175,7 @@ def test_absolute_path_outside_repo_rejected(config_file, temp_dir):
         quicken.run(
             outside_file,  # Absolute path
             "cl",
-            ["/c", "/nologo", "/EHsc"],
-            repo_dir=repo_dir
-        )
+            ["/c", "/nologo", "/EHsc"])
 
 
 @pytest.mark.regression_test
@@ -189,12 +185,13 @@ def test_repo_tool_relative_path_validation(config_file, temp_dir):
 
     The same bug affects run_repo_tool() with the main_file parameter.
     """
-    quicken = Quicken(config_file)
-    quicken.clear_cache()
-
     # Create repo directory
     repo_dir = temp_dir / "repo"
     repo_dir.mkdir()
+
+    # Create Quicken instance for the repo
+    quicken = Quicken(config_file, repo_dir)
+    quicken.clear_cache()
 
     # Create main file (e.g., Doxyfile) OUTSIDE the repo
     outside_dir = temp_dir / "outside"
@@ -209,7 +206,6 @@ def test_repo_tool_relative_path_validation(config_file, temp_dir):
     # Note: May raise KeyError if doxygen not in config, which is also acceptable
     with pytest.raises((ValueError, KeyError)) as exc_info:
         quicken.run_repo_tool(
-            repo_dir=repo_dir,
             tool_name="doxygen",
             tool_args=[],
             main_file=relative_path_to_outside,
