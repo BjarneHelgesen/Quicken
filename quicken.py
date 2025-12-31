@@ -21,71 +21,74 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 class RepoPath:
-    """Stores a path to a file in the repo, relative to the repo. The file does not have to exist"""
-    def __init__(self, path: Path):
-        """Creates a relative path. Use this when you are sure that path is valid"""
-        self.path = path
+    """Stores a path to a file in the repo, relative to the repo. The file does not have to exist.
 
-    @classmethod
-    def fromAbsolutePath(cls, repo: Path, file_path: Path):
-        """The repo and file_path need to be of type Path - not string, etc"""
+    If the path is outside the repo, self.path is set to None and the object evaluates to False.
+    """
+    def __init__(self, repo: Path, path: Path):
+        """Initialize RepoPath.
+
+        Args:
+            repo: Repository root (must be an absolute path)
+            path: Path to convert (absolute or relative to repo)
+
+        If path is outside repo, sets self.path = None.
+        """
         try:
-            return RepoPath(file_path.relative_to(repo))
-        except ValueError:
-            return None # The requested file path was outside the repo
+            if not path.is_absolute():
+                path = repo / path
 
-    @classmethod
-    def fromRelativePath(cls, repo: Path, file_path: Path):
-        """Create a RepoPath from a relative path. The repo and file_path need to be of type Path - not string, etc"""
-        absolute_file_path = (repo / file_path).resolve() # Resolve handles any ../ etc.
-        return cls.fromAbsolutePath(repo, absolute_file_path) # Validates the absolute path as the path may be outside the repo.
+            path = Path(os.path.normpath(path)) # Normalize to remove .. and .
+            self.path = path.relative_to(repo)
+        except (ValueError, OSError):
+            # Path is outside repo or invalid
+            self.path = None
+
 
     def toAbsolutePath(self, repo: Path) -> Path:
         """Convert this repo-relative path to an absolute path.
 
         Args:
-            repo: Repository root directory (should already be resolved for performance)
+            repo: Repository root directory
 
         Returns:
-            Absolute path by joining repo with relative path
+            Absolute path by joining repo with relative path, or None if invalid
         """
-        # Assume repo is already resolved for performance - just join paths
+        if self.path is None:
+            return None
         return repo / self.path
 
     def __str__(self) -> str:
         """Return POSIX-style string representation for serialization.
 
         Uses forward slashes for cross-platform compatibility in JSON.
+        Returns empty string if path is None.
         """
+        if self.path is None:
+            return ""
         return self.path.as_posix()
-
-    @classmethod
-    def fromString(cls, path_str: str):
-        """Create RepoPath from serialized string (trusted).
-
-        Used when loading paths from cache - no validation needed.
-        Returns RepoPath with path using forward slashes.
-        """
-        return RepoPath(Path(path_str))
 
     def calculateHash(self, repo: Path) -> str:
         """Calculate 64-bit hash of the file this path points to.
 
         Args:
-            repo: Repository root to resolve relative path (should already be resolved)
+            repo: Repository root
 
         Returns:
-            16-character hex string (64-bit BLAKE2b hash)
+            16-character hex string (64-bit BLAKE2b hash), or None if invalid path
         """
+        if self.path is None:
+            return None
         file_path = self.toAbsolutePath(repo)
         hash_obj = hashlib.blake2b(digest_size=8)  # 64-bit hash
         with open(file_path, 'rb') as f:
             # Read in chunks for efficiency with large files
             while chunk := f.read(8192):
                 hash_obj.update(chunk)
-        return hash_obj.hexdigest() 
+        return hash_obj.hexdigest()
 
-
+    def __bool__(self):
+        return self.path is not None
 
 class QuickenCache:
     """Manages caching of tool outputs based on source file and dependency metadata."""
@@ -215,7 +218,7 @@ class QuickenCache:
 
         Args:
             input_args: Input arguments containing file paths
-            repo_dir: Repository root directory (should already be resolved)
+            repo_dir: Repository root directory
 
         Returns:
             List of arguments with repo paths made relative and external paths absolute
@@ -225,35 +228,14 @@ class QuickenCache:
 
         translated = []
         for arg in input_args:
-            # Skip obvious flag arguments
+            # Skip obvious flag arguments (just for code clarity. They would have been filtered out as not paths anyway)
             if arg.startswith('-') or arg.startswith('/'):
                 translated.append(arg)
                 continue
 
-            try:
-                path = Path(arg.strip())
-
-                # Handle absolute paths
-                if path.is_absolute():
-                    # Resolve and check if in repo
-                    resolved_path = path.resolve()
-                    repo_path = RepoPath.fromAbsolutePath(repo_dir, resolved_path)
-                    if repo_path:
-                        # In repo - use repo-relative path
-                        translated.append(str(repo_path))
-                    else:
-                        # Outside repo - use normalized absolute path
-                        translated.append(str(resolved_path))
-                else:
-                    # Relative path - resolve relative to repo_dir
-                    repo_path = RepoPath.fromRelativePath(repo_dir, path)
-                    if repo_path:
-                        # Valid repo-relative path
-                        translated.append(str(repo_path))
-                    else:
-                        # Path resolves outside repo - use absolute
-                        abs_path = (repo_dir / path).resolve()
-                        translated.append(str(abs_path))
+            try:                
+                repo_path = RepoPath(repo_dir, Path(arg))
+                translated.append(str(repo_path) if repo_path else arg)
 
             except (ValueError, OSError):
                 # Can't parse as path, keep as-is
@@ -261,7 +243,7 @@ class QuickenCache:
 
         return translated
 
-    def _make_cache_key(self, source_repo_path: RepoPath, file_size: int, tool_name: str, tool_args: List[str], input_args: List[str] = None, repo_dir: Path = None) -> str:
+    def _make_cache_key(self, source_repo_path: RepoPath, file_size: int, tool_name: str, tool_args: List[str], input_args: List[str]=[], repo_dir: Path = None) -> str:
         """Build compound cache key from source file, size, tool, and args.
 
         Args:
@@ -278,30 +260,27 @@ class QuickenCache:
         source_key = str(source_repo_path)
         args_str = json.dumps(tool_args, separators=(',', ':'))
 
-        if input_args and repo_dir:
-            # Translate paths in input_args for cache portability
-            translated_input_args = self._translate_input_args_for_cache_key(input_args, repo_dir)
-            input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
-            return f"{source_key}::{file_size}::{tool_name}::{args_str}::{input_args_str}"
-
-        return f"{source_key}::{file_size}::{tool_name}::{args_str}"
+        # Translate paths in input_args for cache portability
+        translated_input_args = self._translate_input_args_for_cache_key(input_args, repo_dir)
+        input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
+        return f"{source_key}::{file_size}::{tool_name}::{args_str}::{input_args_str}"
 
     def _get_file_metadata(self, repo_path: RepoPath, repo_dir: Path) -> Dict:
         """Get metadata for a single file using repo-relative path.
 
         Args:
             repo_path: RepoPath instance for the file
-            repo_dir: Repository root for hash calculation (should already be resolved)
+            repo_dir: Repository root for hash calculation
 
         Returns:
-            Dict with path, hash, mtime_ns (nanosecond precision), and size
+            Dict with path, hash, mtime_ns, and size
         """
         file_path = repo_path.toAbsolutePath(repo_dir)
         stat = file_path.stat()
         return {
-            "path": str(repo_path),  # Uses RepoPath.__str__() for POSIX format
+            "path": str(repo_path),
             "hash": repo_path.calculateHash(repo_dir),
-            "mtime_ns": stat.st_mtime_ns,  # Nanosecond precision timestamp
+            "mtime_ns": stat.st_mtime_ns, 
             "size": stat.st_size
         }
 
@@ -312,7 +291,7 @@ class QuickenCache:
 
         Args:
             cached_deps: List of dicts with 'path', 'hash', 'mtime_ns', 'size' keys
-            repo_dir: Repository root (should already be resolved)
+            repo_dir: Repository root 
 
         Returns:
             Tuple of (matches, needs_update) where:
@@ -326,7 +305,7 @@ class QuickenCache:
             expected_hash = dep["hash"]
 
             # Load path from cache (trusted)
-            repo_path = RepoPath.fromString(dep_path_str)
+            repo_path = RepoPath(repo_dir, Path(dep_path_str))
 
             # Convert to absolute path and check if file exists
             file_path = repo_path.toAbsolutePath(repo_dir)
@@ -365,7 +344,7 @@ class QuickenCache:
         return True, needs_update
 
     def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-               repo_dir: Path, input_args: List[str] = None) -> Optional[Path]:
+               repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
         """Look up cached output for given source file and tool command.
 
         This is the optimized fast path that doesn't run /showIncludes.
@@ -375,7 +354,7 @@ class QuickenCache:
             source_repo_path: RepoPath for source file
             tool_name: Name of the tool
             tool_args: Tool arguments list
-            repo_dir: Repository root (should already be resolved)
+            repo_dir: Repository root
             input_args: Optional input arguments with file paths
 
         Returns:
@@ -433,7 +412,7 @@ class QuickenCache:
               repo_dir: Path, repo_mode: bool = False,
               dependency_patterns: List[str] = None,
               output_base_dir: Path = None,
-              input_args: List[str] = None) -> Path:
+              input_args: List[str] = []) -> Path:
         """Store tool output in cache with dependency hashes.
 
         Args:
@@ -445,7 +424,7 @@ class QuickenCache:
             stdout: Tool stdout
             stderr: Tool stderr
             returncode: Tool exit code
-            repo_dir: Repository directory (for hashing dependencies, should already be resolved)
+            repo_dir: Repository directory (for hashing dependencies)
             repo_mode: If True, this is a repo-level cache entry
             dependency_patterns: Glob patterns used (for repo mode)
             output_base_dir: Base directory for preserving relative paths
@@ -800,7 +779,7 @@ class ToolCmd(ABC):
             tool_name: Name of the tool
             tool_args: Tool arguments (without source_file/main_file)
             source_repo_path: RepoPath for source file
-            repo_dir: Repository directory (should already be resolved)
+            repo_dir: Repository directory
 
         Returns:
             Tuple of (cache_entry, modified_args) or (None, original_args)
@@ -979,12 +958,12 @@ class Quicken:
 
         return env
 
-    def _get_local_dependencies(self, source_file: Path, repo_dir: Path) -> List[Path]:
+    def _get_local_dependencies(self, source_file: Path, repo_dir: Path) -> List:
         """Get list of local (repo) file dependencies using MSVC /showIncludes.
 
         Args:
             source_file: Source file to analyze
-            repo_dir: Repository directory (should already be resolved)
+            repo_dir: Repository directory
         """
         cl_path = ToolCmd.get_tool_path(self.config, "cl")
 
@@ -1006,15 +985,9 @@ class Quicken:
             if line.startswith("Note: including file:"):
                 # Extract the file path (after "Note: including file:")
                 file_path_str = line.split(":", 2)[2].strip()
-                file_path = Path(file_path_str)
-
-                # Only include files within the repository
-                try:
-                    file_path.resolve().relative_to(repo_dir)
-                    dependencies.append(file_path)
-                except ValueError:
-                    # File is outside repo, skip it
-                    pass
+                repo_path = RepoPath(repo_dir, file_path_str)
+                if repo_path:  # Only include dependencies inside repo
+                    dependencies.append(str(repo_path))
 
         return dependencies
 
@@ -1038,7 +1011,7 @@ class Quicken:
         unique_deps = sorted(set(dependencies))
 
         # Return absolute paths
-        return [d.resolve() for d in unique_deps]
+        return [d.absolute() for d in unique_deps]
 
     def _get_file_timestamps(self, directory: Path) -> Dict[Path, int]:
         """Get dictionary of file paths to their modification timestamps.
@@ -1130,7 +1103,7 @@ class Quicken:
         return output_files, result.stdout, result.stderr, result.returncode
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
-            repo_dir: Path, optimization: int = None, output_args: List[str] = None, input_args: List[str] = None) -> int:
+            repo_dir: Path, optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
         """
         Main execution: optimized cache lookup, or get dependencies and run tool.
 
@@ -1146,16 +1119,14 @@ class Quicken:
         Returns:
             Tool exit code (integer)
         """
-        # OPTIMIZATION: Resolve repo_dir once at entry point to avoid repeated resolve() calls
-        repo_dir = repo_dir.resolve()
+        repo_dir = repo_dir.absolute()
 
-        # VALIDATE: Convert source_file to RepoPath at API entry
-        if source_file.is_absolute():
-            source_repo_path = RepoPath.fromAbsolutePath(repo_dir, source_file)
-        else:
-            source_repo_path = RepoPath.fromRelativePath(repo_dir, source_file)
+        if input_args is None:
+            input_args = []
 
-        if source_repo_path is None:
+        # Convert source_file to RepoPath and validate it's inside repo
+        source_repo_path = RepoPath(repo_dir, source_file)
+        if not source_repo_path:
             raise ValueError(f"Source file {source_file} is outside repository {repo_dir}")
 
         # Convert RepoPath back to absolute path for tool execution
@@ -1195,13 +1166,9 @@ class Quicken:
         # Convert absolute dependency paths to RepoPath
         local_dep_repo_paths = []
         for dep_path in local_files:
-            dep_repo_path = RepoPath.fromAbsolutePath(repo_dir, dep_path)
-            if dep_repo_path is not None:  # Should always succeed for local deps
-                local_dep_repo_paths.append(dep_repo_path)
+            local_dep_repo_paths.append(RepoPath(repo_dir, dep_path))
 
-        output_files, stdout, stderr, returncode = self._run_tool(
-            tool, modified_args, abs_source_file, repo_dir
-        )
+        output_files, stdout, stderr, returncode = self._run_tool(tool, modified_args, abs_source_file, repo_dir)
 
 
         if stdout:
@@ -1228,7 +1195,7 @@ class Quicken:
 
     def run_repo_tool(self, repo_dir: Path, tool_name: str, tool_args: List[str],
                       main_file: Path, dependency_patterns: List[str],
-                      optimization: int = None, output_args: List[str] = None, input_args: List[str] = None) -> int:
+                      optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
         """
         Run a repo-level tool with caching based on dependency patterns.
 
@@ -1245,16 +1212,13 @@ class Quicken:
         Returns:
             Tool exit code (integer)
         """
-        # OPTIMIZATION: Resolve repo_dir once at entry point to avoid repeated resolve() calls
-        repo_dir = repo_dir.resolve()
+        repo_dir = repo_dir.absolute() #Remove any ../ from the path
+        if input_args is None:
+            input_args = []
 
-        # VALIDATE: Convert main_file to RepoPath at API entry
-        if main_file.is_absolute():
-            main_repo_path = RepoPath.fromAbsolutePath(repo_dir, main_file)
-        else:
-            main_repo_path = RepoPath.fromRelativePath(repo_dir, main_file)
-
-        if main_repo_path is None:
+        # Convert main_file to RepoPath and validate it's inside repo
+        main_repo_path = RepoPath(repo_dir, main_file)
+        if not main_repo_path:
             raise ValueError(f"Main file {main_file} is outside repository {repo_dir}")
 
         # Convert RepoPath back to absolute path for tool execution
@@ -1295,13 +1259,9 @@ class Quicken:
         # Convert absolute dependency paths to RepoPath
         repo_dep_repo_paths = []
         for dep_path in repo_files:
-            dep_repo_path = RepoPath.fromAbsolutePath(repo_dir, dep_path)
-            if dep_repo_path is not None:  # Should always succeed for repo deps
-                repo_dep_repo_paths.append(dep_repo_path)
+            repo_dep_repo_paths.append(RepoPath(repo_dir, dep_path))
 
-        output_files, stdout, stderr, returncode = self._run_repo_tool_impl(
-            tool, modified_args, abs_main_file, work_dir=repo_dir
-        )
+        output_files, stdout, stderr, returncode = self._run_repo_tool_impl(tool, modified_args, abs_main_file, work_dir=repo_dir)
 
         if stdout:
             print(stdout, end='')

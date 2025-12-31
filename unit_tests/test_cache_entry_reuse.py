@@ -132,8 +132,10 @@ class TestCacheEntryReuse:
 
         assert compound_key is not None, "Compound key for test.cpp should exist"
         # Index now stores lists of entries (supporting collisions)
-        assert len(index[compound_key]) >= 1, "Index should have at least one entry"
-        assert index[compound_key][0]["cache_key"] == "entry_000001", "Index should point to entry_000001"
+        entries_list = index[compound_key]
+        assert isinstance(entries_list, list), "Index should store list of entries"
+        assert len(entries_list) >= 1, "Index should have at least one entry"
+        assert entries_list[0]["cache_key"] == "entry_000001", "Index should point to entry_000001"
 
     def test_mtime_update_on_reuse(self, quicken_instance, temp_dir):
         """

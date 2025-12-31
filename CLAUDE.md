@@ -152,29 +152,15 @@ When a bug is found, the user should create a failing regression test BEFORE the
 
 **Running Regression Tests:**
 
-Run only regression tests:
-```bash
-pytest -m regression_test
-```
 
-Run all tests including regression tests:
-```bash
-pytest
-```
 
-Run all tests EXCEPT regression tests:
-```bash
-pytest -m "not regression_test"
-```
 
 **Example Regression Test:**
 
-See `regression_test/test_cache_entry_reuse_regression.py` for a complete example. This test verifies the fix for commit 4a5ba0f, which prevented duplicate cache entries when files were reverted to previous content.
+See `regression_test/test_cache_entry_reuse_regression.py` for a complete example. .
 
 Key elements of a good regression test:
-- Clear documentation of the bug and the fix
-- Reference to the commit that fixed it
-- Explicit verification that the bug is fixed
+- Clear documentation of the bug
 - Uses the Quicken API correctly (as users would use it)
 - Marked with `@pytest.mark.regression_test`
 
@@ -190,19 +176,20 @@ Key elements of a good regression test:
 ## Conclusion
 
 Quicken provides transparent caching for C++ build tools with:
-- Artifacts are retrieved in 1ms when there is a cache hit
+- Artifacts are retrieved in about 1ms when there is a cache hit
 - Minimal overhead on cache miss (~100-200ms)
-- Massive speedup on cache hit (100-1000x)
+- Massive speedup on cache hit
 - Easy integration with existing workflows
 - Simple, maintainable codebase
 
 The metadata-based approach prioritizes speed while the local-dependency tracking ensures practical correctness for iterative development.
 
 
-## Additional Instructions for Claude
+## Important: Additional Instructions for Claude
 - Don't commit changes
 - Don't create documents explaining issues unless specifically asked to create documents
 - Do only what is requested. If more tasks are necessary, ask to clarify
 - When updating code, update unit tests also
 - When making unit tests, don't make tests that prints results. Make proper pytest unit tests with asserts. 
-- When a unit tests passes where the opretion did not succeed, make the unit tests stricter or make a new unit test to cover the isse
+- When a unit tests passes where the operation did not succeed, make the unit tests stricter or make a new unit test to cover the issue
+- Put functionality *in* classes, rather than in code using the classes, when possible. I.e. extend the classes rather than put related logic outside

@@ -106,7 +106,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -144,7 +144,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -185,7 +185,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c", "/nologo"]
@@ -217,7 +217,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -252,7 +252,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -526,8 +526,8 @@ class TestRepoToolStdoutStderr:
         output_file = output_dir / "index.html"
         output_file.write_text("<html></html>")
 
-        main_repo_path = RepoPath.fromAbsolutePath(temp_dir, main_file)
-        cpp_repo_path = RepoPath.fromAbsolutePath(temp_dir, cpp_file)
+        main_repo_path = RepoPath(temp_dir, main_file.resolve())
+        cpp_repo_path = RepoPath(temp_dir, cpp_file.resolve())
         dep_repo_paths = [main_repo_path, cpp_repo_path]
         tool_name = "doxygen"
         tool_args = []
@@ -566,7 +566,7 @@ class TestErrorCases:
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]

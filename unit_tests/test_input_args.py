@@ -174,8 +174,12 @@ class TestInputArgsCaching:
 
         # They should be different cache entries (different cache_key values like entry_000022 vs entry_000023)
         # Index now stores lists of entries
-        entry1 = quicken_instance.cache.index[cache_keys_with_header1[0]][0]
-        entry2 = quicken_instance.cache.index[cache_keys_with_header2[0]][0]
+        entries_list1 = quicken_instance.cache.index[cache_keys_with_header1[0]]
+        entries_list2 = quicken_instance.cache.index[cache_keys_with_header2[0]]
+        assert isinstance(entries_list1, list) and isinstance(entries_list2, list), \
+            "Index should store lists of entries"
+        entry1 = entries_list1[0]
+        entry2 = entries_list2[0]
         assert entry1['cache_key'] != entry2['cache_key'], \
             "Different input_args should create separate cache entries"
 

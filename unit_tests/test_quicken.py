@@ -94,7 +94,7 @@ class TestQuickenCache:
         # After storing an entry, next_id should increment
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         cache.store(source_repo_path, "cl", ["/c"], dep_repo_paths, [], "", "", 0, temp_dir, output_base_dir=temp_dir)
 
@@ -112,7 +112,7 @@ class TestQuickenCache:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -147,7 +147,7 @@ class TestQuickenCache:
         output_content = "fake object file content"
         output_file.write_text(output_content)
 
-        source_repo_path = RepoPath.fromAbsolutePath(temp_dir, source_file)
+        source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
