@@ -42,17 +42,13 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     # Cache MISS - First run
     print(f"[{tool_name}] Running cache MISS test...")
     start = time.time()
-    returncode1 = quicken.run(cpp_file, tool_name, tool_args,
-                             repo_dir=cpp_file.parent)
+    returncode1 = quicken.run(cpp_file, tool_name, tool_args)
     miss_time = time.time() - start
 
     if returncode1 != 0:
         print(f"[{tool_name}] WARNING: Tool failed with return code {returncode1}")
         print(f"[{tool_name}] Skipping this tool.")
         return None
-
-    # Wait for async file operations to complete
-    quicken.cache.flush()
 
     # Verify expected outputs exist
     for output_file in expected_outputs:
@@ -68,16 +64,12 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     # Cache HIT - Second run
     print(f"[{tool_name}] Running cache HIT test...")
     start = time.time()
-    returncode2 = quicken.run(cpp_file, tool_name, tool_args,
-                             repo_dir=cpp_file.parent)
+    returncode2 = quicken.run(cpp_file, tool_name, tool_args)
     hit_time = time.time() - start
 
     if returncode2 != 0:
         print(f"[{tool_name}] ERROR: Cache hit failed with return code {returncode2}")
         return None
-
-    # Wait for async file restoration to complete
-    quicken.cache.flush()
 
     # Verify outputs restored from cache
     for output_file in expected_outputs:
@@ -108,7 +100,7 @@ def main():
 
         # Setup Quicken
         config_file = Path(__file__).parent / "tools.json"
-        quicken = Quicken(config_file)
+        quicken = Quicken(config_file, temp_dir)
         quicken.cache = QuickenCache(cache_dir)
 
         results = {}

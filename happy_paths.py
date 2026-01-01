@@ -38,14 +38,14 @@ def main ():
         main_cpp, headers = create_simple_project(temp_dir, num_headers)
 
         config_file = Path(__file__).parent / "tools.json"
-        quicken = Quicken(config_file)
+        quicken = Quicken(config_file, temp_dir)
 
         #First run: cache hit after hashing all files
-        quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"], repo_dir=main_cpp.parent)
+        quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"])
 
-        #Consecutive runs: cache hit after mtime/size check for all files. 
+        #Consecutive runs: cache hit after mtime/size check for all files.
         for _ in range(199):
-            quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"], repo_dir=main_cpp.parent)
+            quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"])
 
 
 if __name__ == "__main__":

@@ -1069,9 +1069,7 @@ class Quicken:
 
         if cache_entry:
             stdout, stderr, returncode = self.cache.restore(cache_entry, self.repo_dir)
-            if stdout:
                 print(stdout, end='')
-            if stderr:
                 print(stderr, end='', file=sys.stderr)
             self.logger.info(f"CACHE HIT - source_file: {source_repo_path}, tool: {tool_name}, "
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
@@ -1090,10 +1088,7 @@ class Quicken:
 
         output_files, stdout, stderr, returncode = self._run_tool(tool, modified_args, abs_source_file, self.repo_dir)
 
-
-        if stdout:
             print(stdout, end='')
-        if stderr:
             print(stderr, end='', file=sys.stderr)
 
         self.cache.store(
@@ -1156,9 +1151,7 @@ class Quicken:
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                            f"args: {modified_args}, main_file: {main_repo_path}, "
                            f"cache_entry: {cache_entry.name}, returncode: {returncode}")
-            if stdout:
                 print(stdout, end='')
-            if stderr:
                 print(stderr, end='', file=sys.stderr)
             # Flush to ensure all async file copies are complete
             self.cache.flush()
@@ -1173,9 +1166,7 @@ class Quicken:
 
         output_files, stdout, stderr, returncode = self._run_repo_tool_impl(tool, modified_args, abs_main_file, work_dir=self.repo_dir)
 
-        if stdout:
             print(stdout, end='')
-        if stderr:
             print(stderr, end='', file=sys.stderr)
 
         if returncode == 0:
