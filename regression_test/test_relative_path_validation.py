@@ -178,44 +178,5 @@ def test_absolute_path_outside_repo_rejected(config_file, temp_dir):
             ["/c", "/nologo", "/EHsc"])
 
 
-@pytest.mark.regression_test
-def test_repo_tool_relative_path_validation(config_file, temp_dir):
-    """
-    Verify that run_repo_tool() also validates relative paths correctly.
-
-    The same bug affects run_repo_tool() with the main_file parameter.
-    """
-    # Create repo directory
-    repo_dir = temp_dir / "repo"
-    repo_dir.mkdir()
-
-    # Create Quicken instance for the repo
-    quicken = Quicken(config_file, repo_dir)
-    quicken.clear_cache()
-
-    # Create main file (e.g., Doxyfile) OUTSIDE the repo
-    outside_dir = temp_dir / "outside"
-    outside_dir.mkdir()
-    outside_main = outside_dir / "Doxyfile"
-    outside_main.write_text("# Doxygen config")
-
-    # Try to run repo tool with relative path pointing outside
-    relative_path_to_outside = Path("../outside/Doxyfile")
-
-    # This SHOULD raise ValueError
-    # Note: May raise KeyError if doxygen not in config, which is also acceptable
-    with pytest.raises((ValueError, KeyError)) as exc_info:
-        quicken.run_repo_tool(
-            tool_name="doxygen",
-            tool_args=[],
-            main_file=relative_path_to_outside,
-            dependency_patterns=["*.cpp"]
-        )
-
-    # If we get ValueError, verify it's about the path
-    if isinstance(exc_info.value, ValueError):
-        assert "outside repository" in str(exc_info.value) or "not in the subpath" in str(exc_info.value)
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-m", "regression_test"])

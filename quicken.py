@@ -366,11 +366,6 @@ class QuickenCache:
 
         # Try each entry until we find a match
         for entry in entries:
-            # For repo mode, verify main_file content hasn't changed
-            if entry.get("repo_mode", False) and "main_file_hash" in entry:
-                if source_repo_path.calculateHash(repo_dir) != entry["main_file_hash"]:
-                    continue  # Try next entry
-
             # Convert dependencies from dict to FileMetadata
             cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
             matches, updated_deps = self._dependencies_match(cached_deps, repo_dir)
@@ -410,12 +405,11 @@ class QuickenCache:
     def store(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
               dependency_repo_paths: List[RepoPath], output_files: List[Path],
               stdout: str, stderr: str, returncode: int,
-              repo_dir: Path, repo_mode: bool = False,
-              dependency_patterns: List[str] = None,
+              repo_dir: Path,
               output_base_dir: Path = None,
               input_args: List[str] = []) -> Path:
         """Store tool output in cache with dependency hashes.
-        Args:    source_repo_path: RepoPath for source file (or main file for repo mode)
+        Args:    source_repo_path: RepoPath for source file (or main file)
                  tool_name: Name of the tool
                  tool_args: Tool arguments (without main_file path)
                  dependency_repo_paths: List of RepoPath instances for dependencies
@@ -424,8 +418,6 @@ class QuickenCache:
                  stderr: Tool stderr
                  returncode: Tool exit code
                  repo_dir: Repository directory (for hashing dependencies)
-                 repo_mode: If True, this is a repo-level cache entry
-                 dependency_patterns: Glob patterns used (for repo mode)
                  output_base_dir: Base directory for preserving relative paths
                  input_args: Optional input arguments with file paths
         Returns: Path to cache entry directory"""
@@ -498,12 +490,6 @@ class QuickenCache:
                 "repo_dir": str(repo_dir)  # Normalized absolute path for path translation
             }
 
-            if repo_mode:
-                metadata["repo_mode"] = True
-                metadata["main_file_hash"] = source_repo_path.calculateHash(repo_dir)
-                if dependency_patterns:
-                    metadata["dependency_patterns"] = dependency_patterns
-
             with open(cache_entry_dir / "metadata.json", 'w') as f:
                 json.dump(metadata, f, indent=2)
 
@@ -515,12 +501,6 @@ class QuickenCache:
             "cache_key": cache_key,
             "dependencies": [d.to_dict() for d in dep_metadata]
         }
-
-        if repo_mode:
-            index_entry["repo_mode"] = True
-            index_entry["main_file_hash"] = source_repo_path.calculateHash(repo_dir)
-            if dependency_patterns:
-                index_entry["dependency_patterns"] = dependency_patterns
 
         # Append to list at compound key (supports collisions)
         if compound_key not in self.index:
@@ -632,7 +612,7 @@ class QuickenCache:
 
         # Wait for all copy operations to complete
         for future in futures:
-            future.result(timeout=5.0)
+            future.result(timeout=60)
 
         return metadata["returncode"]
 
@@ -661,16 +641,46 @@ class ToolCmd(ABC):
     optimization_flags = []
     needs_vcvars = False
 
-    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, env, optimization=None, output_args=None, input_args=None):
+    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, msvc_env, optimization=None, output_args=None, input_args=None):
         self.tool_path = tool_path
         self.arguments = arguments
         self.optimization = optimization
         self.config = config
         self.logger = logger
         self.cache = cache
-        self.env = env  # Environment dict or None
+        self.msvc_env = msvc_env  # MSVC environment for /showIncludes
         self.output_args = output_args if output_args is not None else []  # Output-specific arguments (not part of cache key)
         self.input_args = input_args if input_args is not None else []  # Input-specific arguments (part of cache key)
+
+    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
+        """Get list of dependency paths for caching using MSVC /showIncludes.
+        Default implementation for C++ tools. Can be overridden by subclasses.
+        Args:    main_file: Main file being processed (source file for compilers, Doxyfile for Doxygen)
+                 repo_dir: Repository root directory
+        Returns: List of RepoPath instances for all dependencies"""
+        cl_path = ToolCmd.get_tool_path(self.config, "cl")
+
+        # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
+        result = subprocess.run(
+            [cl_path, '/showIncludes', '/Zs', str(main_file)],
+            env=self.msvc_env,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        # Parse /showIncludes output
+        dependencies = [RepoPath(repo_dir, main_file)]  # Always include the source file itself
+
+        for line in result.stderr.splitlines():  # /showIncludes outputs to stderr
+            if line.startswith("Note: including file:"):
+                # Extract the file path (after "Note: including file:")
+                file_path_str = line.split(":", 2)[2].strip()
+                repo_path = RepoPath(repo_dir, file_path_str)
+                if repo_path:  # Only include dependencies inside repo
+                    dependencies.append(repo_path)
+
+        return dependencies
 
     @staticmethod
     def get_tool_path(config: Dict, tool_name: str) -> str:
@@ -777,6 +787,22 @@ class DoxygenCmd(ToolCmd):
     optimization_flags = []
     needs_vcvars = False
 
+    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
+        """Get dependencies for Doxygen: Doxyfile + all C++ source/header files.
+        Args:    main_file: Path to Doxyfile
+                 repo_dir: Repository root directory
+        Returns: List of RepoPath instances for Doxyfile and all C++ files"""
+        dependencies = [RepoPath(repo_dir, main_file)]  # Include Doxyfile itself
+
+        # Add all C++ source and header files in the repo
+        for pattern in ['**/*.cpp', '**/*.h', '**/*.hpp']:
+            for file_path in repo_dir.glob(pattern):
+                repo_path = RepoPath(repo_dir, file_path)
+                if repo_path:
+                    dependencies.append(repo_path)
+
+        return dependencies
+
 class ToolRegistry:
     """Registry for tool command classes."""
 
@@ -789,7 +815,7 @@ class ToolRegistry:
 
     @classmethod
     def create(cls, tool_name: str, tool_path: str, arguments: List[str],
-               logger, config, cache, quicken, optimization=None, output_args=None, input_args=None) -> ToolCmd:
+               logger, config, cache, msvc_env, optimization=None, output_args=None, input_args=None) -> ToolCmd:
         """Create ToolCmd instance for the given tool name.
         Args:    tool_name: Name of the tool (must be registered)
                  tool_path: Full path to tool executable
@@ -797,7 +823,7 @@ class ToolRegistry:
                  logger: Logger instance
                  config: Configuration dict
                  cache: QuickenCache instance
-                 quicken: Quicken instance (for environment access if needed)
+                 msvc_env: MSVC environment dict
                  optimization: Optional optimization level
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
@@ -808,11 +834,8 @@ class ToolRegistry:
 
         tool_class = cls._registry[tool_name]
 
-        # Get environment if tool needs vcvars
-        env = quicken._msvc_env if tool_class.needs_vcvars else None
-
         return tool_class(tool_path, arguments, logger, config, cache,
-                         env, optimization, output_args, input_args)
+                         msvc_env, optimization, output_args, input_args)
 
 class Quicken:
     """Main Quicken application."""
@@ -911,53 +934,6 @@ class Quicken:
 
         return env
 
-    def _get_local_dependencies(self, source_file: Path, repo_dir: Path) -> List:
-        """Get list of local (repo) file dependencies using MSVC /showIncludes.
-        Args:    source_file: Source file to analyze
-                 repo_dir: Repository directory"""
-        cl_path = ToolCmd.get_tool_path(self.config, "cl")
-
-        # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
-        # This is much faster than full preprocessing
-        result = subprocess.run(
-            [cl_path, '/showIncludes', '/Zs', str(source_file)],
-            env=self._msvc_env,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
-        # Parse /showIncludes output
-        # Format: "Note: including file:   <path>"
-        dependencies = [source_file]  # Always include the source file itself
-
-        for line in result.stderr.splitlines():  # /showIncludes outputs to stderr
-            if line.startswith("Note: including file:"):
-                # Extract the file path (after "Note: including file:")
-                file_path_str = line.split(":", 2)[2].strip()
-                repo_path = RepoPath(repo_dir, file_path_str)
-                if repo_path:  # Only include dependencies inside repo
-                    dependencies.append(str(repo_path))
-
-        return dependencies
-
-    def _get_repo_dependencies(self, repo_dir: Path, dependency_patterns: List[str]) -> List[Path]:
-        """Get list of files matching dependency patterns in repository.
-        Args:    repo_dir: Repository root directory
-                 dependency_patterns: Glob patterns (e.g., ["*.cpp", "*.h"])
-        Returns: Sorted list of absolute paths matching any pattern"""
-        dependencies = []
-        for pattern in dependency_patterns:
-            # Use recursive glob to find all matching files
-            matches = repo_dir.rglob(pattern)
-            dependencies.extend(matches)
-
-        # Remove duplicates and sort for deterministic ordering
-        unique_deps = sorted(set(dependencies))
-
-        # Return absolute paths
-        return [d.absolute() for d in unique_deps]
-
     def _get_file_timestamps(self, directory: Path) -> Dict[Path, int]:
         """Get dictionary of file paths to their modification timestamps.
         Arg:     directory: Directory to scan
@@ -975,27 +951,27 @@ class Quicken:
 
         return file_timestamps
 
-    def _run_repo_tool_impl(self, tool: ToolCmd, tool_args: List[str],
-                            main_file: Path, work_dir: Path) -> Tuple[List[Path], str, str, int]:
-        """Run repo-level tool and detect all output files.
+    def _run_tool(self, tool: ToolCmd, tool_args: List[str], source_file: Path,
+                  repo_dir: Path) -> Tuple[List[Path], str, str, int]:
+        """Run the specified tool with arguments.
         Args:    tool: ToolCmd instance
-                 tool_args: Arguments to pass to tool (already includes optimization)
-                 main_file: Main file path (e.g., Doxyfile)
-                 work_dir: Working directory for tool execution (repo_dir)
+                 tool_args: Arguments to pass to tool (already includes optimization flags)
+                 source_file: Path to file to process (C++ file for compilers, Doxyfile for Doxygen)
+                 repo_dir: Repository directory (scan location for output files)
         Returns: Tuple of (output_files, stdout, stderr, returncode)"""
-        files_before = self._get_file_timestamps(work_dir)
+        files_before = self._get_file_timestamps(repo_dir)
 
-        cmd = tool.build_execution_command(main_file)
+        cmd = tool.build_execution_command(source_file)
 
         result = subprocess.run(
             cmd,
-            cwd=work_dir,
+            cwd=repo_dir,
             capture_output=True,
             text=True,
-            env=tool.env
+            env=tool.msvc_env if tool.needs_vcvars else None
         )
 
-        files_after = self._get_file_timestamps(work_dir)
+        files_after = self._get_file_timestamps(repo_dir)
 
         # Detect output files: new files OR files with updated timestamps
         output_files = [
@@ -1005,40 +981,10 @@ class Quicken:
 
         return output_files, result.stdout, result.stderr, result.returncode
 
-    def _run_tool(self, tool: ToolCmd, tool_args: List[str], source_file: Path,
-                  repo_dir: Path) -> Tuple[List[Path], str, str, int]:
-        """Run the specified tool with arguments.
-        Args:    tool: ToolCmd instance
-                 tool_args: Arguments to pass to tool (already includes optimization flags)
-                 source_file: Path to C++ file to process
-                 repo_dir: Repository directory to scan for output files
-        Returns: Tuple of (output_files, stdout, stderr, returncode)"""
-        files_before = self._get_file_timestamps(repo_dir)
-
-        cmd = tool.build_execution_command(source_file)
-
-        result = subprocess.run(
-            cmd,
-            cwd=source_file.parent,
-            capture_output=True,
-            text=True,
-            env=tool.env
-        )
-
-        files_after = self._get_file_timestamps(repo_dir)
-
-        # Detect output files: new files OR files with updated timestamps (excluding source file)
-        output_files = [
-            f for f, mtime in files_after.items()
-            if f != source_file and (f not in files_before or mtime > files_before[f])
-        ]
-
-        return output_files, result.stdout, result.stderr, result.returncode
-
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
             optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
         """Main execution: optimized cache lookup, or get dependencies and run tool.
-        Args:    source_file: C++ file to process (absolute or relative path)
+        Args:    source_file: File to process (absolute or relative path) - C++ file for compilers, Doxyfile for Doxygen
                  tool_name: Tool to run
                  tool_args: Arguments for the tool (part of cache key)
                  optimization: Optimization level (0-3, or None to accept any cached level)
@@ -1058,7 +1004,7 @@ class Quicken:
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
         tool = ToolRegistry.create(
             tool_name, tool_path, tool_args,
-            self.logger, self.config, self.cache, self, optimization, output_args, input_args
+            self.logger, self.config, self.cache, self._msvc_env, optimization, output_args, input_args
         )
 
         if optimization is None:
@@ -1071,18 +1017,14 @@ class Quicken:
 
         if cache_entry:
             returncode = self.cache.restore(cache_entry, self.repo_dir)
-            self.logger.info(f"CACHE HIT - source_file: {source_repo_path}, tool: {tool_name}, "
+            self.logger.info(f"CACHE HIT - file: {source_repo_path}, tool: {tool_name}, "
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                            f"args: {modified_args}, cache_entry: {cache_entry.name}, "
                            f"returncode: {returncode}")
             return returncode
 
-        local_files = self._get_local_dependencies(abs_source_file, self.repo_dir)
-
-        # Convert absolute dependency paths to RepoPath
-        local_dep_repo_paths = []
-        for dep_path in local_files:
-            local_dep_repo_paths.append(RepoPath(self.repo_dir, dep_path))
+        # Get dependencies from tool
+        dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
 
         output_files, stdout, stderr, returncode = self._run_tool(tool, modified_args, abs_source_file, self.repo_dir)
 
@@ -1090,91 +1032,15 @@ class Quicken:
         print(stderr, end='', file=sys.stderr)
 
         self.cache.store(
-            source_repo_path, tool_name, modified_args, local_dep_repo_paths, output_files,
+            source_repo_path, tool_name, modified_args, dependency_repo_paths, output_files,
             stdout, stderr, returncode, self.repo_dir,
-            repo_mode=False,
             output_base_dir=self.repo_dir,
             input_args=input_args
         )
-        self.logger.info(f"CACHE MISS - source_file: {source_repo_path}, tool: {tool_name}, "
+        self.logger.info(f"CACHE MISS - file: {source_repo_path}, tool: {tool_name}, "
                        f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                       f"args: {modified_args}, dependencies: {len(local_dep_repo_paths)}, "
+                       f"args: {modified_args}, dependencies: {len(dependency_repo_paths)}, "
                        f"returncode: {returncode}, output_files: {len(output_files)}")
-
-        return returncode
-
-    def run_repo_tool(self, tool_name: str, tool_args: List[str],
-                      main_file: Path, dependency_patterns: List[str],
-                      optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
-        """Run a repo-level tool with caching based on dependency patterns.
-        Args:    tool_name: Tool to run (e.g., "doxygen")
-                 tool_args: Arguments for the tool (part of cache key, WITHOUT main_file path)
-                 main_file: Main file for the tool (e.g., Doxyfile path - absolute or relative)
-                 dependency_patterns: Glob patterns for dependencies
-                 optimization: Optimization level (0-3, or None to accept any cached level)
-                 output_args: Output-specific arguments (NOT part of cache key)
-                 input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
-        Returns: Tool exit code (integer)"""
-
-        # Convert main_file to RepoPath and validate it's inside repo
-        main_repo_path = RepoPath(self.repo_dir, main_file)
-        if not main_repo_path:
-            raise ValueError(f"Main file {main_file} is outside repository {self.repo_dir}")
-
-        # Convert RepoPath back to absolute path for tool execution
-        abs_main_file = main_repo_path.toAbsolutePath(self.repo_dir)
-
-        start_time = time.perf_counter()
-
-        tool_path = ToolCmd.get_tool_path(self.config, tool_name)
-        tool = ToolRegistry.create(
-            tool_name, tool_path, tool_args,
-            self.logger, self.config, self.cache, self, optimization, output_args, input_args
-        )
-
-        if optimization is None:
-            cache_entry, modified_args = tool.try_all_optimization_levels(
-                tool_name, tool_args, main_repo_path, self.repo_dir
-            )
-        else:
-            modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(main_repo_path, tool_name, modified_args, self.repo_dir, input_args)
-
-        if cache_entry:
-            returncode = self.cache.restore(cache_entry, self.repo_dir)
-            self.logger.info(f"CACHE HIT (REPO) - repo_dir: {self.repo_dir}, tool: {tool_name}, "
-                           f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                           f"args: {modified_args}, main_file: {main_repo_path}, "
-                           f"cache_entry: {cache_entry.name}, returncode: {returncode}")
-            return returncode
-
-        repo_files = self._get_repo_dependencies(self.repo_dir, dependency_patterns)
-
-        # Convert absolute dependency paths to RepoPath
-        repo_dep_repo_paths = []
-        for dep_path in repo_files:
-            repo_dep_repo_paths.append(RepoPath(self.repo_dir, dep_path))
-
-        output_files, stdout, stderr, returncode = self._run_repo_tool_impl(tool, modified_args, abs_main_file, work_dir=self.repo_dir)
-
-        print(stdout, end='')
-        print(stderr, end='', file=sys.stderr)
-
-        if returncode == 0:
-            self.cache.store(
-                main_repo_path, tool_name, modified_args, repo_dep_repo_paths, output_files,
-                stdout, stderr, returncode, self.repo_dir,
-                repo_mode=True,
-                dependency_patterns=dependency_patterns,
-                output_base_dir=self.repo_dir,
-                input_args=input_args
-            )
-
-        self.logger.info(f"CACHE MISS (REPO) - repo_dir: {self.repo_dir}, tool: {tool_name}, "
-                       f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                       f"args: {modified_args}, main_file: {main_repo_path}, "
-                       f"dependencies: {len(repo_dep_repo_paths)}, returncode: {returncode}, "
-                       f"output_files: {len(output_files)}")
 
         return returncode
 

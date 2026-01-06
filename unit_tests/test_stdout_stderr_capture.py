@@ -557,12 +557,10 @@ class TestRepoToolStdoutStderr:
         stderr = ""
         returncode = 0
 
-        # Store as repo-level cache entry
+        # Store cache entry
         cache_entry = cache.store(
             main_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
             stdout, stderr, returncode, temp_dir,
-            repo_mode=True,
-            dependency_patterns=["*.cpp", "*.h"],
             output_base_dir=output_dir
         )
 
@@ -574,7 +572,6 @@ class TestRepoToolStdoutStderr:
         assert metadata["stdout"] == stdout
         assert metadata["stderr"] == stderr
         assert metadata["returncode"] == returncode
-        assert metadata["repo_mode"] is True
 
 
 class TestErrorCases:

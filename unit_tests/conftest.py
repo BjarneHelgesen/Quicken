@@ -133,7 +133,8 @@ def config_file():
         "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
         "msvc_arch": "x64",
         "clang++": "clang++",
-        "clang-tidy": "clang-tidy"
+        "clang-tidy": "clang-tidy",
+        "doxygen": "doxygen"
     }
     config.write_text(json.dumps(config_data, indent=2))
     return config
