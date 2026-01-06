@@ -185,7 +185,6 @@ class QuickenCache:
         self.dep_hash_index = self._build_dep_hash_index()
         # Thread pool for async file restoration (max 4 concurrent copy operations)
         self._copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="quicken_copy")
-        self._pending_copies = []  # Track pending copy futures
 
     def _load_index(self) -> Dict:
         """Load the cache index.
@@ -531,19 +530,16 @@ class QuickenCache:
 
         return cache_entry_dir
 
-    def _copy_files(self, cache_entry_dir: Path, repo_dir: Path, files ):
-        """Worker method to copy files in background thread.
+    def _copy_file(self, cache_entry_dir: Path, repo_dir: Path, file_path_str: str):
+        """Worker method to copy a single file in background thread.
+        Assumes parent directories already exist.
         Args:    cache_entry_dir: Cache entry directory containing source files
                  repo_dir: Repository directory where files will be restored
-                 files: List of repo-relative file paths"""
-        for file_path_str in files:
-            # file_path_str is repo-relative path (e.g., "build/output.o" or "xml/index.xml")
-            src = cache_entry_dir / file_path_str
-            dest = repo_dir / file_path_str
-
-            # Create parent directories if needed
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, dest)
+                 file_path_str: Repo-relative file path"""
+        # file_path_str is repo-relative path (e.g., "build/output.o" or "xml/index.xml")
+        src = cache_entry_dir / file_path_str
+        dest = repo_dir / file_path_str
+        shutil.copyfile(src, dest)
 
     def _translate_paths(self, text: str, old_repo_dir: str, new_repo_dir: str,
                         main_file_path: str, dependencies: List[Dict], files: List[str]) -> str:
@@ -591,22 +587,34 @@ class QuickenCache:
 
         return result
 
-    def restore(self, cache_entry_dir: Path, repo_dir: Path) -> Tuple[str, str, int]:
-        """Restore cached files to repository (async).
-        Files are copied in a background thread pool, allowing this method
-        to return quickly. Files will appear in their repo-relative locations within a few ms.
+    def restore(self, cache_entry_dir: Path, repo_dir: Path) -> int:
+        """Restore cached files to repository with parallel copy.
+        Each file is copied on a separate thread for maximum parallelism (up to 4 concurrent).
+        This method translates paths and prints output while files copy in background.
         Handles both flat files and directory trees using relative paths.
         Translates absolute paths in stdout/stderr from cached repo location to current location.
-        Returns: Tuple of (stdout, stderr, returncode)"""
+        Returns: returncode"""
         metadata_file = cache_entry_dir / "metadata.json"
         with open(metadata_file, 'r') as f:
             metadata = json.load(f)
 
         files = metadata["files"]
 
-        # Submit file copy job to thread pool (non-blocking) and track it
-        future = self._copy_executor.submit(self._copy_files, cache_entry_dir, repo_dir, files)
-        self._pending_copies.append(future)
+        # Collect all unique parent directories
+        folders = set()
+        for file_path_str in files:
+            dest = repo_dir / file_path_str
+            folders.add(dest.parent)
+
+        # Create all directories upfront in main thread to avoid repeated makedirs calls
+        for folder in folders:
+            os.makedirs(folder, exist_ok=True)
+
+        # Submit one copy job per file to thread pool for parallel execution
+        futures = [
+            self._copy_executor.submit(self._copy_file, cache_entry_dir, repo_dir, file_path_str)
+            for file_path_str in files
+        ]
 
         # Translate paths in stdout/stderr from old repo location to new location
         old_repo_dir = metadata.get("repo_dir", str(repo_dir))  # Default to current if not stored
@@ -619,7 +627,14 @@ class QuickenCache:
         stderr = self._translate_paths(metadata["stderr"], old_repo_dir, new_repo_dir,
                                        main_file_path, dependencies, files)
 
-        return stdout, stderr, metadata["returncode"]
+        print(stdout, end='')
+        print(stderr, end='', file=sys.stderr)
+
+        # Wait for all copy operations to complete
+        for future in futures:
+            future.result(timeout=5.0)
+
+        return metadata["returncode"]
 
     def clear(self):
         """Clear all cached entries."""
@@ -636,19 +651,6 @@ class QuickenCache:
         self.dep_hash_index = {}
         self._next_id = 1
         self._save_index()
-
-    def flush(self, timeout: float = 5.0):
-        """Wait for all pending copy operations to complete.
-        This ensures all files have been restored before continuing.
-        The thread pool remains active for future operations.
-        Args:    timeout: Maximum seconds to wait for each copy (None = wait forever)"""
-        from concurrent.futures import wait, FIRST_EXCEPTION
-
-        if self._pending_copies:
-            # Wait for all pending copies to complete
-            wait(self._pending_copies, timeout=timeout, return_when=FIRST_EXCEPTION)
-            # Clear completed futures
-            self._pending_copies = [f for f in self._pending_copies if not f.done()]
 
 
 class ToolCmd(ABC):
@@ -1068,15 +1070,11 @@ class Quicken:
             cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
 
         if cache_entry:
-            stdout, stderr, returncode = self.cache.restore(cache_entry, self.repo_dir)
-                print(stdout, end='')
-                print(stderr, end='', file=sys.stderr)
+            returncode = self.cache.restore(cache_entry, self.repo_dir)
             self.logger.info(f"CACHE HIT - source_file: {source_repo_path}, tool: {tool_name}, "
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                            f"args: {modified_args}, cache_entry: {cache_entry.name}, "
                            f"returncode: {returncode}")
-            # Flush to ensure all async file copies are complete
-            self.cache.flush()
             return returncode
 
         local_files = self._get_local_dependencies(abs_source_file, self.repo_dir)
@@ -1088,8 +1086,8 @@ class Quicken:
 
         output_files, stdout, stderr, returncode = self._run_tool(tool, modified_args, abs_source_file, self.repo_dir)
 
-            print(stdout, end='')
-            print(stderr, end='', file=sys.stderr)
+        print(stdout, end='')
+        print(stderr, end='', file=sys.stderr)
 
         self.cache.store(
             source_repo_path, tool_name, modified_args, local_dep_repo_paths, output_files,
@@ -1102,9 +1100,6 @@ class Quicken:
                        f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                        f"args: {modified_args}, dependencies: {len(local_dep_repo_paths)}, "
                        f"returncode: {returncode}, output_files: {len(output_files)}")
-
-        # Flush to ensure all async file copies are complete
-        self.cache.flush()
 
         return returncode
 
@@ -1146,15 +1141,11 @@ class Quicken:
             cache_entry = self.cache.lookup(main_repo_path, tool_name, modified_args, self.repo_dir, input_args)
 
         if cache_entry:
-            stdout, stderr, returncode = self.cache.restore(cache_entry, self.repo_dir)
+            returncode = self.cache.restore(cache_entry, self.repo_dir)
             self.logger.info(f"CACHE HIT (REPO) - repo_dir: {self.repo_dir}, tool: {tool_name}, "
                            f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                            f"args: {modified_args}, main_file: {main_repo_path}, "
                            f"cache_entry: {cache_entry.name}, returncode: {returncode}")
-                print(stdout, end='')
-                print(stderr, end='', file=sys.stderr)
-            # Flush to ensure all async file copies are complete
-            self.cache.flush()
             return returncode
 
         repo_files = self._get_repo_dependencies(self.repo_dir, dependency_patterns)
@@ -1166,8 +1157,8 @@ class Quicken:
 
         output_files, stdout, stderr, returncode = self._run_repo_tool_impl(tool, modified_args, abs_main_file, work_dir=self.repo_dir)
 
-            print(stdout, end='')
-            print(stderr, end='', file=sys.stderr)
+        print(stdout, end='')
+        print(stderr, end='', file=sys.stderr)
 
         if returncode == 0:
             self.cache.store(
@@ -1185,18 +1176,8 @@ class Quicken:
                        f"dependencies: {len(repo_dep_repo_paths)}, returncode: {returncode}, "
                        f"output_files: {len(output_files)}")
 
-        # Flush to ensure all async file copies are complete
-        self.cache.flush()
-
         return returncode
 
     def clear_cache(self):
         """Clear the entire cache."""
         self.cache.clear()
-
-    def flush(self, timeout: float = 5.0):
-        """Wait for all pending copy operations to complete.
-        Call this to ensure all async file copies have finished before
-        accessing output files or exiting the application.
-        Args:    timeout: Maximum seconds to wait for copies (None = wait forever)"""
-        self.cache.flush(timeout=timeout)

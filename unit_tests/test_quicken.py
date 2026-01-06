@@ -6,6 +6,8 @@ Tests the caching behavior for MSVC (cl), clang++, and clang-tidy.
 """
 
 import json
+import io
+import sys
 import os
 import shutil
 import subprocess
@@ -136,6 +138,7 @@ class TestQuickenCache:
     @pytest.mark.pedantic
     def test_cache_restore(self, cache_dir, temp_dir):
         """Test restoring cached files."""
+
         cache = QuickenCache(cache_dir)
 
         # Create source file
@@ -161,11 +164,20 @@ class TestQuickenCache:
         output_file.unlink()
         assert not output_file.exists()
 
-        # Restore from cache
-        restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
+        # Restore from cache - capture output
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
 
-        # Wait for async file copy to complete
-        cache.flush()
+        try:
+            restored_returncode = cache.restore(cache_entry, temp_dir)
+            restored_stdout = sys.stdout.getvalue()
+            restored_stderr = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
 
         # Check metadata
         assert restored_stdout == stdout

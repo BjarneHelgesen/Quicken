@@ -133,7 +133,7 @@ class TestStdoutStderrCapture:
 
     @pytest.mark.pedantic
     def test_cache_restore_returns_correct_stdout_stderr(self, cache_dir, temp_dir):
-        """Test that cache.restore() returns the correct stdout and stderr."""
+        """Test that cache.restore() prints the correct stdout and stderr."""
         cache = QuickenCache(cache_dir)
 
         # Create source file
@@ -161,13 +161,20 @@ class TestStdoutStderrCapture:
         # Delete output file
         output_file.unlink()
 
-        # Restore from cache
-        restored_stdout, restored_stderr, restored_returncode = cache.restore(
-            cache_entry, temp_dir
-        )
+        # Restore from cache - capture output
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
 
-        # Wait for async file copy to complete
-        cache.flush()
+        try:
+            restored_returncode = cache.restore(cache_entry, temp_dir)
+            restored_stdout = sys.stdout.getvalue()
+            restored_stderr = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
 
         # Verify exact match
         assert restored_stdout == original_stdout
@@ -196,10 +203,19 @@ class TestStdoutStderrCapture:
             "", "", 0, temp_dir, output_base_dir=temp_dir
         )
 
-        # Restore
-        restored_stdout, restored_stderr, restored_returncode = cache.restore(
-            cache_entry, temp_dir
-        )
+        # Restore - capture output
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+        try:
+            restored_returncode = cache.restore(cache_entry, temp_dir)
+            restored_stdout = sys.stdout.getvalue()
+            restored_stderr = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
         # Verify empty strings are preserved
         assert restored_stdout == ""
@@ -231,10 +247,19 @@ class TestStdoutStderrCapture:
             original_stdout, original_stderr, 0, temp_dir, output_base_dir=temp_dir
         )
 
-        # Restore and verify exact preservation
-        restored_stdout, restored_stderr, restored_returncode = cache.restore(
-            cache_entry, temp_dir
-        )
+        # Restore and verify exact preservation - capture output
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+        try:
+            restored_returncode = cache.restore(cache_entry, temp_dir)
+            restored_stdout = sys.stdout.getvalue()
+            restored_stderr = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
         assert restored_stdout == original_stdout
         assert restored_stderr == original_stderr
@@ -266,10 +291,19 @@ class TestStdoutStderrCapture:
             original_stdout, original_stderr, 0, temp_dir, output_base_dir=temp_dir
         )
 
-        # Restore and verify
-        restored_stdout, restored_stderr, restored_returncode = cache.restore(
-            cache_entry, temp_dir
-        )
+        # Restore and verify - capture output
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+        try:
+            restored_returncode = cache.restore(cache_entry, temp_dir)
+            restored_stdout = sys.stdout.getvalue()
+            restored_stderr = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
         assert restored_stdout == original_stdout
         assert restored_stderr == original_stderr
@@ -570,10 +604,19 @@ class TestErrorCases:
             stdout, stderr, returncode, temp_dir, output_base_dir=temp_dir
         )
 
-        # Restore
-        restored_stdout, restored_stderr, restored_returncode = cache.restore(
-            cache_entry, temp_dir
-        )
+        # Restore - capture output
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+
+        try:
+            restored_returncode = cache.restore(cache_entry, temp_dir)
+            restored_stdout = sys.stdout.getvalue()
+            restored_stderr = sys.stderr.getvalue()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
         # Verify error information is preserved
         assert restored_returncode == 2

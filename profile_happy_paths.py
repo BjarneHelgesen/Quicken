@@ -54,6 +54,8 @@ def analyze_profiler_detailed(profiler):
         'restore': 0,
         'restore_json_load': 0,
         'restore_copy': 0,
+        'restore_submit': 0,
+        'restore_wait': 0,
         'path_operations': 0,
         'toAbsolutePath': 0,
         'fromString': 0,
@@ -86,7 +88,13 @@ def analyze_profiler_detailed(profiler):
             breakdown['restore'] = cumtime
         elif func_name == 'load' and 'json' in str(key[0]).lower():
             breakdown['restore_json_load'] += tottime
-        elif 'copy' in func_name.lower():
+        elif func_name == 'submit':
+            breakdown['restore_submit'] += tottime
+        elif func_name == 'result':
+            breakdown['restore_wait'] += tottime
+        elif func_name == '_copy_file':
+            breakdown['restore_copy'] += cumtime
+        elif func_name == 'copyfile' or func_name == 'copy2':
             breakdown['restore_copy'] += tottime
 
         # Path operations
@@ -167,8 +175,10 @@ def main():
         ('      File stat', 'file_stat'),
         ('      Hash calc', 'calculateHash'),
         ('  Restore', 'restore'),
+        ('    Submit to pool', 'restore_submit'),
+        ('    Wait for copy', 'restore_wait'),
+        ('    Copy files', 'restore_copy'),
         ('    JSON load', 'restore_json_load'),
-        ('    File copy', 'restore_copy'),
         ('Path operations', 'path_operations'),
         ('  toAbsolutePath', 'toAbsolutePath'),
         ('  fromString', 'fromString'),
