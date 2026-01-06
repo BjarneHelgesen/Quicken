@@ -454,8 +454,7 @@ class TestQuickenIntegration:
         cpp_file1.write_text(SIMPLE_CPP_CODE)
 
         # Create Quicken instance with shared cache
-        quicken1 = Quicken(config_file, temp_dir)
-        quicken1.cache = QuickenCache(cache_dir)
+        quicken1 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
 
         # Run compilation in first location - cache miss
         returncode1 = quicken1.run(cpp_file1, "cl", ["/c", "/nologo", "/EHsc"])
@@ -469,8 +468,7 @@ class TestQuickenIntegration:
         cpp_file2.write_text(SIMPLE_CPP_CODE)
 
         # Create new Quicken instance with same cache
-        quicken2 = Quicken(config_file, temp_dir)
-        quicken2.cache = QuickenCache(cache_dir)
+        quicken2 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
 
         # Capture stdout/stderr by temporarily redirecting
         import io
@@ -532,8 +530,7 @@ class TestQuickenIntegration:
 
         # Create new instance with same cache (use same repo_dir as quicken_instance)
         from quicken import Quicken
-        quicken2 = Quicken(config_file, test_cpp_file.parent)  # Use same repo_dir
-        quicken2.cache = QuickenCache(cache_dir)
+        quicken2 = Quicken(config_file, test_cpp_file.parent, cache_dir=cache_dir)  # Use same repo_dir
 
         # Delete output file
         obj_file = test_cpp_file.parent / "test.obj"

@@ -66,9 +66,7 @@ def config_file(temp_dir):
 @pytest.fixture
 def quicken_instance(config_file, cache_dir, temp_dir):
     """Create a Quicken instance with a custom cache directory."""
-    quicken = Quicken(config_file, temp_dir)
-    # Override the cache directory to use our temp one
-    quicken.cache = QuickenCache(cache_dir)
+    quicken = Quicken(config_file, temp_dir, cache_dir=cache_dir)
     return quicken
 
 

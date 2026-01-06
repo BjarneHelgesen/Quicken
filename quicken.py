@@ -840,13 +840,15 @@ class ToolRegistry:
 class Quicken:
     """Main Quicken application."""
 
-    def __init__(self, config_path: Path, repo_dir: Path):
+    def __init__(self, config_path: Path, repo_dir: Path, cache_dir: Optional[Path] = None):
         """Initialize Quicken for a specific repository.
         Args:    config_path: Path to tools.json configuration file
-                 repo_dir: Repository root directory (absolute path)"""
+                 repo_dir: Repository root directory (absolute path)
+                 cache_dir: Optional cache directory path (defaults to ~/.quicken/cache)"""
         self.config = self._load_config(config_path)
         self.repo_dir = repo_dir.absolute()  # Normalize to absolute path
-        self.cache = QuickenCache(Path.home() / ".quicken" / "cache")
+        cache_path = cache_dir if cache_dir is not None else Path.home() / ".quicken" / "cache"
+        self.cache = QuickenCache(cache_path)
         self._setup_logging()
         # Eagerly fetch and cache MSVC environment (assumes MSVC is installed)
         self._msvc_env = self._get_msvc_environment()

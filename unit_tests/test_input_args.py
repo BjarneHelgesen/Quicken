@@ -223,8 +223,7 @@ class TestInputArgsCaching:
         header1.write_text("#pragma once\n")
 
         # Create Quicken instance with shared cache
-        quicken1 = Quicken(config_file, temp_dir)
-        quicken1.cache = QuickenCache(cache_dir)
+        quicken1 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
 
         # Run compilation in first location with input_args
         returncode1 = quicken1.run(
@@ -243,8 +242,7 @@ class TestInputArgsCaching:
         header2.write_text("#pragma once\n")
 
         # Create new Quicken instance with same cache
-        quicken2 = Quicken(config_file, temp_dir)
-        quicken2.cache = QuickenCache(cache_dir)
+        quicken2 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
 
         # Run in second location - should hit cache because paths are repo-relative
         returncode2 = quicken2.run(
@@ -308,12 +306,8 @@ int add(int a, int b) {
         header_file = external_header_dir / "common.h"
         header_file.write_text("#pragma once\n#define COMMON 1\n")
 
-        # Create shared cache
-        shared_cache = QuickenCache(cache_dir)
-
         # Create Quicken instance for repo1
-        quicken1 = Quicken(config_file, repo1)
-        quicken1.cache = shared_cache
+        quicken1 = Quicken(config_file, repo1, cache_dir=cache_dir)
 
         # Compile in repo1 with multi-element input_args
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
@@ -332,11 +326,10 @@ int add(int a, int b) {
             pytest.skip("Clang++ compilation failed, skipping cache test")
 
         # Get cache statistics before second run
-        cache_entries_before = len(shared_cache.index)
+        cache_entries_before = len(quicken1.cache.index)
 
         # Create second Quicken instance for repo2 with same cache
-        quicken2 = Quicken(config_file, repo2)
-        quicken2.cache = shared_cache
+        quicken2 = Quicken(config_file, repo2, cache_dir=cache_dir)
 
         # Compile in repo2 - should HIT cache because:
         # - Same source content
@@ -355,7 +348,7 @@ int add(int a, int b) {
         assert returncode2 == 0, "Second compilation should succeed"
 
         # Get cache statistics after second run
-        cache_entries_after = len(shared_cache.index)
+        cache_entries_after = len(quicken2.cache.index)
 
         # Verify cache hit: no new entry should be created
         assert cache_entries_before == cache_entries_after, \
@@ -389,8 +382,7 @@ int multiply(int x, int y) {
         header2.write_text("#pragma once\n#define VALUE2 20\n")
 
         # Create Quicken instance for the repo
-        quicken = Quicken(config_file, repo)
-        quicken.cache = QuickenCache(cache_dir)
+        quicken = Quicken(config_file, repo, cache_dir=cache_dir)
 
         # Multiple input_args: [flag1, path1, flag2, path2]
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]

@@ -35,9 +35,6 @@ def test_duplicate_cache_entries_for_same_content(config_file, temp_dir):
     cache_dir = temp_dir / "cache"
     cache_dir.mkdir()
 
-    # Create shared cache for both Quicken instances
-    shared_cache = QuickenCache(cache_dir)
-
     # Create two separate directories with IDENTICAL source files
     dir1 = temp_dir / "compile_dir_1"
     dir2 = temp_dir / "compile_dir_2"
@@ -60,9 +57,8 @@ int add(int a, int b) {
     tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
 
     # First compilation from dir1 - create Quicken instance for dir1
-    quicken1 = Quicken(config_file, dir1)
-    quicken1.cache = shared_cache
-    initial_cache_count = len(shared_cache.index)
+    quicken1 = Quicken(config_file, dir1, cache_dir=cache_dir)
+    initial_cache_count = len(quicken1.cache.index)
 
     returncode1 = quicken1.run(
         file1.relative_to(dir1),
@@ -76,14 +72,14 @@ int add(int a, int b) {
         pytest.skip("Clang++ compilation failed")
 
     # Check that one cache entry was created
-    cache_count_after_first = len(shared_cache.index)
+    cache_count_after_first = len(quicken1.cache.index)
     assert cache_count_after_first == initial_cache_count + 1, \
         "First compilation should create exactly one cache entry"
 
     # Get the cache entry created by first compilation
     # Index now stores lists of entries, so we need to flatten
     cache_entries = []
-    for entries_list in shared_cache.index.values():
+    for entries_list in quicken1.cache.index.values():
         cache_entries.extend(entries_list)
     first_entry_key = cache_entries[-1]['cache_key']
 
@@ -95,8 +91,7 @@ int add(int a, int b) {
     first_content_hash = first_metadata['dependencies'][0]['hash']
 
     # Second compilation from dir2 with IDENTICAL content - create Quicken instance for dir2
-    quicken2 = Quicken(config_file, dir2)
-    quicken2.cache = shared_cache
+    quicken2 = Quicken(config_file, dir2, cache_dir=cache_dir)
 
     returncode2 = quicken2.run(
         file2.relative_to(dir2),
@@ -109,7 +104,7 @@ int add(int a, int b) {
     assert returncode2 == 0, "Second compilation should succeed"
 
     # Check cache entries after second compilation
-    cache_count_after_second = len(shared_cache.index)
+    cache_count_after_second = len(quicken2.cache.index)
 
     # Get all cache entry directories
     cache_entry_dirs = sorted([d for d in cache_dir.iterdir() if d.name.startswith("entry_")])
@@ -164,9 +159,6 @@ def test_duplicate_entries_within_single_test_run(config_file, temp_dir):
     cache_dir = temp_dir / "cache"
     cache_dir.mkdir()
 
-    # Create shared cache
-    shared_cache = QuickenCache(cache_dir)
-
     # Identical source code
     source_code = """
 int multiply(int x, int y) {
@@ -184,8 +176,7 @@ int multiply(int x, int y) {
         source_file.write_text(source_code)
 
         # Create a new Quicken instance for each directory
-        quicken = Quicken(config_file, compile_dir)
-        quicken.cache = shared_cache
+        quicken = Quicken(config_file, compile_dir, cache_dir=cache_dir)
 
         returncode = quicken.run(
             source_file.relative_to(compile_dir),
@@ -200,14 +191,6 @@ int multiply(int x, int y) {
 
     # Count cache entries
     cache_entry_dirs = [d for d in cache_dir.iterdir() if d.name.startswith("entry_")]
-
-    # Expected: 1 cache entry (same content compiled 5 times)
-    # Actual: 5 cache entries (one per directory)
-
-    print(f"\nCompiled same content {num_compilations} times from different directories")
-    print(f"Cache entries created: {len(cache_entry_dirs)}")
-    print(f"Expected: 1 (reuse for identical content)")
-    print(f"Index entries: {len(shared_cache.index)}")
 
     if len(cache_entry_dirs) > 1:
         pytest.fail(

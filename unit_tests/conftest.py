@@ -178,7 +178,7 @@ def temp_dir(persistent_temp_dir, request):
 def quicken_with_persistent_cache(config_file, persistent_tool_cache, temp_dir):
     """Quicken instance that uses persistent fixture cache for faster tests.
     Uses the same cache instance directly (no copying) for maximum speed."""
-    quicken = Quicken(config_file, temp_dir)
-    # Use persistent cache directly - no copying needed!
-    quicken.cache = persistent_tool_cache
+    cache_hash = _get_fixture_cache_hash()
+    cache_dir = FIXTURE_CACHE_DIR / cache_hash
+    quicken = Quicken(config_file, temp_dir, cache_dir=cache_dir)
     return quicken
