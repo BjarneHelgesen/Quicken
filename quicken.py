@@ -185,8 +185,8 @@ class QuickenCache:
         self.index = self._load_index()
         self._next_id = self._get_next_id()
         self.dep_hash_index = self._build_dep_hash_index()
-        # Thread pool for async file restoration (max 4 concurrent copy operations)
-        self._copy_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="quicken_copy")
+        # Thread pool for async file restoration (max 8 concurrent copy operations)
+        self._copy_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="quicken_copy")
 
     def _load_index(self) -> Dict:
         """Load the cache index.
@@ -571,7 +571,7 @@ class QuickenCache:
 
     def restore(self, cache_entry_dir: Path, repo_dir: Path) -> int:
         """Restore cached files to repository with parallel copy.
-        Each file is copied on a separate thread for maximum parallelism (up to 4 concurrent).
+        Each file is copied on a separate thread for maximum parallelism (up to 8 concurrent).
         This method translates paths and prints output while files copy in background.
         Handles both flat files and directory trees using relative paths.
         Translates absolute paths in stdout/stderr from cached repo location to current location.

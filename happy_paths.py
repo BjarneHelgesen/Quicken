@@ -13,8 +13,8 @@ from pathlib import Path
 from quicken import Quicken
 
 
-def create_simple_project(temp_dir: Path, num_headers: int):
-    """Create a simple C++ project."""
+def create_simple_project(temp_dir: Path, num_headers: int, num_main_files: int = 10):
+    """Create a simple C++ project with multiple copies of the main file."""
     headers = []
     for i in range(num_headers):
         header = temp_dir / f"header{i}.h"
@@ -22,30 +22,43 @@ def create_simple_project(temp_dir: Path, num_headers: int):
         headers.append(header)
 
     includes = "\n".join([f'#include "header{i}.h"' for i in range(num_headers)])
-    main_cpp = temp_dir / "main.cpp"
-    main_cpp.write_text(f"{includes}\nint main() {{ return 0; }}\n")
 
-    return main_cpp, headers
+    # Create multiple copies of the main file to avoid output file contention
+    main_files = []
+    for i in range(num_main_files):
+        main_cpp = temp_dir / f"main{i}.cpp"
+        main_cpp.write_text(f"{includes}\nint main() {{ return {i}; }}\n")
+        main_files.append(main_cpp)
+
+    return main_files, headers
+
+
+def run_happy_path_test(quicken: Quicken, main_files: list[Path], num_iterations: int = 100):
+    """Run consecutive cache hits cycling through files to avoid output file contention."""
+    for i in range(num_iterations):
+        main_cpp = main_files[i % len(main_files)]
+        quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"], optimization=0)
 
 
 
 def main ():
     """Profile a cache hit scenario ."""
 
-    num_headers = 100
+    num_headers = 40
+    num_main_files = 20
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_dir = Path(tmpdir)
-        main_cpp, headers = create_simple_project(temp_dir, num_headers)
+        main_files, headers = create_simple_project(temp_dir, num_headers, num_main_files)
 
         config_file = Path(__file__).parent / "tools.json"
         quicken = Quicken(config_file, temp_dir)
 
-        #First run: cache hit after hashing all files
-        quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"])
+        # First run: cache miss for each file (populates cache)
+        for main_cpp in main_files:
+            quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"], optimization=0)
 
-        #Consecutive runs: cache hit after mtime/size check for all files.
-        for _ in range(199):
-            quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"])
+        # Run the happy path test
+        run_happy_path_test(quicken, main_files)
 
 
 if __name__ == "__main__":
