@@ -805,8 +805,8 @@ class DoxygenCmd(ToolCmd):
 
         return dependencies
 
-class ToolRegistry:
-    """Registry for tool command classes."""
+class ToolCmdFactory:
+    """Factory for creating ToolCmd instances."""
 
     _registry = {
         "cl": ClCmd,
@@ -849,7 +849,7 @@ class Quicken:
                  cache_dir: Optional cache directory path (defaults to ~/.quicken/cache)"""
         self.config = self._load_config(config_path)
         self.repo_dir = repo_dir.absolute()  # Normalize to absolute path
-        cache_path = cache_dir if cache_dir is not None else Path.home() / ".quicken" / "cache"
+        cache_path = cache_dir if cache_dir else Path.home() / ".quicken" / "cache"
         self.cache = QuickenCache(cache_path)
         self._setup_logging()
         # Eagerly fetch and cache MSVC environment (assumes MSVC is installed)
@@ -1006,7 +1006,7 @@ class Quicken:
 
         start_time = time.perf_counter()
         tool_path = ToolCmd.get_tool_path(self.config, tool_name)
-        tool = ToolRegistry.create(
+        tool = ToolCmdFactory.create(
             tool_name, tool_path, tool_args,
             self.logger, self.config, self.cache, self._msvc_env, optimization, output_args, input_args
         )
