@@ -57,20 +57,6 @@ class RepoPath:
             return ""
         return self.path.as_posix()
 
-    def calculateHash(self, repo: Path) -> str:
-        """Calculate 64-bit hash of the file this path points to.
-        Args:    repo: Repository root
-        Returns: 16-character hex string (64-bit BLAKE2b hash), or None if invalid path"""
-        if self.path is None:
-            return None
-        file_path = self.toAbsolutePath(repo)
-        hash_obj = hashlib.blake2b(digest_size=8)  # 64-bit hash
-        with open(file_path, 'rb') as f:
-            # Read in chunks for efficiency with large files
-            while chunk := f.read(8192):
-                hash_obj.update(chunk)
-        return hash_obj.hexdigest()
-
     def __bool__(self):
         return self.path is not None
 
@@ -81,6 +67,22 @@ class FileMetadata:
     Stores file path (repo-relative), content hash, modification time, and size.
     Used for dependency tracking and cache validation.
     """
+
+    @staticmethod
+    def calculate_hash(repo_path: RepoPath, repo_dir: Path) -> str:
+        """Calculate 64-bit hash of the file at the given repo path.
+        Args:    repo_path: RepoPath instance for the file
+                 repo_dir: Repository root directory
+        Returns: 16-character hex string (64-bit BLAKE2b hash), or None if invalid path"""
+        if not repo_path:
+            return None
+        file_path = repo_path.toAbsolutePath(repo_dir)
+        hash_obj = hashlib.blake2b(digest_size=8)  # 64-bit hash
+        with open(file_path, 'rb') as f:
+            # Read in chunks for efficiency with large files
+            while chunk := f.read(8192):
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest()
 
     def __init__(self, path: RepoPath, hash: str, mtime_ns: int, size: int):
         """Initialize file metadata.
@@ -127,7 +129,7 @@ class FileMetadata:
         stat = file_path.stat()
         return cls(
             path=repo_path,
-            hash=repo_path.calculateHash(repo_dir),
+            hash=cls.calculate_hash(repo_path, repo_dir),
             mtime_ns=stat.st_mtime_ns,
             size=stat.st_size
         )
@@ -162,7 +164,7 @@ class FileMetadata:
             return False, None
 
         # Mtime changed - verify hash
-        current_hash = self.path.calculateHash(repo_dir)
+        current_hash = FileMetadata.calculate_hash(self.path, repo_dir)
         if current_hash != self.hash:
             return False, None
 
