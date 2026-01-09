@@ -40,7 +40,6 @@ def run_happy_path_test(quicken: Quicken, main_files: list[Path], num_iterations
         quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"], optimization=0)
 
 
-
 def main ():
     """Profile a cache hit scenario ."""
 

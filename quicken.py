@@ -20,6 +20,125 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
 
+def _skip_until(f, line, i, end, allow_escape=False):
+    """Skip until `end` is found, across multiple lines if needed.
+    Args:    f: File object for reading next lines
+             line: Current line being processed
+             i: Current index in line
+             end: String to search for
+             allow_escape: If True, backslash escapes the next character
+    Returns: Tuple of (content, updated line, index after end)"""
+    end_len = len(end)
+    content = []
+    while True:
+        while i < len(line):
+            if allow_escape and line[i] == "\\":
+                if i + 1 < len(line):
+                    content.append(line[i:i+2])
+                    i += 2
+                else:
+                    content.append(line[i])
+                    i += 1
+                continue
+            if line[i:i+end_len] == end:
+                return ''.join(content), line, i + end_len
+            content.append(line[i])
+            i += 1
+        line = next(f, "")
+        if not line:
+            return ''.join(content), line, 0
+        i = 0
+
+
+def _is_identifier_char(c: str) -> bool:
+    """Check if character is part of an identifier (alphanumeric or underscore)."""
+    return c.isalnum() or c == '_'
+
+
+def _hash_cpp_source_line_sensitive(path: Path) -> str:
+    """Calculate hash of C++ source that ignores whitespace and comment content changes.
+    Produces same hash when:
+    - Whitespace (spaces/tabs) is changed (but not added/removed lines)
+    - Comment content is changed (but not added/removed lines)
+    Still detects:
+    - Line additions/removals (newlines are preserved, even in comments)
+    - Code changes
+    - String literal changes (content is preserved exactly)
+    Normalization:
+    - Removes all unnecessary spaces (e.g., 'if (x)' becomes 'if(x)')
+    - Keeps spaces only between identifier chars (e.g., 'int main' stays 'int main')
+    Args:    path: Path to C++ source file
+    Returns: 16-character hex string (64-bit BLAKE2b hash)"""
+    h = hashlib.blake2b(digest_size=8)  # Match existing 64-bit hash size
+
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            i = 0
+            out = []
+
+            while i < len(line):
+                c = line[i]
+
+                # Block comment /* ... */
+                if line[i:i+2] == "/*":
+                    out.append("/*")
+                    content, line, i = _skip_until(f, line, i + 2, "*/")
+                    # Preserve newlines in comments to detect line count changes
+                    newline_count = content.count('\n')
+                    for _ in range(newline_count):
+                        out.append('\n')
+                    out.append("*/")
+                    continue
+
+                # Line comment //
+                if line[i:i+2] == "//":
+                    out.append("//")
+                    break
+
+                # String literal - preserve content exactly
+                if c == '"':
+                    out.append('"')
+                    content, line, i = _skip_until(f, line, i + 1, '"', allow_escape=True)
+                    out.append(content)
+                    out.append('"')
+                    continue
+
+                # Character literal - preserve content exactly
+                if c == "'":
+                    out.append("'")
+                    content, line, i = _skip_until(f, line, i + 1, "'", allow_escape=True)
+                    out.append(content)
+                    out.append("'")
+                    continue
+
+                # Handle spaces/tabs: only keep if between two identifier characters
+                if c == " " or c == "\t":
+                    # Skip all consecutive spaces/tabs
+                    space_start = i
+                    while i < len(line) and (line[i] == " " or line[i] == "\t"):
+                        i += 1
+
+                    # Check if we need to keep a space
+                    # Need space if: prev char is identifier char AND next char is identifier char
+                    prev_char = out[-1] if out else ''
+                    next_char = line[i] if i < len(line) else ''
+
+                    if (_is_identifier_char(prev_char) and _is_identifier_char(next_char)):
+                        out.append(" ")
+                    # else: discard the space(s)
+                    continue
+
+                # Normal character
+                out.append(c)
+                i += 1
+
+            line_out = "".join(out)
+            h.update(line_out.encode("utf-8"))
+            h.update(b"\n")
+
+    return h.hexdigest()
+
+
 class RepoPath:
     """Stores a path to a file in the repo, relative to the repo. The file does not have to exist.
 
@@ -71,15 +190,27 @@ class FileMetadata:
     @staticmethod
     def calculate_hash(repo_path: RepoPath, repo_dir: Path) -> str:
         """Calculate 64-bit hash of the file at the given repo path.
+        For C++ source files (.cpp, .h, .hpp, .c, .cc, .cxx), uses whitespace and
+        comment-insensitive hashing to maximize cache hits on formatting changes.
+        For other files, uses standard binary hashing.
         Args:    repo_path: RepoPath instance for the file
                  repo_dir: Repository root directory
         Returns: 16-character hex string (64-bit BLAKE2b hash), or None if invalid path"""
         if not repo_path:
             return None
         file_path = repo_path.toAbsolutePath(repo_dir)
-        hash_obj = hashlib.blake2b(digest_size=8)  # 64-bit hash
+
+        # Use content-aware hashing for C++ source files
+        cpp_extensions = {'.cpp', '.h', '.hpp', '.c', '.cc', '.cxx', '.hxx', '.hh'}
+        if file_path.suffix.lower() in cpp_extensions:
+            try:
+                return _hash_cpp_source_line_sensitive(file_path)
+            except (UnicodeDecodeError, IOError):
+                pass  # Fall back to binary hash if text parsing fails
+
+        # Binary hash for other files
+        hash_obj = hashlib.blake2b(digest_size=8)
         with open(file_path, 'rb') as f:
-            # Read in chunks for efficiency with large files
             while chunk := f.read(8192):
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()
@@ -269,16 +400,6 @@ class QuickenCache:
             # Hash combination of path and content hash for uniqueness
             dep_str = f"{str(dep.path)}:{dep.hash}"
             hash_obj.update(dep_str.encode('utf-8'))
-        return hash_obj.hexdigest()
-
-    def _get_file_hash(self, file_path: Path) -> str:
-        """Calculate 64-bit hash of file content.
-        Returns: 16-character hex string for human readability in JSON."""
-        hash_obj = hashlib.blake2b(digest_size=8)  # 64-bit hash
-        with open(file_path, 'rb') as f:
-            # Read in chunks for efficiency with large files
-            while chunk := f.read(8192):
-                hash_obj.update(chunk)
         return hash_obj.hexdigest()
 
     def _translate_input_args_for_cache_key(self, input_args: List[str], repo_dir: Path) -> List[str]:
