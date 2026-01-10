@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
-from cpp_normalizer import hash_cpp_source
+from .cpp_normalizer import hash_cpp_source
 
 
 class RepoPath:
@@ -73,9 +73,8 @@ class FileMetadata:
     @staticmethod
     def calculate_hash(repo_path: RepoPath, repo_dir: Path) -> str:
         """Calculate 64-bit hash of the file at the given repo path.
-        For C++ source files (.cpp, .h, .hpp, .c, .cc, .cxx), uses whitespace and
-        comment-insensitive hashing to maximize cache hits on formatting changes.
-        For other files, uses standard binary hashing.
+        Uses whitespace and comment-insensitive hashing to maximize 
+        cache hits on formatting changes.
         Args:    repo_path: RepoPath instance for the file
                  repo_dir: Repository root directory
         Returns: 16-character hex string (64-bit BLAKE2b hash), or None if invalid path"""
@@ -83,20 +82,7 @@ class FileMetadata:
             return None
         file_path = repo_path.toAbsolutePath(repo_dir)
 
-        # Use content-aware hashing for C++ source files
-        cpp_extensions = {'.cpp', '.h', '.hpp', '.c', '.cc', '.cxx', '.hxx', '.hh'}
-        if file_path.suffix.lower() in cpp_extensions:
-            try:
-                return hash_cpp_source(file_path)
-            except (UnicodeDecodeError, IOError):
-                pass  # Fall back to binary hash if text parsing fails
-
-        # Binary hash for other files
-        hash_obj = hashlib.blake2b(digest_size=8)
-        with open(file_path, 'rb') as f:
-            while chunk := f.read(8192):
-                hash_obj.update(chunk)
-        return hash_obj.hexdigest()
+        return hash_cpp_source(file_path)
 
     def __init__(self, path: RepoPath, hash: str, mtime_ns: int, size: int):
         """Initialize file metadata.
@@ -892,14 +878,21 @@ class ToolCmdFactory:
 class Quicken:
     """Main Quicken application."""
 
-    def __init__(self, config_path: Path, repo_dir: Path, cache_dir: Optional[Path] = None):
+    @staticmethod
+    def _get_quicken_data_dir() -> Path:
+        """Get Quicken's data directory.
+        Returns: Path to ~/.quicken/"""
+        return Path.home() / ".quicken"
+
+    def __init__(self, repo_dir: Path, cache_dir: Optional[Path] = None):
         """Initialize Quicken for a specific repository.
-        Args:    config_path: Path to tools.json configuration file
-                 repo_dir: Repository root directory (absolute path)
+        Tools must be configured in ~/.quicken/tools.json (created by installation).
+        Args:    repo_dir: Repository root directory (absolute path)
                  cache_dir: Optional cache directory path (defaults to ~/.quicken/cache)"""
+        config_path = self._get_quicken_data_dir() / "tools.json"
         self.config = self._load_config(config_path)
         self.repo_dir = repo_dir.absolute()  # Normalize to absolute path
-        cache_path = cache_dir if cache_dir else Path.home() / ".quicken" / "cache"
+        cache_path = cache_dir if cache_dir else self._get_quicken_data_dir() / "cache"
         self.cache = QuickenCache(cache_path)
         self._setup_logging()
         # Eagerly fetch and cache MSVC environment (assumes MSVC is installed)
@@ -912,7 +905,7 @@ class Quicken:
 
     def _setup_logging(self):
         """Set up logging to file."""
-        log_dir = Path.home() / ".quicken"
+        log_dir = self._get_quicken_data_dir()
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "quicken.log"
 
@@ -939,7 +932,7 @@ class Quicken:
         msvc_arch = self.config.get("msvc_arch", "x64")
 
         # Cache file location
-        cache_file = Path.home() / ".quicken" / "msvc_env.json"
+        cache_file = self._get_quicken_data_dir() / "msvc_env.json"
 
         # Try to load from cache
         if cache_file.exists():
