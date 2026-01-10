@@ -19,124 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
-
-def _skip_until(f, line, i, end, allow_escape=False):
-    """Skip until `end` is found, across multiple lines if needed.
-    Args:    f: File object for reading next lines
-             line: Current line being processed
-             i: Current index in line
-             end: String to search for
-             allow_escape: If True, backslash escapes the next character
-    Returns: Tuple of (content, updated line, index after end)"""
-    end_len = len(end)
-    content = []
-    while True:
-        while i < len(line):
-            if allow_escape and line[i] == "\\":
-                if i + 1 < len(line):
-                    content.append(line[i:i+2])
-                    i += 2
-                else:
-                    content.append(line[i])
-                    i += 1
-                continue
-            if line[i:i+end_len] == end:
-                return ''.join(content), line, i + end_len
-            content.append(line[i])
-            i += 1
-        line = next(f, "")
-        if not line:
-            return ''.join(content), line, 0
-        i = 0
-
-
-def _is_identifier_char(c: str) -> bool:
-    """Check if character is part of an identifier (alphanumeric or underscore)."""
-    return c.isalnum() or c == '_'
-
-
-def _hash_cpp_source_line_sensitive(path: Path) -> str:
-    """Calculate hash of C++ source that ignores whitespace and comment content changes.
-    Produces same hash when:
-    - Whitespace (spaces/tabs) is changed (but not added/removed lines)
-    - Comment content is changed (but not added/removed lines)
-    Still detects:
-    - Line additions/removals (newlines are preserved, even in comments)
-    - Code changes
-    - String literal changes (content is preserved exactly)
-    Normalization:
-    - Removes all unnecessary spaces (e.g., 'if (x)' becomes 'if(x)')
-    - Keeps spaces only between identifier chars (e.g., 'int main' stays 'int main')
-    Args:    path: Path to C++ source file
-    Returns: 16-character hex string (64-bit BLAKE2b hash)"""
-    h = hashlib.blake2b(digest_size=8)  # Match existing 64-bit hash size
-
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            i = 0
-            out = []
-
-            while i < len(line):
-                c = line[i]
-
-                # Block comment /* ... */
-                if line[i:i+2] == "/*":
-                    out.append("/*")
-                    content, line, i = _skip_until(f, line, i + 2, "*/")
-                    # Preserve newlines in comments to detect line count changes
-                    newline_count = content.count('\n')
-                    for _ in range(newline_count):
-                        out.append('\n')
-                    out.append("*/")
-                    continue
-
-                # Line comment //
-                if line[i:i+2] == "//":
-                    out.append("//")
-                    break
-
-                # String literal - preserve content exactly
-                if c == '"':
-                    out.append('"')
-                    content, line, i = _skip_until(f, line, i + 1, '"', allow_escape=True)
-                    out.append(content)
-                    out.append('"')
-                    continue
-
-                # Character literal - preserve content exactly
-                if c == "'":
-                    out.append("'")
-                    content, line, i = _skip_until(f, line, i + 1, "'", allow_escape=True)
-                    out.append(content)
-                    out.append("'")
-                    continue
-
-                # Handle spaces/tabs: only keep if between two identifier characters
-                if c == " " or c == "\t":
-                    # Skip all consecutive spaces/tabs
-                    space_start = i
-                    while i < len(line) and (line[i] == " " or line[i] == "\t"):
-                        i += 1
-
-                    # Check if we need to keep a space
-                    # Need space if: prev char is identifier char AND next char is identifier char
-                    prev_char = out[-1] if out else ''
-                    next_char = line[i] if i < len(line) else ''
-
-                    if (_is_identifier_char(prev_char) and _is_identifier_char(next_char)):
-                        out.append(" ")
-                    # else: discard the space(s)
-                    continue
-
-                # Normal character
-                out.append(c)
-                i += 1
-
-            line_out = "".join(out)
-            h.update(line_out.encode("utf-8"))
-            h.update(b"\n")
-
-    return h.hexdigest()
+from cpp_normalizer import hash_cpp_source
 
 
 class RepoPath:
@@ -204,7 +87,7 @@ class FileMetadata:
         cpp_extensions = {'.cpp', '.h', '.hpp', '.c', '.cc', '.cxx', '.hxx', '.hh'}
         if file_path.suffix.lower() in cpp_extensions:
             try:
-                return _hash_cpp_source_line_sensitive(file_path)
+                return hash_cpp_source(file_path)
             except (UnicodeDecodeError, IOError):
                 pass  # Fall back to binary hash if text parsing fails
 
@@ -445,29 +328,74 @@ class QuickenCache:
         input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
         return f"{source_key}::{file_size}::{tool_name}::{args_str}::{input_args_str}"
 
-    def _dependencies_match(self, cached_deps: List[FileMetadata], repo_dir: Path) -> Tuple[bool, List[FileMetadata]]:
-        """Check if cached dependencies match current file hashes.
-        Fast path: Check mtime_ns+size first, only hash if mtime_ns changed.
-        Args:    cached_deps: List of FileMetadata instances
-                 repo_dir: Repository root
-        Returns: Tuple of (matches, updated_deps) where:
-                 - matches: True if all dependencies match
-                 - updated_deps: List of FileMetadata with current mtimes (or None if no match)"""
+    def _check_entry_mtime_match(self, cached_deps: List[FileMetadata], repo_dir: Path) -> bool:
+        """Check if all dependencies match by mtime+size (no hashing).
+        Args:    cached_deps: List of FileMetadata from cache entry
+                 repo_dir: Repository root directory
+        Returns: True if all dependencies match by mtime+size, False otherwise"""
+        for cached_dep in cached_deps:
+            if not cached_dep.path:
+                return False
+
+            file_path = cached_dep.path.toAbsolutePath(repo_dir)
+            if not file_path.is_file():
+                return False
+
+            stat = file_path.stat()
+            if stat.st_mtime_ns != cached_dep.mtime_ns or stat.st_size != cached_dep.size:
+                return False
+
+        return True
+
+    def _check_entry_hash_match(self, cached_deps: List[FileMetadata], repo_dir: Path) -> Optional[List[FileMetadata]]:
+        """Check if all dependencies match by hash (hash only files with changed mtime).
+        Args:    cached_deps: List of FileMetadata from cache entry
+                 repo_dir: Repository root directory
+        Returns: List of FileMetadata with updated mtimes if all match, None otherwise"""
         updated_deps = []
 
-        for dep in cached_deps:
-            matches, updated_dep = dep.matches_current_file(repo_dir)
-            if not matches:
-                return False, None
-            updated_deps.append(updated_dep)
+        for cached_dep in cached_deps:
+            if not cached_dep.path:
+                return None
 
-        return True, updated_deps
+            file_path = cached_dep.path.toAbsolutePath(repo_dir)
+            if not file_path.is_file():
+                return None
+
+            stat = file_path.stat()
+            current_mtime_ns = stat.st_mtime_ns
+            current_size = stat.st_size
+
+            # Fast path: mtime+size match -> reuse cached hash (no calculation)
+            if current_mtime_ns == cached_dep.mtime_ns and current_size == cached_dep.size:
+                updated_deps.append(cached_dep)
+                continue
+
+            # Size changed -> definitely different content
+            if current_size != cached_dep.size:
+                return None
+
+            # Mtime changed but size same -> hash this file only
+            current_hash = FileMetadata.calculate_hash(cached_dep.path, repo_dir)
+            if current_hash != cached_dep.hash:
+                return None
+
+            # Hash matches -> create updated metadata with new mtime
+            updated_deps.append(FileMetadata(
+                cached_dep.path,
+                cached_dep.hash,  # Same hash
+                current_mtime_ns,  # Updated mtime
+                current_size
+            ))
+
+        return updated_deps
 
     def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
                repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
         """Look up cached output for given source file and tool command.
-        This is the optimized fast path that doesn't run /showIncludes.
-        It only checks file hashes against cached values.
+        Two-phase approach:
+        Phase 1: Try all entries for mtime-only match (no hashing).
+        Phase 2: Hash only files whose mtime changed.
         Args:    source_repo_path: RepoPath for source file
                  tool_name: Name of the tool
                  tool_args: Tool arguments list
@@ -487,38 +415,39 @@ class QuickenCache:
         # Get list of entries with this key (may have collisions)
         entries = self.index[compound_key]
 
-        # Try each entry until we find a match
+        # PHASE 1: Try to find entry where ALL dependencies match by mtime+size (no hashing)
         for entry in entries:
-            # Convert dependencies from dict to FileMetadata
             cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
-            matches, updated_deps = self._dependencies_match(cached_deps, repo_dir)
-            if not matches:
+
+            if self._check_entry_mtime_match(cached_deps, repo_dir):
+                cache_entry_dir = self.cache_dir / entry["cache_key"]
+                if cache_entry_dir.exists():
+                    return cache_entry_dir
+
+        # PHASE 2: No mtime match - try hash-based matching (hash only changed files)
+        for entry in entries:
+            cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
+
+            updated_deps = self._check_entry_hash_match(cached_deps, repo_dir)
+            if updated_deps is None:
                 continue  # Try next entry
 
             cache_entry_dir = self.cache_dir / entry["cache_key"]
             if not cache_entry_dir.exists():
                 continue  # Try next entry
 
-            # Found a match! Update metadata if needed (check if any dep changed)
-            needs_update = any(
-                updated_deps[i].mtime_ns != cached_deps[i].mtime_ns
-                for i in range(len(cached_deps))
-            )
+            # We're in phase 2, so at least one mtime must have changed
+            # Update both index and metadata.json with new mtimes
+            entry["dependencies"] = [d.to_dict() for d in updated_deps]
 
-            if needs_update:
-                # Update index entry with new mtimes
-                entry["dependencies"] = [d.to_dict() for d in updated_deps]
+            metadata_file = cache_entry_dir / "metadata.json"
+            with open(metadata_file, 'r') as f:
+                metadata = json.load(f)
+            metadata["dependencies"] = [d.to_dict() for d in updated_deps]
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
 
-                # Update metadata.json in cache entry
-                metadata_file = cache_entry_dir / "metadata.json"
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
-                metadata["dependencies"] = [d.to_dict() for d in updated_deps]
-                with open(metadata_file, 'w') as f:
-                    json.dump(metadata, f, indent=2)
-
-                # Save updated index
-                self._save_index()
+            self._save_index()
 
             return cache_entry_dir
 
