@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 
-from .cpp_normalizer import hash_cpp_source
+from cpp_normalizer import hash_cpp_source
 
 
 class RepoPath:
