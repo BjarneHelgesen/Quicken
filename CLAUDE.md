@@ -185,12 +185,15 @@ The metadata-based approach prioritizes speed while the local-dependency trackin
 
 ## Important: Additional Instructions for Claude
 - Don't commit changes unless asked to commit (using the word commit)
-- Don't run unit tests or performance tests unless specifically asked to do so
-- Don't create **documents** explaining issues unless specifically asked to create documents
+- When modifying code, run test.py to verify that unit tests pass. Don't run unit tests directly or any other tests
+- Don't create any documents explaining issues unless specifically asked to create documents
 - Do only what is requested. If more tasks are necessary, ask to clarify
 - Comment code minimally, only where necessary for clarity
-- When updating code, update unit tests also
-- When making unit tests, don't make tests that prints results. Make proper pytest unit tests with asserts. 
+- When modifying code, update unit tests also
+- When creating or modifying unit tests, don't make the tests prints results. They should only assert. 
 - When a unit tests passes where the operation did not succeed, make the unit tests stricter or make a new unit test to cover the issue
-- Put functionality *in* classes, rather than in code using the classes, when possible. I.e. extend the classes rather than put related logic outside
-- Dont make any changes backward compatible. Users will have to clear their cache and update their api calls 
+- Put functionality *inside* classes, rather than in code using the classes, when possible. I.e. extend the classes rather than put related logic outside
+- There is no need to make any changes backward compatible. Users will have to clear their cache and update their api calls 
+- When committing, you can choose to make multiple commits for clarity, or a single commit. Use your judgement
+- When making changes, consider performance implications. We want optimal performance for cache hits 
+

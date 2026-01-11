@@ -7,14 +7,37 @@ Provides the main Quicken class for managing cached tool execution.
 import time
 import json
 import logging
-import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from ._cache import RepoPath, QuickenCache
 from ._tool_cmd import ToolCmd, ToolCmdFactory
+
+
+class QuickenLogger(logging.Logger):
+    """Logger for Quicken operations."""
+
+    def __init__(self, log_dir: Path):
+        """Initialize logger with file handler.
+        Args:    log_dir: Directory where log file will be created"""
+        super().__init__("Quicken", logging.INFO)
+
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "quicken.log"
+
+        # Remove existing handlers to avoid duplicates
+        self.handlers.clear()
+
+        # File handler
+        handler = logging.FileHandler(log_file)
+        handler.setLevel(logging.INFO)
+
+        # Format: timestamp - level - message
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+
+        self.addHandler(handler)
 
 
 class Quicken:
@@ -32,139 +55,14 @@ class Quicken:
         self.repo_dir = repo_dir.absolute()  # Normalize to absolute path
         cache_path = cache_dir if cache_dir else self._data_dir / "cache"
         self.cache = QuickenCache(cache_path)
-        self._setup_logging()
+        self.logger = QuickenLogger(self._data_dir)
         # Eagerly fetch and cache MSVC environment (assumes MSVC is installed)
-        self._msvc_env = self._get_msvc_environment()
+        self._msvc_env = ToolCmd.get_msvc_environment(self.config, self._data_dir)
 
     def _load_config(self, config_path: Path) -> Dict:
         """Load tools configuration."""
         with open(config_path, 'r') as f:
             return json.load(f)
-
-    def _setup_logging(self):
-        """Set up logging to file."""
-        log_dir = self._data_dir
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "quicken.log"
-
-        # Configure logger
-        self.logger = logging.getLogger("Quicken")
-        self.logger.setLevel(logging.INFO)
-
-        # Remove existing handlers to avoid duplicates
-        self.logger.handlers.clear()
-
-        # File handler
-        handler = logging.FileHandler(log_file)
-        handler.setLevel(logging.INFO)
-
-        # Format: timestamp - level - message
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-
-        self.logger.addHandler(handler)
-
-    def _get_msvc_environment(self) -> Dict:
-        """Get MSVC environment variables, cached to avoid repeated vcvarsall.bat calls."""
-        vcvarsall = ToolCmd.get_tool_path(self.config, "vcvarsall")
-        msvc_arch = self.config.get("msvc_arch", "x64")
-
-        # Cache file location
-        cache_file = self._data_dir / "msvc_env.json"
-
-        # Try to load from cache
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r') as f:
-                    cached_data = json.load(f)
-                    # Verify cache is for same vcvarsall and arch
-                    if (cached_data.get("vcvarsall") == vcvarsall and
-                        cached_data.get("msvc_arch") == msvc_arch):
-                        return cached_data.get("env", {})
-            except (json.JSONDecodeError, KeyError):
-                # Cache corrupted, will regenerate
-                pass
-
-        # Run vcvarsall and capture environment
-        cmd = f'"{vcvarsall}" {msvc_arch} >nul && set'
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
-        # Parse environment variables from output
-        env = os.environ.copy()
-        for line in result.stdout.splitlines():
-            if '=' in line:
-                key, _, value = line.partition('=')
-                env[key] = value
-
-        # Save to cache
-        cache_data = {
-            "vcvarsall": vcvarsall,
-            "msvc_arch": msvc_arch,
-            "env": env
-        }
-
-        try:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, 'w') as f:
-                json.dump(cache_data, f, indent=2)
-        except Exception:
-            # If caching fails, still return the environment
-            pass
-
-        return env
-
-    def _get_file_timestamps(self, directory: Path) -> Dict[Path, int]:
-        """Get dictionary of file paths to their modification timestamps.
-        Arg:     directory: Directory to scan
-        Returns: Dictionary mapping file paths to st_mtime_ns timestamps"""
-        if not directory.exists():
-            return {}
-
-        file_timestamps = {}
-        for f in directory.rglob("*"):
-            if f.is_file():
-                try:
-                    file_timestamps[f] = f.stat().st_mtime_ns
-                except (OSError, FileNotFoundError):
-                    pass
-
-        return file_timestamps
-
-    def _run_tool(self, tool: ToolCmd, tool_args: List[str], source_file: Path,
-                  repo_dir: Path) -> Tuple[List[Path], str, str, int]:
-        """Run the specified tool with arguments.
-        Args:    tool: ToolCmd instance
-                 tool_args: Arguments to pass to tool (already includes optimization flags)
-                 source_file: Path to file to process (C++ file for compilers, Doxyfile for Doxygen)
-                 repo_dir: Repository directory (scan location for output files)
-        Returns: Tuple of (output_files, stdout, stderr, returncode)"""
-        files_before = self._get_file_timestamps(repo_dir)
-
-        cmd = tool.build_execution_command(source_file)
-
-        result = subprocess.run(
-            cmd,
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-            env=tool.msvc_env if tool.needs_vcvars else None
-        )
-
-        files_after = self._get_file_timestamps(repo_dir)
-
-        # Detect output files: new files OR files with updated timestamps
-        output_files = [
-            f for f, mtime in files_after.items()
-            if f not in files_before or mtime > files_before[f]
-        ]
-
-        return output_files, result.stdout, result.stderr, result.returncode
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
             optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
@@ -211,7 +109,8 @@ class Quicken:
         # Get dependencies from tool
         dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
 
-        output_files, stdout, stderr, returncode = self._run_tool(tool, modified_args, abs_source_file, self.repo_dir)
+        # Execute tool and detect output files
+        output_files, stdout, stderr, returncode = tool.run(abs_source_file, self.repo_dir)
 
         print(stdout, end='')
         print(stderr, end='', file=sys.stderr)

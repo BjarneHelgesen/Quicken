@@ -5,6 +5,8 @@ Provides ToolCmd base class, tool-specific subclasses, and factory for creating
 tool command instances with appropriate optimization flags and dependency tracking.
 """
 
+import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -75,6 +77,65 @@ class ToolCmd(ABC):
         Returns: Full path to the tool executable"""
         return config[tool_name]
 
+    @staticmethod
+    def get_msvc_environment(config: Dict, data_dir: Path) -> Dict:
+        """Get MSVC environment variables, cached to avoid repeated vcvarsall.bat calls.
+        Args:    config: Configuration dictionary
+                 data_dir: Directory for caching MSVC environment
+        Returns: Dictionary of environment variables"""
+        vcvarsall = ToolCmd.get_tool_path(config, "vcvarsall")
+        msvc_arch = config.get("msvc_arch", "x64")
+
+        # Cache file location
+        cache_file = data_dir / "msvc_env.json"
+
+        # Try to load from cache
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+                    # Verify cache is for same vcvarsall and arch
+                    if (cached_data.get("vcvarsall") == vcvarsall and
+                        cached_data.get("msvc_arch") == msvc_arch):
+                        return cached_data.get("env", {})
+            except (json.JSONDecodeError, KeyError):
+                # Cache corrupted, will regenerate
+                pass
+
+        # Run vcvarsall and capture environment
+        cmd = f'"{vcvarsall}" {msvc_arch} >nul && set'
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        # Parse environment variables from output
+        env = os.environ.copy()
+        for line in result.stdout.splitlines():
+            if '=' in line:
+                key, _, value = line.partition('=')
+                env[key] = value
+
+        # Save to cache
+        cache_data = {
+            "vcvarsall": vcvarsall,
+            "msvc_arch": msvc_arch,
+            "env": env
+        }
+
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, 'w') as f:
+                json.dump(cache_data, f, indent=2)
+        except Exception:
+            # If caching fails, still return the environment
+            pass
+
+        return env
+
     def get_optimization_flags(self, level: int) -> List[str]:
         """Return optimization flags for the given level.
         Args:    level: Optimization level (0-3)
@@ -126,6 +187,51 @@ class ToolCmd(ABC):
             cmd.extend(self.output_args)
 
         return cmd
+
+    @staticmethod
+    def _get_file_timestamps(directory: Path) -> Dict[Path, int]:
+        """Get dictionary of file paths to their modification timestamps.
+        Arg:     directory: Directory to scan
+        Returns: Dictionary mapping file paths to st_mtime_ns timestamps"""
+        if not directory.exists():
+            return {}
+
+        file_timestamps = {}
+        for f in directory.rglob("*"):
+            if f.is_file():
+                try:
+                    file_timestamps[f] = f.stat().st_mtime_ns
+                except (OSError, FileNotFoundError):
+                    pass
+
+        return file_timestamps
+
+    def run(self, source_file: Path, repo_dir: Path) -> Tuple[List[Path], str, str, int]:
+        """Run the tool and detect output files.
+        Args:    source_file: Path to file to process (C++ file for compilers, Doxyfile for Doxygen)
+                 repo_dir: Repository directory (scan location for output files)
+        Returns: Tuple of (output_files, stdout, stderr, returncode)"""
+        files_before = self._get_file_timestamps(repo_dir)
+
+        cmd = self.build_execution_command(source_file)
+
+        result = subprocess.run(
+            cmd,
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            env=self.msvc_env if self.needs_vcvars else None
+        )
+
+        files_after = self._get_file_timestamps(repo_dir)
+
+        # Detect output files: new files OR files with updated timestamps
+        output_files = [
+            f for f, mtime in files_after.items()
+            if f not in files_before or mtime > files_before[f]
+        ]
+
+        return output_files, result.stdout, result.stderr, result.returncode
 
     def try_all_optimization_levels(self, tool_name: str, tool_args: List[str],
                                    source_repo_path: RepoPath, repo_dir: Path) -> Tuple[Optional[Path], List[str]]:

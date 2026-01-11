@@ -26,7 +26,7 @@ if returncode != 0:
 
 ## API Reference
 
-### `Quicken.__init__(repo_dir, cache_dir=None)`
+ `Quicken.__init__(repo_dir, cache_dir=None)`
 
 Initialize Quicken instance.
 
@@ -39,7 +39,7 @@ Initialize Quicken instance.
 quicken = Quicken(repo_dir=Path.cwd())
 ```
 
-### `Quicken.run(source_file, tool_name, tool_args, optimization=None, output_args=None, input_args=[]) -> int`
+`Quicken.run(source_file, tool_name, tool_args, optimization=None, output_args=None, input_args=[]) -> int`
 
 Execute a tool on a C++ file (with caching).
 
