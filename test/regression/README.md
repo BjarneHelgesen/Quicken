@@ -37,7 +37,7 @@ pytest -m "not regression_test"
 
 Run a specific regression test:
 ```bash
-pytest regression_test/test_cache_entry_reuse_regression.py -v
+pytest test/regression/test_cache_entry_reuse_regression.py -v
 ```
 
 ## Example

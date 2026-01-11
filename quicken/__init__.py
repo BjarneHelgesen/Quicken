@@ -15,6 +15,6 @@ Example usage:
     )
 """
 
-from ._cache import Quicken
+from ._quicken import Quicken
 
 __all__ = ['Quicken']

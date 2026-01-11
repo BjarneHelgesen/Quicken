@@ -9,7 +9,6 @@ Quicken is an **independent, standalone** Python library that provides caching f
 - Can be integrated into any build system or project
 - Maintains its own configuration (`tools.json`)
 - Requires a file system with high accuracy. E.g. local NTFS, not containeraized or network drives.
-- Dont make any changes backward compatible. Users will have to clear their cache and update their api calls 
  
 ## Architecture
 
@@ -127,11 +126,11 @@ Test are categories as follows:
 
 ### Unit Tests
 
-See `unit_tests/` directory 
+See `test/unit/` directory 
 
 ### Regression Tests
 
-Regression tests verify that previously fixed bugs remain fixed. They are stored in `regression_test/` directory and marked with `@pytest.mark.regression_test`.
+Regression tests verify that previously fixed bugs remain fixed. They are stored in `test/regression/` directory and marked with `@pytest.mark.regression_test`.
 
 **When to Create a Regression Test:**
 
@@ -156,7 +155,7 @@ When a bug is found, the user should create a failing regression test BEFORE the
 
 **Example Regression Test:**
 
-See `regression_test/test_cache_entry_reuse_regression.py` for a complete example. .
+See `test/regression/test_cache_entry_reuse_regression.py` for a complete example.
 
 Key elements of a good regression test:
 - Clear documentation of the bug
@@ -194,3 +193,4 @@ The metadata-based approach prioritizes speed while the local-dependency trackin
 - When making unit tests, don't make tests that prints results. Make proper pytest unit tests with asserts. 
 - When a unit tests passes where the operation did not succeed, make the unit tests stricter or make a new unit test to cover the issue
 - Put functionality *in* classes, rather than in code using the classes, when possible. I.e. extend the classes rather than put related logic outside
+- Dont make any changes backward compatible. Users will have to clear their cache and update their api calls 
