@@ -14,7 +14,8 @@ import time
 from pathlib import Path
 from io import StringIO
 
-from quicken import Quicken, QuickenCache
+from quicken import Quicken
+from quicken._cache import QuickenCache
 
 
 def create_simple_project(temp_dir: Path, num_headers: int = 10):

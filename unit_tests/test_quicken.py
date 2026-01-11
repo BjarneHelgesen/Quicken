@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from quicken import Quicken, QuickenCache, RepoPath
+from quicken import Quicken
+from quicken._cache import QuickenCache, RepoPath
 
 
 # Sample C++ code for testing

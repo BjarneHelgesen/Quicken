@@ -9,7 +9,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from quicken import Quicken, QuickenCache
+from quicken import Quicken
+from quicken._cache import QuickenCache
 
 
 SIMPLE_CPP_CODE = """

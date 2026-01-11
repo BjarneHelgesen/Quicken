@@ -13,7 +13,8 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from quicken import Quicken, QuickenCache
+from quicken import Quicken
+from quicken._cache import QuickenCache
 
 
 def test_duplicate_cache_entries_for_same_content(temp_dir):

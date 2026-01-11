@@ -92,6 +92,8 @@ Special keys:
 - `vcvarsall` - Required for MSVC tools
 - `msvc_arch` - MSVC target architecture (x64, x86, ARM, etc.)
 
+**Note:** Optimization flags are defined in code (in ToolCmd subclasses), not in the config file. This ensures consistent behavior across installations.
+
 ## Design Decisions
 
 ### Why Hash Comparison?
