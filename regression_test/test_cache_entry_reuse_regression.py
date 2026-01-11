@@ -20,22 +20,22 @@ int main() {
 
 
 @pytest.mark.regression_test
-def test_stale_mtime(config_file, temp_dir):
+def test_stale_mtime(temp_dir):
     """
         Bug description: After a file is changed and reverted, all original cached operations get slower.
 
-	Category: Performance issue. 
-	Steps to reproduce: 
-	1. Quicken.run is called on a new file. 
-	2. The file is modified, and Quicken.run is called with the same parameters . 
+	Category: Performance issue.
+	Steps to reproduce:
+	1. Quicken.run is called on a new file.
+	2. The file is modified, and Quicken.run is called with the same parameters .
 	3. The the file is reverted, and Quicken.run is called with the same parameters .
-        4. Quicken.run is called again with the same parameters . 
-	Expected behavour in step 4: Cache HIT based on mtime (fastest cache hit). 	
-	Actual behaviour in step 4: Cache HIT based on hashing (slower) 
+        4. Quicken.run is called again with the same parameters .
+	Expected behavour in step 4: Cache HIT based on mtime (fastest cache hit).
+	Actual behaviour in step 4: Cache HIT based on hashing (slower)
 
-	Note: the regression test is more compact than the test steps as it just touches the file instead of changing and reverting. 
+	Note: the regression test is more compact than the test steps as it just touches the file instead of changing and reverting.
         """
-    quicken = Quicken(config_file, temp_dir)
+    quicken = Quicken(temp_dir)
     quicken.clear_cache()
 
     test_cpp = temp_dir / "test.cpp"

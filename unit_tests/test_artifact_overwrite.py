@@ -45,28 +45,9 @@ def cache_dir(temp_dir):
 
 
 @pytest.fixture
-def config_file(temp_dir):
-    """Create a test config file pointing to the real tools.json."""
-    # Use the actual tools.json from the project
-    project_tools = Path(__file__).parent / "tools.json"
-    if project_tools.exists():
-        return project_tools
-
-    # Fallback: create a minimal config
-    config = temp_dir / "tools.json"
-    config_data = {
-        "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
-        "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
-        "msvc_arch": "x64"
-    }
-    config.write_text(json.dumps(config_data, indent=2))
-    return config
-
-
-@pytest.fixture
-def quicken_instance(config_file, cache_dir, temp_dir):
+def quicken_instance(cache_dir, temp_dir):
     """Create a Quicken instance with a custom cache directory."""
-    quicken = Quicken(config_file, temp_dir, cache_dir=cache_dir)
+    quicken = Quicken(temp_dir, cache_dir=cache_dir)
     return quicken
 
 

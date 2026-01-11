@@ -4,6 +4,7 @@ Performance test for Quicken caching across multiple tools.
 Measures cache miss vs cache hit timing for MSVC, Clang, and clang-tidy.
 """
 
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -100,7 +101,11 @@ def main():
 
         # Setup Quicken
         config_file = Path(__file__).parent / "tools.json"
-        quicken = Quicken(config_file, temp_dir)
+        quicken_dir = Path.home() / ".quicken"
+        quicken_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(config_file, quicken_dir / "tools.json")
+
+        quicken = Quicken(temp_dir)
         quicken.cache = QuickenCache(cache_dir)
 
         results = {}

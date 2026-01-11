@@ -7,6 +7,7 @@ Run 2: Hash match (Quicken updates mtime in cache)
 Run 3: mtime/size match (fast path, no hashing)
 """
 
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -49,8 +50,13 @@ def main ():
         temp_dir = Path(tmpdir)
         main_files, headers = create_simple_project(temp_dir, num_headers, num_main_files)
 
+        # Copy tools.json to ~/.quicken/tools.json
         config_file = Path(__file__).parent / "tools.json"
-        quicken = Quicken(config_file, temp_dir)
+        quicken_dir = Path.home() / ".quicken"
+        quicken_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(config_file, quicken_dir / "tools.json")
+
+        quicken = Quicken(temp_dir)
 
         # First run: cache miss for each file (populates cache)
         for main_cpp in main_files:

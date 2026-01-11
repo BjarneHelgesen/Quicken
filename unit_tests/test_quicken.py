@@ -445,7 +445,7 @@ class TestQuickenClangTidy:
 class TestQuickenIntegration:
     """Integration tests covering multiple tools and scenarios."""
 
-    def test_path_translation_across_locations(self, cache_dir, config_file, temp_dir):
+    def test_path_translation_across_locations(self, cache_dir, temp_dir):
         """Test that cached paths are translated when restoring in a different location."""
         # Create first repo location
         repo1 = temp_dir / "location1"
@@ -454,7 +454,7 @@ class TestQuickenIntegration:
         cpp_file1.write_text(SIMPLE_CPP_CODE)
 
         # Create Quicken instance with shared cache
-        quicken1 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
+        quicken1 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Run compilation in first location - cache miss
         returncode1 = quicken1.run(cpp_file1, "cl", ["/c", "/nologo", "/EHsc"])
@@ -468,7 +468,7 @@ class TestQuickenIntegration:
         cpp_file2.write_text(SIMPLE_CPP_CODE)
 
         # Create new Quicken instance with same cache
-        quicken2 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
+        quicken2 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Capture stdout/stderr by temporarily redirecting
         import io
@@ -519,7 +519,7 @@ class TestQuickenIntegration:
 
 
     @pytest.mark.pedantic
-    def test_cache_index_persistence(self, quicken_instance, test_cpp_file, cache_dir, config_file):
+    def test_cache_index_persistence(self, quicken_instance, test_cpp_file, cache_dir):
         """Test that cache index persists across Quicken instances."""
         tool_args = ["/c", "/nologo", "/EHsc"]
 
@@ -530,7 +530,7 @@ class TestQuickenIntegration:
 
         # Create new instance with same cache (use same repo_dir as quicken_instance)
         from quicken import Quicken
-        quicken2 = Quicken(config_file, test_cpp_file.parent, cache_dir=cache_dir)  # Use same repo_dir
+        quicken2 = Quicken(test_cpp_file.parent, cache_dir=cache_dir)  # Use same repo_dir
 
         # Delete output file
         obj_file = test_cpp_file.parent / "test.obj"

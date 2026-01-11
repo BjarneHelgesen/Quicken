@@ -24,7 +24,7 @@ int main() {
 
 
 @pytest.mark.regression_test
-def test_relative_path_outside_repo_rejected(config_file, temp_dir):
+def test_relative_path_outside_repo_rejected(temp_dir):
     """
     Bug description: Relative paths pointing outside repo are not validated.
 
@@ -52,7 +52,7 @@ def test_relative_path_outside_repo_rejected(config_file, temp_dir):
     inside_file.write_text(SIMPLE_CPP_CODE)
 
     # Create Quicken instance for the repo
-    quicken = Quicken(config_file, repo_dir)
+    quicken = Quicken(repo_dir)
     quicken.clear_cache()
 
     # Create a file OUTSIDE the repo
@@ -77,7 +77,7 @@ def test_relative_path_outside_repo_rejected(config_file, temp_dir):
 
 
 @pytest.mark.regression_test
-def test_relative_path_inside_repo_accepted(config_file, temp_dir):
+def test_relative_path_inside_repo_accepted(temp_dir):
     """
     Verify that valid relative paths inside the repo work correctly.
 
@@ -94,7 +94,7 @@ def test_relative_path_inside_repo_accepted(config_file, temp_dir):
     source_file.write_text(SIMPLE_CPP_CODE)
 
     # Create Quicken instance for the repo
-    quicken = Quicken(config_file, repo_dir)
+    quicken = Quicken(repo_dir)
     quicken.clear_cache()
 
     # Use relative path from repo root: "src/main.cpp"
@@ -111,7 +111,7 @@ def test_relative_path_inside_repo_accepted(config_file, temp_dir):
 
 
 @pytest.mark.regression_test
-def test_relative_path_with_dotdot_inside_repo(config_file, temp_dir):
+def test_relative_path_with_dotdot_inside_repo(temp_dir):
     """
     Verify that relative paths with ../ that stay inside repo work correctly.
 
@@ -134,7 +134,7 @@ def test_relative_path_with_dotdot_inside_repo(config_file, temp_dir):
     util_file.write_text(SIMPLE_CPP_CODE)
 
     # Create Quicken instance for the repo
-    quicken = Quicken(config_file, repo_dir)
+    quicken = Quicken(repo_dir)
     quicken.clear_cache()
 
     # Use relative path with ../: "src/../lib/util.cpp" -> "lib/util.cpp"
@@ -150,7 +150,7 @@ def test_relative_path_with_dotdot_inside_repo(config_file, temp_dir):
 
 
 @pytest.mark.regression_test
-def test_absolute_path_outside_repo_rejected(config_file, temp_dir):
+def test_absolute_path_outside_repo_rejected(temp_dir):
     """
     Verify that absolute paths outside the repo are rejected.
 
@@ -161,7 +161,7 @@ def test_absolute_path_outside_repo_rejected(config_file, temp_dir):
     repo_dir.mkdir()
 
     # Create Quicken instance for the repo
-    quicken = Quicken(config_file, repo_dir)
+    quicken = Quicken(repo_dir)
     quicken.clear_cache()
 
     # Create file outside repo

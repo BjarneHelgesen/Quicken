@@ -16,7 +16,7 @@ import pytest
 from quicken import Quicken, QuickenCache
 
 
-def test_duplicate_cache_entries_for_same_content(config_file, temp_dir):
+def test_duplicate_cache_entries_for_same_content(temp_dir):
     """Test that Quicken creates duplicate entries for same content in different dirs.
 
     This test demonstrates a performance issue where Quicken creates redundant
@@ -57,7 +57,7 @@ int add(int a, int b) {
     tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
 
     # First compilation from dir1 - create Quicken instance for dir1
-    quicken1 = Quicken(config_file, dir1, cache_dir=cache_dir)
+    quicken1 = Quicken(dir1, cache_dir=cache_dir)
     initial_cache_count = len(quicken1.cache.index)
 
     returncode1 = quicken1.run(
@@ -91,7 +91,7 @@ int add(int a, int b) {
     first_content_hash = first_metadata['dependencies'][0]['hash']
 
     # Second compilation from dir2 with IDENTICAL content - create Quicken instance for dir2
-    quicken2 = Quicken(config_file, dir2, cache_dir=cache_dir)
+    quicken2 = Quicken(dir2, cache_dir=cache_dir)
 
     returncode2 = quicken2.run(
         file2.relative_to(dir2),
@@ -148,7 +148,7 @@ int add(int a, int b) {
     print(f"Unique content hashes: {len(hash_counts)}")
 
 
-def test_duplicate_entries_within_single_test_run(config_file, temp_dir):
+def test_duplicate_entries_within_single_test_run(temp_dir):
     """Test that demonstrates multiple duplicate entries created in one run.
 
     Simulates what happens during pytest run where the same test.cpp
@@ -176,7 +176,7 @@ int multiply(int x, int y) {
         source_file.write_text(source_code)
 
         # Create a new Quicken instance for each directory
-        quicken = Quicken(config_file, compile_dir, cache_dir=cache_dir)
+        quicken = Quicken(compile_dir, cache_dir=cache_dir)
 
         returncode = quicken.run(
             source_file.relative_to(compile_dir),

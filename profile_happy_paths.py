@@ -8,6 +8,7 @@ Happy Path 2: mtime changed but hash matches (hashing required)
 
 import cProfile
 import pstats
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -119,8 +120,13 @@ def profile_happy_path(scenario_name: str, num_headers: int, touch_files: bool):
         cache_dir = temp_dir / "cache"
         cache_dir.mkdir()
 
+        # Copy tools.json to ~/.quicken/tools.json
         config_file = Path(__file__).parent / "tools.json"
-        quicken = Quicken(config_file, temp_dir)
+        quicken_dir = Path.home() / ".quicken"
+        quicken_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(config_file, quicken_dir / "tools.json")
+
+        quicken = Quicken(temp_dir)
         quicken.cache = QuickenCache(cache_dir)
 
         # Populate cache

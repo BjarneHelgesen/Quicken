@@ -25,9 +25,9 @@ def example_subprocess_usage():
 
 
 def example_library_usage_verbose():
-
-    # Initialize once
-    quicken = Quicken(Path("tools.json"))
+    # Initialize once with the repository directory
+    # Tools must be pre-configured in ~/.quicken/tools.json
+    quicken = Quicken(Path.cwd())
 
     files = ["test.cpp"] * 10
 
@@ -36,8 +36,7 @@ def example_library_usage_verbose():
         returncode = quicken.run(
             source_file=Path(source_file),
             tool_name="cl",
-            tool_args=["/c"],
-            repo_dir=Path.cwd()
+            tool_args=["/c"]
         )
     elapsed = time.perf_counter() - start
 
@@ -48,8 +47,8 @@ def example_library_usage_verbose():
 def example_library_usage_quiet():
     """Quiet mode (for production)"""
 
-    # Initialize once
-    quicken = Quicken(Path("tools.json"))
+    # Initialize once with the repository directory
+    quicken = Quicken(Path.cwd())
 
     files = ["test.cpp"] * 100  # Simulate 100 files
 
@@ -59,8 +58,7 @@ def example_library_usage_quiet():
         returncode = quicken.run(
             source_file=Path(source_file),
             tool_name="cl",
-            tool_args=["/c"],
-            repo_dir=Path.cwd()
+            tool_args=["/c"]
         )
         if returncode != 0:
             print(f"ERROR: {source_file} failed with code {returncode}")
@@ -75,7 +73,7 @@ def example_parallel_builds():
     """Advanced: Process multiple files with progress tracking"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    quicken = Quicken(Path("tools.json"))
+    quicken = Quicken(Path.cwd())
 
     # Simulate a larger project
     files = ["test.cpp"] * 500
@@ -85,8 +83,7 @@ def example_parallel_builds():
         returncode = quicken.run(
             source_file=Path(source_file),
             tool_name="cl",
-            tool_args=["/c", "/W4"],
-            repo_dir=Path.cwd()
+            tool_args=["/c", "/W4"]
         )
         return source_file, returncode
 
@@ -133,7 +130,7 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 60)
     print("Summary:")
-    print("  - Initialize Quicken once, call run() many times")
-    print("  - Always provide repo_dir parameter")
+    print("  - Tools must be pre-configured in ~/.quicken/tools.json (by installer)")
+    print("  - Initialize Quicken once with repo_dir, call run() many times")
     print("  - Use output_args for output-specific flags (not part of cache key)")
     print("=" * 60)

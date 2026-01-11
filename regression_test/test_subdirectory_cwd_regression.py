@@ -52,7 +52,7 @@ int main() {
 
 
 @pytest.mark.regression_test
-def test_subdirectory_source_file_with_relative_args(config_file, temp_dir):
+def test_subdirectory_source_file_with_relative_args(temp_dir):
     """
     Verify that tools can be run with source files in subdirectories
     when relative path arguments are used.
@@ -65,7 +65,7 @@ def test_subdirectory_source_file_with_relative_args(config_file, temp_dir):
     Expected: Doxygen runs successfully and generates XML output
     Actual (BUG): Doxygen fails with "configuration file not found"
     """
-    quicken = Quicken(config_file, temp_dir)
+    quicken = Quicken(temp_dir)
     quicken.clear_cache()
 
     # Create directory structure similar to LevelUp:

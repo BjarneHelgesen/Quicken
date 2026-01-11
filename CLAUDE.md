@@ -183,7 +183,8 @@ The metadata-based approach prioritizes speed while the local-dependency trackin
 
 
 ## Important: Additional Instructions for Claude
-- Don't commit changes
+- Don't commit changes unless asked to commit (using the word commit)
+- Don't run unit tests or performance tests unless specifically asked to do so
 - Don't create **documents** explaining issues unless specifically asked to create documents
 - Do only what is requested. If more tasks are necessary, ask to clarify
 - Comment code minimally, only where necessary for clarity

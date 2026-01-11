@@ -118,26 +118,29 @@ def persistent_tool_cache():
     return QuickenCache(cache_dir)
 
 
-@pytest.fixture
-def config_file():
-    """Path to tools.json configuration file."""
+@pytest.fixture(scope="session", autouse=True)
+def setup_quicken_config():
+    """Set up Quicken configuration for tests.
+    This fixture runs once per test session and copies test tools.json to ~/.quicken/tools.json."""
     project_tools = Path(__file__).parent / "tools.json"
-    if project_tools.exists():
-        return project_tools
 
-    # Fallback for tests that need config but tools.json is missing
-    temp_dir = Path(tempfile.mkdtemp(prefix="quicken_config_"))
-    config = temp_dir / "tools.json"
-    config_data = {
-        "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
-        "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
-        "msvc_arch": "x64",
-        "clang++": "clang++",
-        "clang-tidy": "clang-tidy",
-        "doxygen": "doxygen"
-    }
-    config.write_text(json.dumps(config_data, indent=2))
-    return config
+    if not project_tools.exists():
+        # Create fallback config if needed
+        config_data = {
+            "cl": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
+            "vcvarsall": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+            "msvc_arch": "x64",
+            "clang++": "clang++",
+            "clang-tidy": "clang-tidy",
+            "doxygen": "doxygen"
+        }
+        project_tools.write_text(json.dumps(config_data, indent=2))
+
+    # Copy test tools.json to ~/.quicken/tools.json
+    quicken_dir = Path.home() / ".quicken"
+    quicken_dir.mkdir(parents=True, exist_ok=True)
+    system_tools = quicken_dir / "tools.json"
+    shutil.copy(project_tools, system_tools)
 
 
 @pytest.fixture(scope="session")
@@ -175,10 +178,10 @@ def temp_dir(persistent_temp_dir, request):
 
 
 @pytest.fixture
-def quicken_with_persistent_cache(config_file, persistent_tool_cache, temp_dir):
+def quicken_with_persistent_cache(persistent_tool_cache, temp_dir):
     """Quicken instance that uses persistent fixture cache for faster tests.
     Uses the same cache instance directly (no copying) for maximum speed."""
     cache_hash = _get_fixture_cache_hash()
     cache_dir = FIXTURE_CACHE_DIR / cache_hash
-    quicken = Quicken(config_file, temp_dir, cache_dir=cache_dir)
+    quicken = Quicken(temp_dir, cache_dir=cache_dir)
     return quicken

@@ -212,7 +212,7 @@ class TestInputArgsCaching:
         # File should be restored from cache
         assert obj_file.exists(), "Cache hit should restore output file"
 
-    def test_input_args_path_portability(self, cache_dir, config_file, temp_dir):
+    def test_input_args_path_portability(self, cache_dir, temp_dir):
         """Test that cache works across different repo locations with input_args."""
         # Create first repo location
         repo1 = temp_dir / "location1"
@@ -223,7 +223,7 @@ class TestInputArgsCaching:
         header1.write_text("#pragma once\n")
 
         # Create Quicken instance with shared cache
-        quicken1 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
+        quicken1 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Run compilation in first location with input_args
         returncode1 = quicken1.run(
@@ -242,7 +242,7 @@ class TestInputArgsCaching:
         header2.write_text("#pragma once\n")
 
         # Create new Quicken instance with same cache
-        quicken2 = Quicken(config_file, temp_dir, cache_dir=cache_dir)
+        quicken2 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Run in second location - should hit cache because paths are repo-relative
         returncode2 = quicken2.run(
@@ -279,7 +279,7 @@ class TestInputArgsCaching:
 class TestMultiElementInputArgs:
     """Test multi-element input_args with flag and path pairs."""
 
-    def test_multi_element_input_args_cache_hit(self, cache_dir, config_file, temp_dir):
+    def test_multi_element_input_args_cache_hit(self, cache_dir, temp_dir):
         """Test that multi-element input_args [flag, path] produce cache hits across different repo_dirs."""
 
         # Create two separate repos with identical source content
@@ -307,7 +307,7 @@ int add(int a, int b) {
         header_file.write_text("#pragma once\n#define COMMON 1\n")
 
         # Create Quicken instance for repo1
-        quicken1 = Quicken(config_file, repo1, cache_dir=cache_dir)
+        quicken1 = Quicken(repo1, cache_dir=cache_dir)
 
         # Compile in repo1 with multi-element input_args
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
@@ -329,7 +329,7 @@ int add(int a, int b) {
         cache_entries_before = len(quicken1.cache.index)
 
         # Create second Quicken instance for repo2 with same cache
-        quicken2 = Quicken(config_file, repo2, cache_dir=cache_dir)
+        quicken2 = Quicken(repo2, cache_dir=cache_dir)
 
         # Compile in repo2 - should HIT cache because:
         # - Same source content
@@ -354,7 +354,7 @@ int add(int a, int b) {
         assert cache_entries_before == cache_entries_after, \
             f"Cache HIT expected: entries should remain {cache_entries_before}, but got {cache_entries_after}"
 
-    def test_multiple_input_args_pairs(self, cache_dir, config_file, temp_dir):
+    def test_multiple_input_args_pairs(self, cache_dir, temp_dir):
         """Test multiple flag-path pairs in input_args.
 
         KNOWN BUG: Quicken incorrectly concatenates multiple pairs like:
@@ -382,7 +382,7 @@ int multiply(int x, int y) {
         header2.write_text("#pragma once\n#define VALUE2 20\n")
 
         # Create Quicken instance for the repo
-        quicken = Quicken(config_file, repo, cache_dir=cache_dir)
+        quicken = Quicken(repo, cache_dir=cache_dir)
 
         # Multiple input_args: [flag1, path1, flag2, path2]
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
