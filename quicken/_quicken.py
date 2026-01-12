@@ -5,11 +5,10 @@ Provides the main Quicken class for managing cached tool execution.
 """
 
 import time
-import json
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from ._cache import RepoPath, QuickenCache
 from ._tool_cmd import ToolCmd, ToolCmdFactory
@@ -42,7 +41,7 @@ class QuickenLogger(logging.Logger):
 
 class Quicken:
     """Main Quicken application."""
-    
+
     _data_dir = Path.home() / ".quicken"
 
     def __init__(self, repo_dir: Path, cache_dir: Optional[Path] = None):
@@ -50,10 +49,6 @@ class Quicken:
         Tools must be configured in ~/.quicken/tools.json (created by installation).
         Args:    repo_dir: Repository root directory (absolute path)
                  cache_dir: Optional cache directory path (defaults to ~/.quicken/cache)"""
-        config_path = self._data_dir / "tools.json"
-        with open(config_path, 'r') as f:
-            self.config = json.load(f)
-
         self.repo_dir = repo_dir.absolute()  # Normalize to absolute path
         cache_path = cache_dir if cache_dir else self._data_dir / "cache"
         self.cache = QuickenCache(cache_path)
@@ -82,7 +77,7 @@ class Quicken:
         start_time = time.perf_counter()
         tool = ToolCmdFactory.create(
             tool_name, tool_args,
-            self.logger, self.config, self.cache, self._data_dir, optimization, output_args, input_args
+            self.logger, self.cache, optimization, output_args, input_args
         )
 
         # Try optimization levels: specific level if provided, all levels if None

@@ -304,7 +304,11 @@ class DoxygenCmd(ToolCmd):
         return dependencies
 
 class ToolCmdFactory:
-    """Factory for creating ToolCmd instances."""
+    """Factory for creating ToolCmd instances.
+
+    Manages configuration loading and provides ToolCmd instances.
+    Configuration is loaded lazily from ~/.quicken/tools.json.
+    """
 
     _registry = {
         "cl": ClCmd,
@@ -313,16 +317,27 @@ class ToolCmdFactory:
         "doxygen": DoxygenCmd,
     }
 
+    _config = None
+    _data_dir = Path.home() / ".quicken"
+
+    @classmethod
+    def _get_config(cls) -> Dict:
+        """Load configuration from tools.json (lazy, cached).
+        Returns: Configuration dictionary"""
+        if cls._config is None:
+            config_path = cls._data_dir / "tools.json"
+            with open(config_path, 'r') as f:
+                cls._config = json.load(f)
+        return cls._config
+
     @classmethod
     def create(cls, tool_name: str, arguments: List[str],
-               logger, config, cache, data_dir, optimization=None, output_args=None, input_args=None) -> ToolCmd:
+               logger, cache, optimization=None, output_args=None, input_args=None) -> ToolCmd:
         """Create ToolCmd instance for the given tool name.
         Args:    tool_name: Name of the tool (must be registered)
                  arguments: Command-line arguments (part of cache key)
                  logger: Logger instance
-                 config: Configuration dict
                  cache: QuickenCache instance
-                 data_dir: Directory for caching MSVC environment
                  optimization: Optional optimization level
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
@@ -332,6 +347,7 @@ class ToolCmdFactory:
             raise ValueError(f"Unsupported tool: {tool_name}")
 
         tool_class = cls._registry[tool_name]
+        config = cls._get_config()
 
         return tool_class(tool_name, arguments, logger, config, cache,
-                         data_dir, optimization, output_args, input_args)
+                         cls._data_dir, optimization, output_args, input_args)
