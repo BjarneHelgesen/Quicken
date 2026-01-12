@@ -399,7 +399,6 @@ class QuickenCache:
               dependency_repo_paths: List[RepoPath], output_files: List[Path],
               stdout: str, stderr: str, returncode: int,
               repo_dir: Path,
-              output_base_dir: Path = None,
               input_args: List[str] = []) -> Path:
         """Store tool output in cache with dependency hashes.
         Args:    source_repo_path: RepoPath for source file (or main file)
@@ -410,8 +409,7 @@ class QuickenCache:
                  stdout: Tool stdout
                  stderr: Tool stderr
                  returncode: Tool exit code
-                 repo_dir: Repository directory (for hashing dependencies)
-                 output_base_dir: Base directory for preserving relative paths
+                 repo_dir: Repository directory (for hashing dependencies and output paths)
                  input_args: Optional input arguments with file paths
         Returns: Path to cache entry directory"""
         source_key = str(source_repo_path)  # repo-relative path
@@ -453,15 +451,11 @@ class QuickenCache:
             stored_files = []
             for output_file in output_files:
                 if output_file.exists():
-                    if output_base_dir:
-                        try:
-                            rel_path = output_file.relative_to(output_base_dir)
-                            dest = cache_entry_dir / rel_path
-                            file_path_str = str(rel_path)
-                        except ValueError:
-                            dest = cache_entry_dir / output_file.name
-                            file_path_str = output_file.name
-                    else:
+                    try:
+                        rel_path = output_file.relative_to(repo_dir)
+                        dest = cache_entry_dir / rel_path
+                        file_path_str = str(rel_path)
+                    except ValueError:
                         dest = cache_entry_dir / output_file.name
                         file_path_str = output_file.name
 

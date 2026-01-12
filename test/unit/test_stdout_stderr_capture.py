@@ -119,7 +119,7 @@ class TestStdoutStderrCapture:
         # Store in cache
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            stdout, stderr, returncode, temp_dir, output_base_dir=temp_dir
+            stdout, stderr, returncode, temp_dir
         )
 
         # Verify metadata.json contains stdout and stderr
@@ -157,7 +157,7 @@ class TestStdoutStderrCapture:
         # Store in cache
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, returncode, temp_dir, output_base_dir=temp_dir
+            original_stdout, original_stderr, returncode, temp_dir
         )
 
         # Delete output file
@@ -202,7 +202,7 @@ class TestStdoutStderrCapture:
         # Store with empty stdout and stderr
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            "", "", 0, temp_dir, output_base_dir=temp_dir
+            "", "", 0, temp_dir
         )
 
         # Restore - capture output
@@ -246,7 +246,7 @@ class TestStdoutStderrCapture:
 
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, 0, temp_dir, output_base_dir=temp_dir
+            original_stdout, original_stderr, 0, temp_dir
         )
 
         # Restore and verify exact preservation - capture output
@@ -290,7 +290,7 @@ class TestStdoutStderrCapture:
 
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, 0, temp_dir, output_base_dir=temp_dir
+            original_stdout, original_stderr, 0, temp_dir
         )
 
         # Restore and verify - capture output
@@ -562,8 +562,7 @@ class TestRepoToolStdoutStderr:
         # Store cache entry
         cache_entry = cache.store(
             main_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            stdout, stderr, returncode, temp_dir,
-            output_base_dir=output_dir
+            stdout, stderr, returncode, temp_dir
         )
 
         # Verify metadata contains stdout/stderr
@@ -600,7 +599,7 @@ class TestErrorCases:
         # Store error result (no output files created)
         cache_entry = cache.store(
             source_repo_path, tool_name, tool_args, dep_repo_paths, [],
-            stdout, stderr, returncode, temp_dir, output_base_dir=temp_dir
+            stdout, stderr, returncode, temp_dir
         )
 
         # Restore - capture output

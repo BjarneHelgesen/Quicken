@@ -88,7 +88,6 @@ class Quicken:
         self.cache.store(
             source_repo_path, tool_name, modified_args, dependency_repo_paths, output_files,
             stdout, stderr, returncode, self.repo_dir,
-            output_base_dir=self.repo_dir,
             input_args=input_args
         )
         log("CACHE MISS")

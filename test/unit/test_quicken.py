@@ -100,7 +100,7 @@ class TestQuickenCache:
         source_file.write_text("int main() { return 0; }")
         source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
-        cache.store(source_repo_path, "cl", ["/c"], dep_repo_paths, [], "", "", 0, temp_dir, output_base_dir=temp_dir)
+        cache.store(source_repo_path, "cl", ["/c"], dep_repo_paths, [], "", "", 0, temp_dir)
 
         assert cache._next_id == 2
 
@@ -125,7 +125,7 @@ class TestQuickenCache:
         returncode = 0
 
         # Store in cache
-        cache_entry = cache.store(source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file], stdout, stderr, returncode, temp_dir, output_base_dir=temp_dir)
+        cache_entry = cache.store(source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file], stdout, stderr, returncode, temp_dir)
         assert cache_entry.exists()
 
         # Lookup should find it
@@ -160,7 +160,7 @@ class TestQuickenCache:
         stderr = "No warnings"
         returncode = 0
 
-        cache_entry = cache.store(source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file], stdout, stderr, returncode, temp_dir, output_base_dir=temp_dir)
+        cache_entry = cache.store(source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file], stdout, stderr, returncode, temp_dir)
 
         # Delete the original file
         output_file.unlink()
