@@ -92,17 +92,17 @@ class TestQuickenCache:
         cache = QuickenCache(cache_dir)
 
         # First entry should be entry_000001
-        first_id = cache._next_id
+        first_id = cache._next_entry_id
         assert first_id == 1
 
-        # After storing an entry, next_id should increment
+        # After storing an entry, next_entry_id should increment
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
         source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         cache.store(source_repo_path, "cl", ["/c"], dep_repo_paths, [], "", "", 0, temp_dir, output_base_dir=temp_dir)
 
-        assert cache._next_id == 2
+        assert cache._next_entry_id == 2
 
     @pytest.mark.pedantic
     def test_cache_store_and_lookup(self, cache_dir, temp_dir):
