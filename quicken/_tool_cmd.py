@@ -28,16 +28,32 @@ class ToolCmd(ABC):
     optimization_flags = []  # e.g., ["/Od", "/O1", "/O2", "/Ox"] for MSVC
     needs_vcvars = False
 
-    def __init__(self, tool_path: str, arguments: List[str], logger, config, cache, msvc_env, optimization=None, output_args=None, input_args=None):
-        self.tool_path = tool_path
+    def __init__(self, tool_name: str, arguments: List[str], logger, config, cache, data_dir, optimization=None, output_args=None, input_args=None):
+        self.tool_name = tool_name
         self.arguments = arguments
         self.optimization = optimization
         self.config = config
         self.logger = logger
         self.cache = cache
-        self.msvc_env = msvc_env  # MSVC environment for /showIncludes
+        self.data_dir = data_dir  # Directory for caching MSVC environment
         self.output_args = output_args if output_args is not None else []  # Output-specific arguments (not part of cache key)
         self.input_args = input_args if input_args is not None else []  # Input-specific arguments (part of cache key)
+        self._tool_path = None  # Lazy-loaded tool path
+        self._msvc_env = None  # Lazy-loaded MSVC environment
+
+    @property
+    def tool_path(self) -> str:
+        """Get the full path to the tool, loading it lazily from config."""
+        if self._tool_path is None:
+            self._tool_path = self.get_tool_path(self.config, self.tool_name)
+        return self._tool_path
+
+    @property
+    def msvc_env(self) -> Dict:
+        """Get MSVC environment, loading it lazily when first accessed."""
+        if self._msvc_env is None:
+            self._msvc_env = ToolCmd.get_msvc_environment(self.config, self.data_dir)
+        return self._msvc_env
 
     def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
         """Get list of dependency paths for caching using MSVC /showIncludes.
@@ -154,6 +170,23 @@ class ToolCmd(ABC):
 
         return [flag] if isinstance(flag, str) else flag
 
+    def get_valid_optimization_levels(self, optimization: Optional[int]) -> List[Optional[int]]:
+        """Get list of valid optimization levels to try.
+        Args:    optimization: Requested optimization level or None for all levels
+        Returns: List of optimization levels to try (single element if specific level, all levels if None)"""
+        if not self.supports_optimization:
+            return [None]
+
+        if optimization is None:
+            # Try all valid optimization levels
+            return list(range(len(self.optimization_flags)))
+
+        # Validate and sanitize the provided level
+        if optimization < 0 or optimization >= len(self.optimization_flags):
+            raise ValueError(f"Invalid optimization level {optimization}")
+
+        return [optimization]
+
     def add_optimization_flags(self, args: List[str]) -> List[str]:
         """Add optimization flags to arguments if optimization is set.
         Args:    args: Original arguments
@@ -233,30 +266,6 @@ class ToolCmd(ABC):
 
         return output_files, result.stdout, result.stderr, result.returncode
 
-    def try_all_optimization_levels(self, tool_name: str, tool_args: List[str],
-                                   source_repo_path: RepoPath, repo_dir: Path) -> Tuple[Optional[Path], List[str]]:
-        """Try to find cache hit with any optimization level.
-        Args:    tool_name: Name of the tool
-                 tool_args: Tool arguments (without source_file/main_file)
-                 source_repo_path: RepoPath for source file
-                 repo_dir: Repository directory
-        Returns: Tuple of (cache_entry, modified_args) or (None, original_args)"""
-        if not self.supports_optimization:
-            cache_entry = self.cache.lookup(source_repo_path, tool_name, tool_args, repo_dir, self.input_args)
-            return cache_entry, tool_args
-
-        for opt_level in range(len(self.optimization_flags)):
-            self.optimization = opt_level
-            modified_args = self.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, repo_dir, self.input_args)
-            if cache_entry:
-                return cache_entry, modified_args
-
-        # No cache hit found - default to optimization level 0
-        self.optimization = 0
-        modified_args = self.add_optimization_flags(tool_args)
-        return None, modified_args
-
 
 class ClCmd(ToolCmd):
     supports_optimization = True
@@ -305,16 +314,15 @@ class ToolCmdFactory:
     }
 
     @classmethod
-    def create(cls, tool_name: str, tool_path: str, arguments: List[str],
-               logger, config, cache, msvc_env, optimization=None, output_args=None, input_args=None) -> ToolCmd:
+    def create(cls, tool_name: str, arguments: List[str],
+               logger, config, cache, data_dir, optimization=None, output_args=None, input_args=None) -> ToolCmd:
         """Create ToolCmd instance for the given tool name.
         Args:    tool_name: Name of the tool (must be registered)
-                 tool_path: Full path to tool executable
                  arguments: Command-line arguments (part of cache key)
                  logger: Logger instance
                  config: Configuration dict
                  cache: QuickenCache instance
-                 msvc_env: MSVC environment dict
+                 data_dir: Directory for caching MSVC environment
                  optimization: Optional optimization level
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
@@ -325,5 +333,5 @@ class ToolCmdFactory:
 
         tool_class = cls._registry[tool_name]
 
-        return tool_class(tool_path, arguments, logger, config, cache,
-                         msvc_env, optimization, output_args, input_args)
+        return tool_class(tool_name, arguments, logger, config, cache,
+                         data_dir, optimization, output_args, input_args)

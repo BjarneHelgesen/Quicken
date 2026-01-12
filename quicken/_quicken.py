@@ -51,18 +51,14 @@ class Quicken:
         Args:    repo_dir: Repository root directory (absolute path)
                  cache_dir: Optional cache directory path (defaults to ~/.quicken/cache)"""
         config_path = self._data_dir / "tools.json"
-        self.config = self._load_config(config_path)
+        with open(config_path, 'r') as f:
+            self.config = json.load(f)
+
         self.repo_dir = repo_dir.absolute()  # Normalize to absolute path
         cache_path = cache_dir if cache_dir else self._data_dir / "cache"
         self.cache = QuickenCache(cache_path)
         self.logger = QuickenLogger(self._data_dir)
-        # Eagerly fetch and cache MSVC environment (assumes MSVC is installed)
-        self._msvc_env = ToolCmd.get_msvc_environment(self.config, self._data_dir)
 
-    def _load_config(self, config_path: Path) -> Dict:
-        """Load tools configuration."""
-        with open(config_path, 'r') as f:
-            return json.load(f)
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
             optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
@@ -84,19 +80,24 @@ class Quicken:
         abs_source_file = source_repo_path.toAbsolutePath(self.repo_dir)
 
         start_time = time.perf_counter()
-        tool_path = ToolCmd.get_tool_path(self.config, tool_name)
         tool = ToolCmdFactory.create(
-            tool_name, tool_path, tool_args,
-            self.logger, self.config, self.cache, self._msvc_env, optimization, output_args, input_args
+            tool_name, tool_args,
+            self.logger, self.config, self.cache, self._data_dir, optimization, output_args, input_args
         )
 
-        if optimization is None:
-            cache_entry, modified_args = tool.try_all_optimization_levels(
-                tool_name, tool_args, source_repo_path, self.repo_dir
-            )
-        else:
+        # Try optimization levels: specific level if provided, all levels if None
+        cache_entry = None
+        for opt_level in tool.get_valid_optimization_levels(optimization):
+            tool.optimization = opt_level
             modified_args = tool.add_optimization_flags(tool_args)
             cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
+            if cache_entry:
+                break
+
+        # If no cache hit and optimization was None, default to level 0
+        if cache_entry is None and optimization is None and tool.supports_optimization:
+            tool.optimization = 0
+            modified_args = tool.add_optimization_flags(tool_args)
 
         if cache_entry:
             returncode = self.cache.restore(cache_entry, self.repo_dir)
