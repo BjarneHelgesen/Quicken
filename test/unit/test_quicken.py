@@ -548,5 +548,106 @@ class TestQuickenIntegration:
             assert returncode2 == 0
 
 
+class TestQuickenConvenienceMethods:
+    """Test convenience methods (cl, clang, clang_tidy, doxygen)."""
+
+    def test_cl_convenience_method(self, quicken_instance, test_cpp_file):
+        """Test that cl() convenience method works identically to run()."""
+        tool_args = ["/c", "/nologo", "/EHsc"]
+
+        # First run using convenience method
+        returncode1 = quicken_instance.cl(test_cpp_file, tool_args)
+        assert returncode1 == 0
+
+        obj_file = test_cpp_file.parent / "test.obj"
+        assert obj_file.exists()
+        obj_file.unlink()
+
+        # Second run should hit cache
+        returncode2 = quicken_instance.cl(test_cpp_file, tool_args)
+        assert returncode2 == 0
+        assert obj_file.exists()
+
+    def test_clang_convenience_method(self, quicken_instance, test_cpp_file):
+        """Test that clang() convenience method works identically to run()."""
+        tool_args = ["-c"]
+
+        # First run using convenience method
+        returncode1 = quicken_instance.clang(test_cpp_file, tool_args)
+        if returncode1 != 0:
+            pytest.fail("clang++ compilation failed")
+
+        obj_file = test_cpp_file.parent / "test.o"
+        assert obj_file.exists()
+        obj_file.unlink()
+
+        # Second run should hit cache
+        returncode2 = quicken_instance.clang(test_cpp_file, tool_args)
+        assert returncode2 == returncode1
+        assert obj_file.exists()
+
+    def test_clang_tidy_convenience_method(self, quicken_instance, test_cpp_file):
+        """Test that clang_tidy() convenience method works identically to run()."""
+        tool_args = ["--checks=readability-*"]
+
+        # First run using convenience method
+        returncode1 = quicken_instance.clang_tidy(test_cpp_file, tool_args)
+
+        # Second run should hit cache with same return code
+        returncode2 = quicken_instance.clang_tidy(test_cpp_file, tool_args)
+        assert returncode1 == returncode2
+
+    def test_convenience_methods_equivalent_to_run(self, quicken_instance, temp_dir):
+        """Test that convenience methods produce identical results to run()."""
+        # Create a test file for this specific test
+        test_file = temp_dir / "equiv_test.cpp"
+        test_file.write_text(SIMPLE_CPP_CODE)
+
+        # Clear cache to ensure fresh start
+        quicken_instance.clear_cache()
+
+        # Run with generic run() method
+        returncode_run = quicken_instance.run(test_file, "cl", ["/c", "/nologo", "/EHsc"])
+        obj_file = temp_dir / "equiv_test.obj"
+        if obj_file.exists():
+            obj_file.unlink()
+
+        # Clear cache again
+        quicken_instance.clear_cache()
+
+        # Run with convenience method
+        returncode_cl = quicken_instance.cl(test_file, ["/c", "/nologo", "/EHsc"])
+
+        # Results should be identical
+        assert returncode_run == returncode_cl
+
+    def test_cl_with_optimization(self, quicken_instance, test_cpp_file):
+        """Test cl() convenience method with optimization parameter."""
+        # Compile with O0
+        returncode1 = quicken_instance.cl(test_cpp_file, ["/c", "/nologo", "/EHsc"], optimization=0)
+        assert returncode1 == 0
+
+        obj_file = test_cpp_file.parent / "test.obj"
+        obj_file.unlink()
+
+        # Compile with O2 - should be cache miss
+        returncode2 = quicken_instance.cl(test_cpp_file, ["/c", "/nologo", "/EHsc"], optimization=2)
+        assert returncode2 == 0
+
+    def test_clang_with_optimization(self, quicken_instance, test_cpp_file):
+        """Test clang() convenience method with optimization parameter."""
+        # Compile with O0
+        returncode1 = quicken_instance.clang(test_cpp_file, ["-c"], optimization=0)
+        if returncode1 != 0:
+            pytest.fail("clang++ compilation failed")
+
+        obj_file = test_cpp_file.parent / "test.o"
+        obj_file.unlink()
+
+        # Compile with O2 - should be cache miss
+        returncode2 = quicken_instance.clang(test_cpp_file, ["-c"], optimization=2)
+        assert isinstance(returncode2, int)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

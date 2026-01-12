@@ -33,14 +33,14 @@ def example_library_usage_verbose():
 
     start = time.perf_counter()
     for source_file in files:
-        returncode = quicken.run(
+        # Using new convenience method (recommended)
+        returncode = quicken.cl(
             source_file=Path(source_file),
-            tool_name="cl",
             tool_args=["/c"]
         )
     elapsed = time.perf_counter() - start
 
-    print(f"\nLibrary method (verbose): {elapsed:.2f}s for {len(files)} calls")
+    print(f"\nLibrary method (verbose, using cl() convenience method): {elapsed:.2f}s for {len(files)} calls")
     print(f"  ~{elapsed/len(files)*1000:.1f}ms per call")
 
 
@@ -55,16 +55,16 @@ def example_library_usage_quiet():
     print("\n[Running 100 files in quiet mode...]")
     start = time.perf_counter()
     for source_file in files:
-        returncode = quicken.run(
+        # Using convenience method
+        returncode = quicken.cl(
             source_file=Path(source_file),
-            tool_name="cl",
             tool_args=["/c"]
         )
         if returncode != 0:
             print(f"ERROR: {source_file} failed with code {returncode}")
     elapsed = time.perf_counter() - start
 
-    print(f"\nLibrary method (quiet): {elapsed:.2f}s for {len(files)} calls")
+    print(f"\nLibrary method (quiet, using cl() convenience method): {elapsed:.2f}s for {len(files)} calls")
     print(f"  ~{elapsed/len(files)*1000:.1f}ms per call")
     print(f"  Estimated time for 1000 files: {elapsed*10:.1f}s")
 
@@ -80,9 +80,9 @@ def example_parallel_builds():
 
     def compile_file(source_file):
         """Compile a single file"""
-        returncode = quicken.run(
+        # Using convenience method
+        returncode = quicken.cl(
             source_file=Path(source_file),
-            tool_name="cl",
             tool_args=["/c", "/W4"]
         )
         return source_file, returncode
@@ -131,6 +131,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("Summary:")
     print("  - Tools must be pre-configured in ~/.quicken/tools.json (by installer)")
-    print("  - Initialize Quicken once with repo_dir, call run() many times")
+    print("  - Initialize Quicken once with repo_dir, use convenience methods many times")
+    print("  - Convenience methods: quicken.cl(), quicken.clang(), quicken.clang_tidy(), quicken.doxygen()")
+    print("  - Generic method available: quicken.run() for flexibility")
     print("  - Use output_args for output-specific flags (not part of cache key)")
     print("=" * 60)

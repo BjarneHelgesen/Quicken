@@ -5,80 +5,62 @@
 Quicken is an **independent, standalone** Python library that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and file hashes.
 
 **IMPORTANT: Independence**
-- Can be used as a Python library: `from quicken import Quicken`
-- Can be integrated into any build system or project
+- Standalone library: `from quicken import Quicken`
 - Maintains its own configuration (`tools.json`)
-- Requires a file system with high accuracy. E.g. local NTFS, not containeraized or network drives.
- 
-## Architecture
+- Requires high-accuracy file system (local NTFS, not containerized/network drives)
 
-### Core Components
+## Package Structure
 
-1. **QuickenCache** (defined in quicken.py) - Manages cache storage and retrieval
-   - Index-based lookup system (JSON)
-   - File-based storage for output artifacts
-   - Hash-based dependency tracking
+```
+quicken/
+  __init__.py          # Public API - exports Quicken class
+  _quicken.py          # Main Quicken class implementation
+  _cache.py            # Cache storage and retrieval
+  _tool_cmd.py         # Tool command execution
+  _cpp_normalizer.py   # C++ output normalization
+  _repo_path.py        # Repository path handling
+test/
+  unit/                # Unit tests
+  regression/          # Regression tests (marked with @pytest.mark.regression_test)
+```
 
-2. **Quicken** (main class in quicken.py) - Main application logic
-   - Configuration management
-   - Dependency detection using MSVC `/showIncludes`
-   - Tool execution wrapper
-   - Cache coordination
+**Usage:**
+```python
+from quicken import Quicken
 
-### Caching Strategy
+quicken = Quicken(repo_dir=Path.cwd())
+returncode = quicken.run(
+    source_file=Path("main.cpp"),
+    tool_name="cl",
+    tool_args=["/c", "/W4"]
+)
+```
 
-**OPTIMIZED FOR CACHE HITS** - The cache is designed assuming 10-100 cache hits per cache miss.
+## Caching Strategy
 
-**Cache Lookup (Fast Path - No Tool Execution):**
-1. Look up the cached entry based on repo-relative path, tool and arguments. 
-   - If it does not exist, we have a Cache MISS
-   - If it exists, but the file size is different, we have a Cache MISS.
-   - If the mtime matches → File HIT (maybe a Cache hit)!
-   - If the mtime does not match, but the hashes matche → File HIT (maybe a Cache hit)!
-   - If we have a File hit, test all dependencies. If we get file hit for all dependencies, we have a Cache HIT!
+**OPTIMIZED FOR CACHE HITS** - Assumes 10-100 cache hits per cache miss.
 
-**Cache Miss (Slow Path - Runs Tool):**
-1. Run MSVC `/showIncludes` to detect dependencies for Cpp files 
-2. Execute the actual tool
-3. Store output files and dependency hashes for future hits
+**Cache Lookup (Fast Path):**
+1. Lookup by repo-relative path, tool, and arguments
+2. Compare file size, mtime, then hash if needed
+3. Validate all dependencies similarly
+4. Cache HIT → restore artifacts (~1ms)
 
-**Performance Characteristics:**
-- Cache hits require hashing all dependencies 
-- `/showIncludes` only runs on cache misses when tool execution dominates anyway
-- Optimized for scenarios with many cache hits per miss
+**Cache Miss (Slow Path):**
+1. Run MSVC `/showIncludes` to detect dependencies
+2. Execute tool 
+3. Store output files and dependency hashes
 
-This ensures that:
-- Same local files with same content → instant cache hit
-- Different flags → different cache entries (separate lookup)
-- Header changes → cache invalidation (hash comparison fails)
-- External library changes → ignored (not tracked for speed)
-- **Cache portability → works across different checkout locations** (uses repo.relative path - not absolute path)
-
-
-### Request Logging
-
-Quicken automatically logs every request to `~/.quicken/quicken.log` with information about cache hits and misses.
-
-
-## Implementation Details
-
-
-## Repo-Level Tool Caching
-
-Quicken supports caching for **repo-level tools** (e.g., Doxygen, cppcheck) that operate on entire repositories rather than individual source files.
-
- 
-### Multiple Runs with Different Configurations
-
-Each run with a different main file or a different set of dependent files creates a separate cache entry:
-
-
-Both entries share the same dependencies (all C++ files), so both invalidate together when source changes.
-
+**Key Properties:**
+- Same content → instant cache hit
+- Different flags → separate cache entries
+- Header changes → invalidation via hash comparison
+- External libraries → not tracked (for speed)
+- Cache portable → uses repo-relative paths
 
 ## Configuration
 
-`tools.json` format:
+`tools.json` at repository root:
 ```json
 {
   "tool_name": "/path/to/tool",
@@ -87,113 +69,46 @@ Both entries share the same dependencies (all C++ files), so both invalidate tog
 }
 ```
 
-Special keys:
-- `vcvarsall` - Required for MSVC tools
-- `msvc_arch` - MSVC target architecture (x64, x86, ARM, etc.)
-
-**Note:** Optimization flags are defined in code (in ToolCmd subclasses), not in the config file. This ensures consistent behavior across installations.
-
-## Design Decisions
-
-### Why Hash Comparison?
-
-**Approach:** Store dependency mtime, sizes and hashes in cache, compare on lookup
-
-**Benefits:**
-- mtime and size comparison is very fast
-- Content-based comparison (hasing ~10-50ms for 50 files, is still fast if mtime has changed for the same content)
-- No `/showIncludes` needed on cache hits
-- No false cache invalidations from file touches
-- Detects actual content changes reliably
-
-### Why Store Dependencies in Cache?
-
-**Approach:** Detect dependencies once on cache miss, store for future lookups
-
-**Benefits:**
-- `/showIncludes` only runs on cache misses
-- Cache hits avoid expensive dependency detection
-- Optimal for scenarios with many cache hits per miss
-
-
-
 ## Testing
-Test are categories as follows: 
-* pedantic: Low leve tests that are covered by other tests. Useful when there is a regression
-* regression_test: Tests that verify previously fixed bugs remain fixed
-* The rest are unit tests
+
+Run tests with: `python test.py`
+
+**Test Categories:**
+- Unit tests: `test/unit/`
+- Regression tests: `test/regression/` (marked `@pytest.mark.regression_test`)
+- Pedantic tests: Low-level tests covered by other tests (useful for debugging)
+
+**Regression Test Workflow:**
+1. Bug found → Create failing regression test
+2. Fix bug → Update implementation
+3. Verify test passes → Commit fix and test together
 
 
-### Unit Tests
+## Code Style
 
-See `test/unit/` directory 
+**Minimal Documentation:**
+- Prioritize clarity through simple, readable code
+- Comments only where necessary for clarity
+- Docstrings only for non-obvious information
 
-### Regression Tests
+**Design Principles:**
+- Put functionality inside classes (extend classes vs external logic)
+- No backward compatibility needed (users clear cache and update API calls)
+- Optimize for cache hit performance
+- Regular classes with explicit `__init__` (no `@dataclass`)
 
-Regression tests verify that previously fixed bugs remain fixed. They are stored in `test/regression/` directory and marked with `@pytest.mark.regression_test`.
+## Workflow
 
-**When to Create a Regression Test:**
+**Testing:** Run `python test.py` after code changes (don't run pytest directly)
 
-When a bug is found, the user should create a failing regression test BEFORE the fix is implemented:
+**Commits:** Only commit when specifically instructed to do so. Multiple commits for clarity is fine.
 
-1. **User finds a bug** - Create a regression test that demonstrates the bug (test fails)
-2. **Fix the bug** - Update the code to fix the issue
-3. **Verify the fix** - The regression test should now pass
-4. **Commit together** - Commit both the fix and the regression test
+**Unit Tests:**
+- Update tests when modifying code
+- Tests should assert only, not print results
+- Make tests stricter if they pass when operation fails 
 
-**If API is Used Incorrectly:**
-- Document legal and illegal usage patterns
-- Add error handling for incorrect usage
-- Either update the regression test to verify error handling, or delete it
-
-**If API is Used Correctly:**
-- Fix the bug in the implementation
-- Ensure the regression test passes
-- Commit both the fix and the test together
-
-
-
-**Example Regression Test:**
-
-See `test/regression/test_cache_entry_reuse_regression.py` for a complete example.
-
-Key elements of a good regression test:
-- Clear documentation of the bug
-- Uses the Quicken API correctly (as users would use it)
-- Marked with `@pytest.mark.regression_test`
-
-### Expected Behavior
-
-- First run with a given file and tool configuration: Cache miss, tool executes normally
-- Subsequent runs with same file and unchanged dependencies: Cache hit, instant results
-- Modified source or header files: Cache miss, tool re-executes
-- Different tool arguments: Cache miss (separate cache entries)
-- Output files restored with same content as original tool execution
-- stdout/stderr identical to direct tool execution
-
-## Conclusion
-
-Quicken provides transparent caching for C++ build tools with:
-- Artifacts are retrieved in about 1ms when there is a cache hit
-- Minimal overhead on cache miss (~100-200ms)
-- Massive speedup on cache hit
-- Easy integration with existing workflows
-- Simple, maintainable codebase
-
-The metadata-based approach prioritizes speed while the local-dependency tracking ensures practical correctness for iterative development.
-
-
-## Important: Additional Instructions for Claude
-- Don't commit changes unless asked to commit (using the word commit)
-- When modifying code, run test.py to verify that unit tests pass. Don't run unit tests directly or any other tests
+- After modifying code, run test.py to verify that unit tests pass. Don't run unit tests directly or any other tests
 - Don't create any documents explaining issues unless specifically asked to create documents
 - Do only what is requested. If more tasks are necessary, ask to clarify
-- Comment code minimally, only where necessary for clarity
-- When modifying code, update unit tests also
-- When creating or modifying unit tests, don't make the tests prints results. They should only assert. 
-- When a unit tests passes where the operation did not succeed, make the unit tests stricter or make a new unit test to cover the issue
-- Put functionality *inside* classes, rather than in code using the classes, when possible. I.e. extend the classes rather than put related logic outside
-- There is no need to make any changes backward compatible. Users will have to clear their cache and update their api calls 
-- When committing, you can choose to make multiple commits for clarity, or a single commit. Use your judgement
-- When making changes, consider performance implications. We want optimal performance for cache hits 
 
