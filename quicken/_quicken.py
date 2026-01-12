@@ -67,6 +67,13 @@ class Quicken:
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
         Returns: Tool exit code (integer)"""
 
+        def log(status: str):
+            """Log cache operation with local context. Locals need to be initalized before calling log()"""
+            elapsed = time.perf_counter() - start_time
+            cache_entry_name = cache_entry.name if cache_entry else "N/A"
+            msg = f"{status}: {source_repo_path}, tool: {tool_name}, Time: {elapsed:.3f}s, args: {modified_args}, returncode: {returncode}, cache_entry: {cache_entry_name}"
+            self.logger.info(msg)
+
         # Convert source_file to RepoPath and validate it's inside repo
         source_repo_path = RepoPath(self.repo_dir, source_file)
         if not source_repo_path:
@@ -82,17 +89,13 @@ class Quicken:
         )
 
         # Try optimization levels: specific level if provided, all levels if None
-        cache_entry = None
         for opt_level in tool.get_valid_optimization_levels(optimization):
             tool.optimization = opt_level
             modified_args = tool.add_optimization_flags(tool_args)
             cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
             if cache_entry:
                 returncode = self.cache.restore(cache_entry, self.repo_dir)
-                self.logger.info(f"CACHE HIT: {source_repo_path}, tool: {tool_name}, "
-                                f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                                f"args: {modified_args}, cache_entry: {cache_entry.name}, "
-                                f"returncode: {returncode}")
+                log("CACHE HIT")
                 return returncode
 
         # If no cache hit and optimization was None, default to level 0
@@ -116,10 +119,7 @@ class Quicken:
             output_base_dir=self.repo_dir,
             input_args=input_args
         )
-        self.logger.info(f"CACHE MISS: {source_repo_path}, tool: {tool_name}, "
-                       f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                       f"args: {modified_args}, dependencies: {len(dependency_repo_paths)}, "
-                       f"returncode: {returncode}, output_files: {len(output_files)}")
+        log("CACHE MISS")
 
         return returncode
 
