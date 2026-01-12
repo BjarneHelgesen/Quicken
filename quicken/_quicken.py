@@ -87,25 +87,23 @@ class Quicken:
             modified_args = tool.add_optimization_flags(tool_args)
             cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
             if cache_entry:
-                break
+                returncode = self.cache.restore(cache_entry, self.repo_dir)
+                self.logger.info(f"CACHE HIT: {source_repo_path}, tool: {tool_name}, "
+                                f"Time: {time.perf_counter()-start_time:.3f} seconds, "
+                                f"args: {modified_args}, cache_entry: {cache_entry.name}, "
+                                f"returncode: {returncode}")
+                return returncode
 
         # If no cache hit and optimization was None, default to level 0
-        if cache_entry is None and optimization is None and tool.supports_optimization:
+        if optimization is None and tool.supports_optimization:
             tool.optimization = 0
             modified_args = tool.add_optimization_flags(tool_args)
 
-        if cache_entry:
-            returncode = self.cache.restore(cache_entry, self.repo_dir)
-            self.logger.info(f"CACHE HIT - file: {source_repo_path}, tool: {tool_name}, "
-                           f"Time: {time.perf_counter()-start_time:.3f} seconds, "
-                           f"args: {modified_args}, cache_entry: {cache_entry.name}, "
-                           f"returncode: {returncode}")
-            return returncode
 
         # Get dependencies from tool
         dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
 
-        # Execute tool and detect output files
+        # Execute tool and store afttifacts in cache
         output_files, stdout, stderr, returncode = tool.run(abs_source_file, self.repo_dir)
 
         print(stdout, end='')
@@ -117,7 +115,7 @@ class Quicken:
             output_base_dir=self.repo_dir,
             input_args=input_args
         )
-        self.logger.info(f"CACHE MISS - file: {source_repo_path}, tool: {tool_name}, "
+        self.logger.info(f"CACHE MISS: {source_repo_path}, tool: {tool_name}, "
                        f"Time: {time.perf_counter()-start_time:.3f} seconds, "
                        f"args: {modified_args}, dependencies: {len(dependency_repo_paths)}, "
                        f"returncode: {returncode}, output_files: {len(output_files)}")
