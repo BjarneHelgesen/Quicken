@@ -595,10 +595,8 @@ class QuickenCache:
         main_file_path = metadata["main_file_path"]
         dependencies = metadata["dependencies"]
 
-        stdout = self._translate_paths(metadata["stdout"], old_repo_dir, new_repo_dir,
-                                       main_file_path, dependencies, files)
-        stderr = self._translate_paths(metadata["stderr"], old_repo_dir, new_repo_dir,
-                                       main_file_path, dependencies, files)
+        stdout = self._translate_paths(metadata["stdout"], old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
+        stderr = self._translate_paths(metadata["stderr"], old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
 
         print(stdout, end='')
         print(stderr, end='', file=sys.stderr)

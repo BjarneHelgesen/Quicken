@@ -5,39 +5,14 @@ Provides the main Quicken class for managing cached tool execution.
 """
 
 import time
-import logging
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from ._cache import QuickenCache
+from ._logger import QuickenLogger
 from ._repo_path import RepoPath
 from ._tool_cmd import ToolCmd, ToolCmdFactory
-
-
-class QuickenLogger(logging.Logger):
-    """Logger for Quicken operations."""
-
-    def __init__(self, log_dir: Path):
-        """Initialize logger with file handler.
-        Args:    log_dir: Directory where log file will be created"""
-        super().__init__("Quicken", logging.INFO)
-
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "quicken.log"
-
-        # Remove existing handlers to avoid duplicates
-        self.handlers.clear()
-
-        # File handler
-        handler = logging.FileHandler(log_file)
-        handler.setLevel(logging.INFO)
-
-        # Format: timestamp - level - message
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-
-        self.addHandler(handler)
 
 
 class Quicken:
@@ -83,10 +58,7 @@ class Quicken:
         abs_source_file = source_repo_path.toAbsolutePath(self.repo_dir)
 
         start_time = time.perf_counter()
-        tool = ToolCmdFactory.create(
-            tool_name, tool_args,
-            self.logger, optimization, output_args, input_args
-        )
+        tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, optimization, output_args, input_args)
 
         # Try optimization levels: specific level if provided, all levels if None
         for opt_level in tool.get_valid_optimization_levels(optimization):
@@ -107,7 +79,7 @@ class Quicken:
         # Get dependencies from tool
         dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
 
-        # Execute tool and store afttifacts in cache
+        # Execute tool and store artifacts in cache
         output_files, stdout, stderr, returncode = tool.run(abs_source_file, self.repo_dir)
 
         print(stdout, end='')
