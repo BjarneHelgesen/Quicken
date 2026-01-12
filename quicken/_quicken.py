@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from ._cache import RepoPath, QuickenCache
+from ._cache import QuickenCache
+from ._repo_path import RepoPath
 from ._tool_cmd import ToolCmd, ToolCmdFactory
 
 
@@ -77,7 +78,7 @@ class Quicken:
         start_time = time.perf_counter()
         tool = ToolCmdFactory.create(
             tool_name, tool_args,
-            self.logger, self.cache, optimization, output_args, input_args
+            self.logger, optimization, output_args, input_args
         )
 
         # Try optimization levels: specific level if provided, all levels if None

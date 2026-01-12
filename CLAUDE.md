@@ -70,7 +70,7 @@ Quicken supports caching for **repo-level tools** (e.g., Doxygen, cppcheck) that
  
 ### Multiple Runs with Different Configurations
 
-Each run with a different main file creates a separate cache entry:
+Each run with a different main file or a different set of dependent files creates a separate cache entry:
 
 
 Both entries share the same dependencies (all C++ files), so both invalidate together when source changes.

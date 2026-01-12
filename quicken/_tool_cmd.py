@@ -10,9 +10,9 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from abc import ABC, abstractmethod
+from abc import ABC
 
-from ._cache import RepoPath, QuickenCache
+from ._repo_path import RepoPath
 
 
 class ToolCmd(ABC):
@@ -28,13 +28,12 @@ class ToolCmd(ABC):
     optimization_flags = []  # e.g., ["/Od", "/O1", "/O2", "/Ox"] for MSVC
     needs_vcvars = False
 
-    def __init__(self, tool_name: str, arguments: List[str], logger, config, cache, data_dir, optimization=None, output_args=None, input_args=None):
+    def __init__(self, tool_name: str, arguments: List[str], logger, config, data_dir, optimization=None, output_args=None, input_args=None):
         self.tool_name = tool_name
         self.arguments = arguments
         self.optimization = optimization
         self.config = config
         self.logger = logger
-        self.cache = cache
         self.data_dir = data_dir  # Directory for caching MSVC environment
         self.output_args = output_args if output_args is not None else []  # Output-specific arguments (not part of cache key)
         self.input_args = input_args if input_args is not None else []  # Input-specific arguments (part of cache key)
@@ -332,12 +331,11 @@ class ToolCmdFactory:
 
     @classmethod
     def create(cls, tool_name: str, arguments: List[str],
-               logger, cache, optimization=None, output_args=None, input_args=None) -> ToolCmd:
+               logger, optimization=None, output_args=None, input_args=None) -> ToolCmd:
         """Create ToolCmd instance for the given tool name.
         Args:    tool_name: Name of the tool (must be registered)
                  arguments: Command-line arguments (part of cache key)
                  logger: Logger instance
-                 cache: QuickenCache instance
                  optimization: Optional optimization level
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
@@ -349,5 +347,5 @@ class ToolCmdFactory:
         tool_class = cls._registry[tool_name]
         config = cls._get_config()
 
-        return tool_class(tool_name, arguments, logger, config, cache,
+        return tool_class(tool_name, arguments, logger, config,
                          cls._data_dir, optimization, output_args, input_args)
