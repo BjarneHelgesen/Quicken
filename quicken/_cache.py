@@ -148,7 +148,7 @@ class QuickenCache:
         Index structure (flat dictionary with compound keys, supporting collisions):
         {
             "next_entry_id": 123,  # Next available cache entry ID
-            "src/main.cpp::1234::cl::['/c','/W4']": [
+            "src/main.cpp::cl::['/c','/W4']::[]": [
                 {
                     "cache_key": "entry_001",
                     "dependencies": [
@@ -159,7 +159,7 @@ class QuickenCache:
                 },
                 {
                     "cache_key": "entry_005",
-                    "dependencies": [...]  # Different content, same size
+                    "dependencies": [...]  # Different content (hash collision)
                 }
             ],
             ...
@@ -249,22 +249,21 @@ class QuickenCache:
 
         return translated
 
-    def _make_cache_key(self, source_repo_path: RepoPath, file_size: int, tool_name: str, tool_args: List[str], input_args: List[str]=[], repo_dir: Path = None) -> str:
-        """Build compound cache key from source file, size, tool, and args.
+    def _make_cache_key(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str], input_args: List[str]=[], repo_dir: Path = None) -> str:
+        """Build compound cache key from source file, tool, and args (without size).
         Args:    source_repo_path: RepoPath for source file
-                 file_size: Size of source file in bytes
                  tool_name: Name of the tool
                  tool_args: Tool arguments list
                  input_args: Optional input arguments (paths will be translated)
                  repo_dir: Repository root for translating input_args paths
-        Returns: Compound key string in format: "file::size::tool::args" or "file::size::tool::args::input_args" """
+        Returns: Compound key string in format: "file::tool::args::input_args" """
         source_key = str(source_repo_path)
         args_str = json.dumps(tool_args, separators=(',', ':'))
 
         # Translate paths in input_args for cache portability
         translated_input_args = self._translate_input_args_for_cache_key(input_args, repo_dir)
         input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
-        return f"{source_key}::{file_size}::{tool_name}::{args_str}::{input_args_str}"
+        return f"{source_key}::{tool_name}::{args_str}::{input_args_str}"
 
     def _check_entry_mtime_match(self, cached_deps: List[FileMetadata], repo_dir: Path) -> bool:
         """Check if all dependencies match by mtime+size (no hashing).
@@ -285,11 +284,17 @@ class QuickenCache:
 
         return True
 
-    def _check_entry_hash_match(self, cached_deps: List[FileMetadata], repo_dir: Path) -> Optional[List[FileMetadata]]:
-        """Check if all dependencies match by hash (hash only files with changed mtime).
+    def _check_entry_hash_match(self, cached_deps: List[FileMetadata], repo_dir: Path, hash_cache: Dict = None) -> Optional[List[FileMetadata]]:
+        """Check if all dependencies match by hash (hash only files with changed mtime/size).
+        Early exit on first hash mismatch. Allows size differences.
+        Uses hash_cache to avoid recomputing hashes for files already hashed.
         Args:    cached_deps: List of FileMetadata from cache entry
                  repo_dir: Repository root directory
-        Returns: List of FileMetadata with updated mtimes if all match, None otherwise"""
+                 hash_cache: Optional dict mapping RepoPath to hash (updated in-place)
+        Returns: List of FileMetadata with updated mtimes/sizes if all match, None otherwise"""
+        if hash_cache is None:
+            hash_cache = {}
+
         updated_deps = []
 
         for cached_dep in cached_deps:
@@ -309,51 +314,46 @@ class QuickenCache:
                 updated_deps.append(cached_dep)
                 continue
 
-            # Size changed -> definitely different content
-            if current_size != cached_dep.size:
-                return None
+            # Check if we've already hashed this file
+            cache_key = (str(cached_dep.path), current_mtime_ns, current_size)
+            current_hash = hash_cache.get(cache_key)
 
-            # Mtime changed but size same -> hash this file only
-            current_hash = FileMetadata.calculate_hash(cached_dep.path, repo_dir)
+            if current_hash is None:
+                # Mtime or size changed -> hash this file and cache result
+                current_hash = FileMetadata.calculate_hash(cached_dep.path, repo_dir)
+                hash_cache[cache_key] = current_hash
+
             if current_hash != cached_dep.hash:
-                return None
+                return None  # Early exit on first mismatch
 
-            # Hash matches -> create updated metadata with new mtime
+            # Hash matches -> create updated metadata with new mtime and size
             updated_deps.append(FileMetadata(
                 cached_dep.path,
                 cached_dep.hash,  # Same hash
                 current_mtime_ns,  # Updated mtime
-                current_size
+                current_size  # Updated size (may differ from cached)
             ))
 
         return updated_deps
 
-    def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-               repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
-        """Look up cached output for given source file and tool command.
-        Two-phase approach:
-        Phase 1: Try all entries for mtime-only match (no hashing).
-        Phase 2: Hash only files whose mtime changed.
+    def _lookup_by_mtime(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
+                         repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
+        """Look up cached output using only mtime+size match (no hashing).
+        Fast path for when files haven't changed at all.
         Args:    source_repo_path: RepoPath for source file
                  tool_name: Name of the tool
                  tool_args: Tool arguments list
                  repo_dir: Repository root
                  input_args: Optional input arguments with file paths
         Returns: Cache entry directory path if found, None otherwise"""
-        # Get file size (fast - from stat)
-        file_path = source_repo_path.toAbsolutePath(repo_dir)
-        file_size = file_path.stat().st_size
-
-        # Build compound key for O(1) lookup
-        compound_key = self._make_cache_key(source_repo_path, file_size, tool_name, tool_args, input_args, repo_dir)
+        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
 
         if compound_key not in self.index:
             return None
 
-        # Get list of entries with this key (may have collisions)
         entries = self.index[compound_key]
 
-        # PHASE 1: Try to find entry where ALL dependencies match by mtime+size (no hashing)
+        # Try to find entry where ALL dependencies match by mtime+size (no hashing)
         for entry in entries:
             cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
 
@@ -362,11 +362,34 @@ class QuickenCache:
                 if cache_entry_dir.exists():
                     return cache_entry_dir
 
-        # PHASE 2: No mtime match - try hash-based matching (hash only changed files)
+        return None
+
+    def _lookup_by_hash(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
+                        repo_dir: Path, input_args: List[str] = [], hash_cache: Dict = None) -> Optional[Path]:
+        """Look up cached output using hash comparison (for files with changed mtime/size).
+        Uses hash_cache to avoid recomputing hashes across multiple lookups.
+        Args:    source_repo_path: RepoPath for source file
+                 tool_name: Name of the tool
+                 tool_args: Tool arguments list
+                 repo_dir: Repository root
+                 input_args: Optional input arguments with file paths
+                 hash_cache: Optional dict for caching computed hashes across calls
+        Returns: Cache entry directory path if found, None otherwise"""
+        if hash_cache is None:
+            hash_cache = {}
+
+        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
+
+        if compound_key not in self.index:
+            return None
+
+        entries = self.index[compound_key]
+
+        # Try hash-based matching (hash only changed files)
         for entry in entries:
             cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
 
-            updated_deps = self._check_entry_hash_match(cached_deps, repo_dir)
+            updated_deps = self._check_entry_hash_match(cached_deps, repo_dir, hash_cache)
             if updated_deps is None:
                 continue  # Try next entry
 
@@ -374,8 +397,7 @@ class QuickenCache:
             if not cache_entry_dir.exists():
                 continue  # Try next entry
 
-            # We're in phase 2, so at least one mtime must have changed
-            # Update both index and metadata.json with new mtimes
+            # Update both index and metadata.json with new mtimes and sizes
             entry["dependencies"] = [d.to_dict() for d in updated_deps]
 
             metadata_file = cache_entry_dir / "metadata.json"
@@ -389,7 +411,6 @@ class QuickenCache:
 
             return cache_entry_dir
 
-        # No matching entry found
         return None
 
     def store(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
@@ -414,12 +435,8 @@ class QuickenCache:
         # Create FileMetadata objects from RepoPath instances
         dep_metadata = [FileMetadata.from_file(dep, repo_dir) for dep in dependency_repo_paths]
 
-        # Get file size (fast - from stat)
-        file_path = source_repo_path.toAbsolutePath(repo_dir)
-        file_size = file_path.stat().st_size
-
-        # Build compound key to check for existing entry with same dependencies
-        compound_key = self._make_cache_key(source_repo_path, file_size, tool_name, tool_args, input_args, repo_dir)
+        # Build compound key to check for existing entry with same dependencies (no size)
+        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
 
         # Check if an entry with these exact dependencies already exists for this compound key
         dep_hash_str = self._hash_dependencies(dep_metadata)
@@ -430,7 +447,7 @@ class QuickenCache:
             cache_key = existing_cache_key
             cache_entry_dir = self.cache_dir / cache_key
 
-            # Update metadata with current mtime values
+            # Update metadata with current mtime and size values
             metadata_file = cache_entry_dir / "metadata.json"
             with open(metadata_file, 'r') as f:
                 metadata = json.load(f)

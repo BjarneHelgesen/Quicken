@@ -59,7 +59,8 @@ int add(int a, int b) {
 
     # First compilation from dir1 - create Quicken instance for dir1
     quicken1 = Quicken(dir1, cache_dir=cache_dir)
-    initial_cache_count = len(quicken1.cache.index)
+    # Count only cache entries, excluding metadata like "next_entry_id"
+    initial_cache_count = len([k for k in quicken1.cache.index.keys() if isinstance(quicken1.cache.index[k], list)])
 
     returncode1 = quicken1.run(
         file1.relative_to(dir1),
@@ -72,16 +73,17 @@ int add(int a, int b) {
     if returncode1 != 0:
         pytest.skip("Clang++ compilation failed")
 
-    # Check that one cache entry was created
-    cache_count_after_first = len(quicken1.cache.index)
+    # Check that one cache entry was created (excluding metadata keys)
+    cache_count_after_first = len([k for k in quicken1.cache.index.keys() if isinstance(quicken1.cache.index[k], list)])
     assert cache_count_after_first == initial_cache_count + 1, \
         "First compilation should create exactly one cache entry"
 
     # Get the cache entry created by first compilation
-    # Index now stores lists of entries, so we need to flatten
+    # Index now stores lists of entries, so we need to flatten (excluding metadata)
     cache_entries = []
-    for entries_list in quicken1.cache.index.values():
-        cache_entries.extend(entries_list)
+    for key, value in quicken1.cache.index.items():
+        if isinstance(value, list):
+            cache_entries.extend(value)
     first_entry_key = cache_entries[-1]['cache_key']
 
     # Read metadata to get content hash
@@ -104,8 +106,8 @@ int add(int a, int b) {
 
     assert returncode2 == 0, "Second compilation should succeed"
 
-    # Check cache entries after second compilation
-    cache_count_after_second = len(quicken2.cache.index)
+    # Check cache entries after second compilation (excluding metadata keys)
+    cache_count_after_second = len([k for k in quicken2.cache.index.keys() if isinstance(quicken2.cache.index[k], list)])
 
     # Get all cache entry directories
     cache_entry_dirs = sorted([d for d in cache_dir.iterdir() if d.name.startswith("entry_")])

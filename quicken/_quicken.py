@@ -60,11 +60,22 @@ class Quicken:
         start_time = time.perf_counter()
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, optimization, output_args, input_args)
 
-        # Try optimization levels: specific level if provided, all levels if None
+        # Try mtime+size match for all optimization levels (very fast)
         for opt_level in tool.get_valid_optimization_levels(optimization):
             tool.optimization = opt_level
             modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
+            cache_entry = self.cache._lookup_by_mtime(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
+            if cache_entry:
+                returncode = self.cache.restore(cache_entry, self.repo_dir)
+                log("CACHE HIT")
+                return returncode
+
+        # Try hash-based match for all optimization levels (with shared hash cache)
+        hash_cache = {}
+        for opt_level in tool.get_valid_optimization_levels(optimization):
+            tool.optimization = opt_level
+            modified_args = tool.add_optimization_flags(tool_args)
+            cache_entry = self.cache._lookup_by_hash(source_repo_path, tool_name, modified_args, self.repo_dir, input_args, hash_cache)
             if cache_entry:
                 returncode = self.cache.restore(cache_entry, self.repo_dir)
                 log("CACHE HIT")

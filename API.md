@@ -1,4 +1,18 @@
-# Quicken Library Usage Guide
+# Quicken User Guide
+
+Quicken is a caches C++ artifacts like object files. 
+* If there is a cache miss and the tools is successful, Quicken, stores the artifacts in a cache.
+* When there is a cache hit, 
+  * Quicken restores the artifacts from the cache instead of running the tool again. 
+  * Artifacts are created and modified files, stdout and stderr. 
+  * The tool return code is preserved (but currently only tool runs with return code 0 is cached).
+  * stdout and stderr are uppdated with current file paths.
+  * Restored files get a new time stamp
+  * Restored files may overwrte existing files.
+* There will be a file-level cache hit when the cpp/dependent files
+    * Are the same size and mtime as the cached version
+    * Have only single-line whitespace or comment edits
+* There will be a cache it when the file and dependencies all have file-level cache hits.  
 
 ## Import and Initialize
 
