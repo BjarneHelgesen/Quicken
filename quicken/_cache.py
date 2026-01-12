@@ -138,7 +138,7 @@ class QuickenCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.index_file = cache_dir / "index.json"
         self.index = self._load_index()
-        self._next_id = self._get_next_id()
+        self._next_entry_id = self._get_next_entry_id()
         self.dep_hash_index = self._build_dep_hash_index()
         # Thread pool for async file restoration (max 8 concurrent copy operations)
         self._copy_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="quicken_copy")
@@ -147,6 +147,7 @@ class QuickenCache:
         """Load the cache index.
         Index structure (flat dictionary with compound keys, supporting collisions):
         {
+            "next_entry_id": 123,  # Next available cache entry ID
             "src/main.cpp::1234::cl::['/c','/W4']": [
                 {
                     "cache_key": "entry_001",
@@ -171,21 +172,14 @@ class QuickenCache:
             return {}
 
     def _save_index(self):
-        """Save the cache index."""
+        """Save the cache index with next_entry_id."""
+        self.index["next_entry_id"] = self._next_entry_id
         with open(self.index_file, 'w') as f:
             json.dump(self.index, f, indent=2)
 
-    def _get_next_id(self) -> int:
-        """Get next available cache entry ID."""
-        max_id = 0
-        for entries in self.index.values():
-            # entries is now a list of cache entries
-            for entry in entries:
-                cache_key = entry.get("cache_key", "")
-                if cache_key.startswith("entry_"):
-                    entry_id = int(cache_key.split("_")[1])
-                    max_id = max(max_id, entry_id)
-        return max_id + 1
+    def _get_next_entry_id(self) -> int:
+        """Get next available cache entry ID from stored value."""
+        return self.index.get("next_entry_id", 1)
 
     def _build_dep_hash_index(self) -> Dict[Tuple[str, str], str]:
         """Build index mapping (compound_key, dependency_hash) to cache keys.
@@ -194,6 +188,9 @@ class QuickenCache:
         Returns: Dict mapping (compound_key, dep_hash) to cache_key"""
         dep_hash_index = {}
         for compound_key, entries in self.index.items():
+            # Skip metadata fields like next_entry_id
+            if not isinstance(entries, list):
+                continue
             # entries is now a list of cache entries
             for entry in entries:
                 cache_key = entry.get("cache_key", "")
@@ -442,8 +439,8 @@ class QuickenCache:
                 json.dump(metadata, f, indent=2)
         else:
             # Create new cache entry
-            cache_key = f"entry_{self._next_id:06d}"
-            self._next_id += 1
+            cache_key = f"entry_{self._next_entry_id:06d}"
+            self._next_entry_id += 1
 
             cache_entry_dir = self.cache_dir / cache_key
             cache_entry_dir.mkdir(parents=True, exist_ok=True)
@@ -614,5 +611,5 @@ class QuickenCache:
         # Clear the index and dep_hash_index
         self.index = {}
         self.dep_hash_index = {}
-        self._next_id = 1
+        self._next_entry_id = 1
         self._save_index()
