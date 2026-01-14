@@ -345,22 +345,28 @@ class QuickenCache:
 
         return folder_path, folder_index, entries
 
-    def _lookup_by_mtime(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-                         repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
-        """Look up cached output using only mtime+size match (no hashing).
-        Fast path for when files haven't changed at all.
+    def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
+               repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
+        """Look up cached output using two-pass strategy: mtime first, then hash.
+
+        Pass 1: Check all entries for mtime+size match (no hashing - fast)
+        Pass 2: Check all entries using hash comparison (only if pass 1 fails)
+
         Args:    source_repo_path: RepoPath for source file
                  tool_name: Name of the tool
                  tool_args: Tool arguments list
                  repo_dir: Repository root
                  input_args: Optional input arguments with file paths
         Returns: Cache entry directory path if found, None otherwise"""
+
+        # Load folder info once
         folder_path, folder_index, entries = self._get_cache_folder_info(
             source_repo_path, tool_name, tool_args, input_args, repo_dir)
 
         if folder_path is None:
             return None
 
+        # Pass 1: Try mtime+size match (fast path - no hashing)
         for entry in entries:
             cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
 
@@ -369,39 +375,19 @@ class QuickenCache:
                 if cache_entry_dir.exists():
                     return cache_entry_dir
 
-        return None
+        # Pass 2: Try hash-based matching (hash only changed files)
+        hash_cache = {}
 
-    def _lookup_by_hash(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-                        repo_dir: Path, input_args: List[str] = [], hash_cache: Dict = None) -> Optional[Path]:
-        """Look up cached output using hash comparison (for files with changed mtime/size).
-        Uses hash_cache to avoid recomputing hashes across multiple lookups.
-        Args:    source_repo_path: RepoPath for source file
-                 tool_name: Name of the tool
-                 tool_args: Tool arguments list
-                 repo_dir: Repository root
-                 input_args: Optional input arguments with file paths
-                 hash_cache: Optional dict for caching computed hashes across calls
-        Returns: Cache entry directory path if found, None otherwise"""
-        if hash_cache is None:
-            hash_cache = {}
-
-        folder_path, folder_index, entries = self._get_cache_folder_info(
-            source_repo_path, tool_name, tool_args, input_args, repo_dir)
-
-        if folder_path is None:
-            return None
-
-        # Try hash-based matching (hash only changed files)
         for entry in entries:
             cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
 
             updated_deps = self._check_entry_hash_match(cached_deps, repo_dir, hash_cache)
             if updated_deps is None:
-                continue  # Try next entry
+                continue
 
             cache_entry_dir = folder_path / entry["cache_key"]
             if not cache_entry_dir.exists():
-                continue  # Try next entry
+                continue
 
             # Update both folder_index and metadata.json with new mtimes and sizes
             entry["dependencies"] = [d.to_dict() for d in updated_deps]
@@ -413,7 +399,6 @@ class QuickenCache:
             with open(metadata_file, 'w') as f:
                 json.dump(metadata, f, indent=2)
 
-            # Save updated folder index
             self._save_folder_index(folder_path, folder_index)
 
             return cache_entry_dir
@@ -621,11 +606,14 @@ class QuickenCache:
         # Translate paths in stdout/stderr from old repo location to new location
         old_repo_dir = metadata.get("repo_dir", str(repo_dir))  # Default to current if not stored
         new_repo_dir = str(repo_dir)
-        main_file_path = metadata["main_file_path"]
-        dependencies = metadata["dependencies"]
 
-        stdout = self._translate_paths(metadata["stdout"], old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
-        stderr = self._translate_paths(metadata["stderr"], old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
+        stdout = metadata["stdout"]
+        stderr = metadata["stderr"]
+        if old_repo_dir != new_repo_dir:
+            main_file_path = metadata["main_file_path"]
+            dependencies = metadata["dependencies"]
+            stdout = self._translate_paths(stdout, old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
+            stderr = self._translate_paths(stderr, old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
 
         print(stdout, end='')
         print(stderr, end='', file=sys.stderr)

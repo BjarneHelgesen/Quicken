@@ -61,16 +61,8 @@ class Quicken:
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, optimization, output_args, input_args)
         modified_args = tool.add_optimization_flags(tool_args)
 
-        # Try mtime+size match (very fast)
-        cache_entry = self.cache._lookup_by_mtime(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
-        if cache_entry:
-            returncode = self.cache.restore(cache_entry, self.repo_dir)
-            log("CACHE HIT")
-            return returncode
-
-        # Try hash-based match
-        hash_cache = {}
-        cache_entry = self.cache._lookup_by_hash(source_repo_path, tool_name, modified_args, self.repo_dir, input_args, hash_cache)
+        # Try cache lookup (mtime first, then hash)
+        cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
         if cache_entry:
             returncode = self.cache.restore(cache_entry, self.repo_dir)
             log("CACHE HIT")

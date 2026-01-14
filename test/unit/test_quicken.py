@@ -126,17 +126,13 @@ class TestQuickenCache:
         cache_entry = cache.store(source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file], stdout, stderr, returncode, temp_dir)
         assert cache_entry.exists()
 
-        # Lookup should find it (try mtime first, then hash)
-        found = cache._lookup_by_mtime(source_repo_path, tool_name, tool_args, temp_dir)
-        if not found:
-            found = cache._lookup_by_hash(source_repo_path, tool_name, tool_args, temp_dir)
+        # Lookup should find it
+        found = cache.lookup(source_repo_path, tool_name, tool_args, temp_dir)
         assert found is not None
         assert found == cache_entry
 
         # Different command should not find it
-        not_found = cache._lookup_by_mtime(source_repo_path, tool_name, ["/c", "/W4"], temp_dir)
-        if not not_found:
-            not_found = cache._lookup_by_hash(source_repo_path, tool_name, ["/c", "/W4"], temp_dir)
+        not_found = cache.lookup(source_repo_path, tool_name, ["/c", "/W4"], temp_dir)
         assert not_found is None
 
     @pytest.mark.pedantic
