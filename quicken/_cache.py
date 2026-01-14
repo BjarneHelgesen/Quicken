@@ -56,7 +56,7 @@ class FileMetadata:
         Args:    data: Dictionary with 'path', 'hash', 'mtime_ns', 'size' keys
                  repo_dir: Repository root directory to create RepoPath
         Returns: FileMetadata instance"""
-        repo_path = RepoPath(repo_dir, Path(data["path"]))
+        repo_path = RepoPath.from_relative_string(data["path"])
         return cls(
             path=repo_path,
             hash=data["hash"],

@@ -13,6 +13,15 @@ class RepoPath:
 
     If the path is outside the repo, self.path is set to None and the object evaluates to False.
     """
+
+    @classmethod
+    def from_relative_string(cls, path_str: str) -> 'RepoPath':
+        """Create from known-valid repo-relative path (e.g., from cache).
+        Skips validation since cached paths are already normalized and relative."""
+        obj = object.__new__(cls)
+        obj.path = Path(path_str) if path_str else None
+        return obj
+
     def __init__(self, repo: Path, path: Path):
         """Initialize RepoPath.
         Args:    repo: Repository root (must be an absolute path)
