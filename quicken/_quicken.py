@@ -37,7 +37,7 @@ class Quicken:
         Args:    source_file: File to process (absolute or relative path) - C++ file for compilers, Doxyfile for Doxygen
                  tool_name: Tool to run
                  tool_args: Arguments for the tool (part of cache key)
-                 optimization: Optimization level (0-3, or None to accept any cached level)
+                 optimization: Optimization level (0-3, or None for tools that don't support optimization)
                  output_args: Output-specific arguments (NOT part of cache key, e.g., ['-o', 'output.s'])
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
         Returns: Tool exit code (integer)"""
@@ -59,32 +59,22 @@ class Quicken:
 
         start_time = time.perf_counter()
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, optimization, output_args, input_args)
+        modified_args = tool.add_optimization_flags(tool_args)
 
-        # Try mtime+size match for all optimization levels (very fast)
-        for opt_level in tool.get_valid_optimization_levels(optimization):
-            tool.optimization = opt_level
-            modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache._lookup_by_mtime(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
-            if cache_entry:
-                returncode = self.cache.restore(cache_entry, self.repo_dir)
-                log("CACHE HIT")
-                return returncode
+        # Try mtime+size match (very fast)
+        cache_entry = self.cache._lookup_by_mtime(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
+        if cache_entry:
+            returncode = self.cache.restore(cache_entry, self.repo_dir)
+            log("CACHE HIT")
+            return returncode
 
-        # Try hash-based match for all optimization levels (with shared hash cache)
+        # Try hash-based match
         hash_cache = {}
-        for opt_level in tool.get_valid_optimization_levels(optimization):
-            tool.optimization = opt_level
-            modified_args = tool.add_optimization_flags(tool_args)
-            cache_entry = self.cache._lookup_by_hash(source_repo_path, tool_name, modified_args, self.repo_dir, input_args, hash_cache)
-            if cache_entry:
-                returncode = self.cache.restore(cache_entry, self.repo_dir)
-                log("CACHE HIT")
-                return returncode
-
-        # If no cache hit and optimization was None, default to level 0
-        if optimization is None and tool.supports_optimization:
-            tool.optimization = 0
-            modified_args = tool.add_optimization_flags(tool_args)
+        cache_entry = self.cache._lookup_by_hash(source_repo_path, tool_name, modified_args, self.repo_dir, input_args, hash_cache)
+        if cache_entry:
+            returncode = self.cache.restore(cache_entry, self.repo_dir)
+            log("CACHE HIT")
+            return returncode
 
 
         # Get dependencies from tool
@@ -115,7 +105,7 @@ class Quicken:
         """Compile with MSVC cl compiler.
         Args:    source_file: C++ source file to compile
                  tool_args: Compiler arguments (part of cache key)
-                 optimization: Optimization level (0-3, or None to accept any cached level)
+                 optimization: Optimization level (0-3)
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key)
         Returns: Tool exit code"""
@@ -126,7 +116,7 @@ class Quicken:
         """Compile with clang++ compiler.
         Args:    source_file: C++ source file to compile
                  tool_args: Compiler arguments (part of cache key)
-                 optimization: Optimization level (0-3, or None to accept any cached level)
+                 optimization: Optimization level (0-3)
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key)
         Returns: Tool exit code"""

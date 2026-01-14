@@ -169,23 +169,6 @@ class ToolCmd(ABC):
 
         return [flag] if isinstance(flag, str) else flag
 
-    def get_valid_optimization_levels(self, optimization: Optional[int]) -> List[Optional[int]]:
-        """Get list of valid optimization levels to try.
-        Args:    optimization: Requested optimization level or None for all levels
-        Returns: List of optimization levels to try (single element if specific level, all levels if None)"""
-        if not self.supports_optimization:
-            return [None]
-
-        if optimization is None:
-            # Try all valid optimization levels
-            return list(range(len(self.optimization_flags)))
-
-        # Validate and sanitize the provided level
-        if optimization < 0 or optimization >= len(self.optimization_flags):
-            raise ValueError(f"Invalid optimization level {optimization}")
-
-        return [optimization]
-
     def add_optimization_flags(self, args: List[str]) -> List[str]:
         """Add optimization flags to arguments if optimization is set.
         Args:    args: Original arguments

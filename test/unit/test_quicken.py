@@ -336,43 +336,6 @@ class TestQuickenClang:
         # Just check it completes, return code may vary
         assert isinstance(returncode2, int)
 
-    def test_clang_optimization_none_accepts_any_level(self, quicken_instance, test_cpp_file):
-        """Test that optimization=None accepts cache hits from any optimization level."""
-        # Compile with optimization level 2
-        returncode1 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
-                                           optimization=2)
-        if returncode1 != 0:
-            pytest.fail("clang++ compilation with -O2 failed")
-
-        obj_file = test_cpp_file.parent / "test.o"
-        assert obj_file.exists(), "clang++ didn't create .o file"
-
-        # Delete the .o file
-        obj_file.unlink()
-
-        # Compile with optimization=None - should get cache hit from O2
-        returncode2 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
-                                           optimization=None)
-        assert returncode2 == returncode1, "Return codes should match"
-
-        # .o file should be restored from cache
-        assert obj_file.exists(), ".o file should be restored from cache"
-
-        # Delete the .o file again
-        obj_file.unlink()
-
-        # Compile with a different specific level (O1) - should be cache miss
-        returncode3 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
-                                           optimization=1)
-        assert isinstance(returncode3, int)
-
-        # Now with optimization=None, should hit the O2 cache (first one encountered)
-        obj_file.unlink()
-        returncode4 = quicken_instance.run(test_cpp_file, "clang++", ["-c"],
-                                           optimization=None)
-
-        assert obj_file.exists(), ".o file should be restored from cache again"
-
     @pytest.mark.pedantic
     def test_clang_with_warnings(self, quicken_instance, temp_dir):
         """Test clang++ compilation with warnings."""
