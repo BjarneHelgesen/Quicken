@@ -103,10 +103,10 @@ class FileMetadata:
             return False, None
 
         file_path = self.path.toAbsolutePath(repo_dir)
-        if not file_path.is_file():
+        try:
+            stat = os.stat(file_path)
+        except (FileNotFoundError, OSError):
             return False, None
-
-        stat = file_path.stat()
         current_mtime_ns = stat.st_mtime_ns
         current_size = stat.st_size
 
@@ -263,10 +263,11 @@ class QuickenCache:
                 return False
 
             file_path = cached_dep.path.toAbsolutePath(repo_dir)
-            if not file_path.is_file():
+            try:
+                stat = file_path.stat()
+            except (FileNotFoundError, OSError):
                 return False
 
-            stat = file_path.stat()
             if stat.st_mtime_ns != cached_dep.mtime_ns or stat.st_size != cached_dep.size:
                 return False
 
