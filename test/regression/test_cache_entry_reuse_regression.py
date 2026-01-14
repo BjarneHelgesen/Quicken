@@ -48,7 +48,12 @@ def test_stale_mtime(temp_dir):
     assert returncode == 0
 
     # Get original mtime from metadata
-    entry_001 = cache_dir / "entry_000001"
+    # Find the compound folder for test.cpp
+    compound_folders = [d for d in cache_dir.iterdir() if d.is_dir() and "test.cpp" in d.name]
+    assert len(compound_folders) > 0, "Should have a compound folder for test.cpp"
+    compound_folder = compound_folders[0]
+
+    entry_001 = compound_folder / "entry_000001"
     metadata_file = entry_001 / "metadata.json"
     with open(metadata_file, 'r') as f:
         metadata_v1 = json.load(f)

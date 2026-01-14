@@ -161,27 +161,31 @@ class TestInputArgsCaching:
         )
         assert returncode2 == 0
 
-        # Verify that both input_args created separate cache entries by finding their keys in the cache
-        # Cache keys should contain the input_args in JSON format
-        cache_keys_with_header1 = [k for k in quicken_instance.cache.index if '"header1.h"' in k]
-        cache_keys_with_header2 = [k for k in quicken_instance.cache.index if '"header2.h"' in k]
+        # Verify that both input_args created separate compound folders
+        # Different input_args should create different folder hashes
+        cache_dir = quicken_instance.cache.cache_dir
+        compound_folders = [d for d in cache_dir.iterdir() if d.is_dir() and "test.cpp" in d.name]
 
-        # Both should exist in cache
-        assert len(cache_keys_with_header1) > 0, \
-            "header1.h input_args should create cache entry"
-        assert len(cache_keys_with_header2) > 0, \
-            "header2.h input_args should create cache entry"
+        # Find folders with the specific input_args by checking compound_key
+        folders_with_header1 = []
+        folders_with_header2 = []
+        for cf in compound_folders:
+            folder_index = quicken_instance.cache._load_folder_index(cf)
+            compound_key = folder_index.get("compound_key", "")
+            if "header1.h" in compound_key:
+                folders_with_header1.append(cf)
+            if "header2.h" in compound_key:
+                folders_with_header2.append(cf)
 
-        # They should be different cache entries (different cache_key values like entry_000022 vs entry_000023)
-        # Index now stores lists of entries
-        entries_list1 = quicken_instance.cache.index[cache_keys_with_header1[0]]
-        entries_list2 = quicken_instance.cache.index[cache_keys_with_header2[0]]
-        assert isinstance(entries_list1, list) and isinstance(entries_list2, list), \
-            "Index should store lists of entries"
-        entry1 = entries_list1[0]
-        entry2 = entries_list2[0]
-        assert entry1['cache_key'] != entry2['cache_key'], \
-            "Different input_args should create separate cache entries"
+        # Should have at least one folder for each input_args
+        assert len(folders_with_header1) > 0, \
+            f"Should have compound folder for header1.h input_args. Found {len(compound_folders)} total test.cpp folders. Folders with header1: {len(folders_with_header1)}, with header2: {len(folders_with_header2)}"
+        assert len(folders_with_header2) > 0, \
+            f"Should have compound folder for header2.h input_args. Found {len(compound_folders)} total test.cpp folders"
+
+        # They should be different folders
+        assert folders_with_header1[0] != folders_with_header2[0], \
+            "Different input_args should create different compound folders"
 
     def test_same_input_args_cache_hit(self, quicken_instance, test_cpp_file, temp_dir):
         """Test that same input_args result in cache hit."""
@@ -328,7 +332,7 @@ int add(int a, int b) {
             pytest.skip("Clang++ compilation failed, skipping cache test")
 
         # Get cache statistics before second run
-        cache_entries_before = len(quicken1.cache.index)
+        cache_entries_before = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Create second Quicken instance for repo2 with same cache
         quicken2 = Quicken(repo2, cache_dir=cache_dir)
@@ -350,7 +354,7 @@ int add(int a, int b) {
         assert returncode2 == 0, "Second compilation should succeed"
 
         # Get cache statistics after second run
-        cache_entries_after = len(quicken2.cache.index)
+        cache_entries_after = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Verify cache hit: no new entry should be created
         assert cache_entries_before == cache_entries_after, \
@@ -407,7 +411,7 @@ int multiply(int x, int y) {
         if output_file.exists():
             output_file.unlink()
 
-        cache_entries_before = len(quicken.cache.index)
+        cache_entries_before = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Second run with same input_args - should HIT cache
         returncode2 = quicken.run(
@@ -420,7 +424,7 @@ int multiply(int x, int y) {
         )
 
         assert returncode2 == 0
-        cache_entries_after = len(quicken.cache.index)
+        cache_entries_after = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Verify cache hit
         assert cache_entries_before == cache_entries_after, \

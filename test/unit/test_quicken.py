@@ -83,26 +83,24 @@ class TestQuickenCache:
         """Test that cache initializes correctly."""
         cache = QuickenCache(cache_dir)
         assert cache.cache_dir.exists()
-        assert cache.index_file.exists() or not cache.index_file.exists()  # May or may not exist initially
-        assert isinstance(cache.index, dict)
+        # No central index in new architecture - cache_dir is empty initially
 
     @pytest.mark.pedantic
     def test_cache_key_generation(self, cache_dir, temp_dir):
-        """Test cache entry counter generation."""
+        """Test cache entry counter generation (per-folder)."""
         cache = QuickenCache(cache_dir)
 
-        # First entry should be entry_000001
-        first_id = cache._next_entry_id
-        assert first_id == 1
-
-        # After storing an entry, next_entry_id should increment
+        # After storing an entry, folder should have entry_000001 and next_entry_id should be 2
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
         source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
-        cache.store(source_repo_path, "cl", ["/c"], dep_repo_paths, [], "", "", 0, temp_dir)
+        cache_entry_dir = cache.store(source_repo_path, "cl", ["/c"], dep_repo_paths, [], "", "", 0, temp_dir)
 
-        assert cache._next_entry_id == 2
+        # Check folder_index.json
+        folder_path = cache_entry_dir.parent
+        folder_index = cache._load_folder_index(folder_path)
+        assert folder_index["next_entry_id"] == 2  # Should be incremented for next entry
 
     @pytest.mark.pedantic
     def test_cache_store_and_lookup(self, cache_dir, temp_dir):

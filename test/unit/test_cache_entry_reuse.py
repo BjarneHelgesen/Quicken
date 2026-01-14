@@ -70,9 +70,14 @@ class TestCacheEntryReuse:
         returncode = quicken_instance.run(test_cpp, "cl", args)
         assert returncode == 0
 
-        # Verify entry_000001 was created
+        # Find the compound folder for test.cpp
         cache_dir = Path.home() / ".quicken" / "cache"
-        entry_001 = cache_dir / "entry_000001"
+        compound_folders = [d for d in cache_dir.iterdir() if d.is_dir() and "test.cpp" in d.name]
+        assert len(compound_folders) == 1, f"Should have exactly one compound folder for test.cpp, found {len(compound_folders)}"
+        compound_folder = compound_folders[0]
+
+        # Verify entry_000001 was created
+        entry_001 = compound_folder / "entry_000001"
         assert entry_001.exists(), "entry_000001 should exist after first compilation"
 
         # Step 2: Modify and compile V2
@@ -82,7 +87,7 @@ class TestCacheEntryReuse:
         assert returncode == 0
 
         # Verify entry_000002 was created
-        entry_002 = cache_dir / "entry_000002"
+        entry_002 = compound_folder / "entry_000002"
         assert entry_002.exists(), "entry_000002 should exist after second compilation"
 
         # Step 3: Revert to V1 and compile
@@ -92,31 +97,12 @@ class TestCacheEntryReuse:
         assert returncode == 0
 
         # Step 4: Verify entry_000003 does NOT exist (entry_000001 was reused)
-        entry_003 = cache_dir / "entry_000003"
+        entry_003 = compound_folder / "entry_000003"
         assert not entry_003.exists(), "entry_000003 should NOT exist - entry_000001 should be reused"
 
-        # Verify only 2 entries exist
-        cache_entries = [d for d in cache_dir.iterdir() if d.is_dir() and d.name.startswith("entry_")]
+        # Verify only 2 entries exist in the compound folder
+        cache_entries = [d for d in compound_folder.iterdir() if d.is_dir() and d.name.startswith("entry_")]
         assert len(cache_entries) == 2, f"Expected 2 cache entries, found {len(cache_entries)}"
-
-        # Verify index points to entry_000001 for the current configuration
-        index_file = cache_dir / "index.json"
-        with open(index_file, 'r') as f:
-            index = json.load(f)
-
-        # Find the compound key for our test
-        compound_key = None
-        for key in index.keys():
-            if "test.cpp" in key and "cl" in key:
-                compound_key = key
-                break
-
-        assert compound_key is not None, "Compound key for test.cpp should exist"
-        # Index now stores lists of entries (supporting collisions)
-        entries_list = index[compound_key]
-        assert isinstance(entries_list, list), "Index should store list of entries"
-        assert len(entries_list) >= 1, "Index should have at least one entry"
-        assert entries_list[0]["cache_key"] == "entry_000001", "Index should point to entry_000001"
 
     def test_mtime_update_on_reuse(self, quicken_instance, temp_dir):
         """
@@ -131,9 +117,14 @@ class TestCacheEntryReuse:
         returncode = quicken_instance.run(test_cpp, "cl", args)
         assert returncode == 0
 
-        # Get original mtime from metadata
+        # Find the compound folder for test.cpp
         cache_dir = Path.home() / ".quicken" / "cache"
-        entry_001 = cache_dir / "entry_000001"
+        compound_folders = [d for d in cache_dir.iterdir() if d.is_dir() and "test.cpp" in d.name]
+        assert len(compound_folders) == 1, f"Should have exactly one compound folder for test.cpp, found {len(compound_folders)}"
+        compound_folder = compound_folders[0]
+
+        # Get original mtime from metadata
+        entry_001 = compound_folder / "entry_000001"
         metadata_file = entry_001 / "metadata.json"
         with open(metadata_file, 'r') as f:
             metadata_v1 = json.load(f)
@@ -156,7 +147,7 @@ class TestCacheEntryReuse:
 
     def test_different_args_create_separate_entries(self, quicken_instance, temp_dir):
         """
-        Verify that different tool arguments create separate cache entries
+        Verify that different tool arguments create separate compound folders
         even with the same file content.
         """
         test_cpp = temp_dir / "test.cpp"
@@ -173,10 +164,10 @@ class TestCacheEntryReuse:
         returncode = quicken_instance.run(test_cpp, "cl", args2)
         assert returncode == 0
 
-        # Verify 2 entries were created (not reused)
+        # Verify 2 compound folders were created (different args = different folders)
         cache_dir = Path.home() / ".quicken" / "cache"
-        cache_entries = [d for d in cache_dir.iterdir() if d.is_dir() and d.name.startswith("entry_")]
-        assert len(cache_entries) == 2, "Different args should create separate cache entries"
+        compound_folders = [d for d in cache_dir.iterdir() if d.is_dir() and "test.cpp" in d.name]
+        assert len(compound_folders) == 2, f"Different args should create separate compound folders, found {len(compound_folders)}"
 
 
 if __name__ == "__main__":

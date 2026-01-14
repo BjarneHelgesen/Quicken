@@ -107,7 +107,9 @@ def persistent_tool_cache():
     if cache_dir.exists():
         # Reuse existing cache
         cache = QuickenCache(cache_dir)
-        print(f"\n[Quicken] Using persistent cache: {cache_hash} ({len(cache.index)} entries)")
+        # Count compound folders instead of central index entries
+        compound_folders = [d for d in cache_dir.iterdir() if d.is_dir()]
+        print(f"\n[Quicken] Using persistent cache: {cache_hash} ({len(compound_folders)} compound folders)")
         return cache
 
     # Create new cache directory (will be populated as tests run)

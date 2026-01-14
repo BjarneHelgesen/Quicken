@@ -59,8 +59,8 @@ int add(int a, int b) {
 
     # First compilation from dir1 - create Quicken instance for dir1
     quicken1 = Quicken(dir1, cache_dir=cache_dir)
-    # Count only cache entries, excluding metadata like "next_entry_id"
-    initial_cache_count = len([k for k in quicken1.cache.index.keys() if isinstance(quicken1.cache.index[k], list)])
+    # Count initial compound folders
+    initial_folder_count = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
     returncode1 = quicken1.run(
         file1.relative_to(dir1),
@@ -73,22 +73,19 @@ int add(int a, int b) {
     if returncode1 != 0:
         pytest.skip("Clang++ compilation failed")
 
-    # Check that one cache entry was created (excluding metadata keys)
-    cache_count_after_first = len([k for k in quicken1.cache.index.keys() if isinstance(quicken1.cache.index[k], list)])
-    assert cache_count_after_first == initial_cache_count + 1, \
-        "First compilation should create exactly one cache entry"
+    # Find the compound folder for test.cpp
+    compound_folders = [d for d in cache_dir.iterdir() if d.is_dir() and "test.cpp" in d.name]
+    assert len(compound_folders) >= 1, "Should have at least one compound folder for test.cpp"
+    compound_folder = compound_folders[0]
 
     # Get the cache entry created by first compilation
-    # Index now stores lists of entries, so we need to flatten (excluding metadata)
-    cache_entries = []
-    for key, value in quicken1.cache.index.items():
-        if isinstance(value, list):
-            cache_entries.extend(value)
-    first_entry_key = cache_entries[-1]['cache_key']
+    cache_entries_after_first = [d for d in compound_folder.iterdir() if d.is_dir() and d.name.startswith("entry_")]
+    assert len(cache_entries_after_first) == 1, "First compilation should create exactly one entry"
+    first_entry_dir = cache_entries_after_first[0]
 
     # Read metadata to get content hash
-    first_metadata_file = cache_dir / first_entry_key / "metadata.json"
     import json
+    first_metadata_file = first_entry_dir / "metadata.json"
     with open(first_metadata_file) as f:
         first_metadata = json.load(f)
     first_content_hash = first_metadata['dependencies'][0]['hash']
@@ -106,21 +103,19 @@ int add(int a, int b) {
 
     assert returncode2 == 0, "Second compilation should succeed"
 
-    # Check cache entries after second compilation (excluding metadata keys)
-    cache_count_after_second = len([k for k in quicken2.cache.index.keys() if isinstance(quicken2.cache.index[k], list)])
+    # Check cache entries after second compilation - should still be only 1 (reused)
+    cache_entries_after_second = [d for d in compound_folder.iterdir() if d.is_dir() and d.name.startswith("entry_")]
 
-    # Get all cache entry directories
-    cache_entry_dirs = sorted([d for d in cache_dir.iterdir() if d.name.startswith("entry_")])
-
-    # Read metadata from all entries
+    # Get all entries from all compound folders and check for duplicates
     all_hashes = []
-    for entry_dir in cache_entry_dirs:
-        metadata_file = entry_dir / "metadata.json"
-        if metadata_file.exists():
-            with open(metadata_file) as f:
-                metadata = json.load(f)
-                content_hash = metadata['dependencies'][0]['hash']
-                all_hashes.append((entry_dir.name, content_hash))
+    for cf in [d for d in cache_dir.iterdir() if d.is_dir()]:
+        for entry_dir in [d for d in cf.iterdir() if d.is_dir() and d.name.startswith("entry_")]:
+            metadata_file = entry_dir / "metadata.json"
+            if metadata_file.exists():
+                with open(metadata_file) as f:
+                    metadata = json.load(f)
+                    content_hash = metadata['dependencies'][0]['hash']
+                    all_hashes.append((entry_dir.name, content_hash))
 
     # Find duplicate hashes
     hash_counts = {}
@@ -147,7 +142,7 @@ int add(int a, int b) {
 
     # If we get here, the bug is fixed
     print(f"\nSUCCESS: No duplicate cache entries found")
-    print(f"Total cache entries: {len(cache_entry_dirs)}")
+    print(f"Total cache entries: {len(all_hashes)}")
     print(f"Unique content hashes: {len(hash_counts)}")
 
 
