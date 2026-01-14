@@ -7,6 +7,7 @@ cached tool outputs based on source file and dependency metadata.
 
 import hashlib
 import json
+import msvcrt
 import os
 import shutil
 import sys
@@ -138,6 +139,30 @@ class QuickenCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         # Thread pool for async file restoration (max 8 concurrent copy operations)
         self._copy_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="quicken_copy")
+
+    def _try_acquire_folder_lock(self, folder_path: Path):
+        """Try non-blocking exclusive lock. Returns file handle or None."""
+        folder_path.mkdir(parents=True, exist_ok=True)
+        lock_path = folder_path / ".lock"
+        try:
+            f = open(lock_path, 'w')
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            return f
+        except (IOError, OSError):
+            try:
+                f.close()
+            except:
+                pass
+            return None
+
+    def _release_folder_lock(self, lock_handle):
+        """Release lock."""
+        if lock_handle:
+            try:
+                msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
+                lock_handle.close()
+            except:
+                pass
 
     def _hash_dependencies_from_dicts(self, dependencies: List[Dict]) -> str:
         """Calculate hash of all dependency hashes combined from dict representation.
@@ -390,17 +415,22 @@ class QuickenCache:
             if not cache_entry_dir.exists():
                 continue
 
-            # Update both folder_index and metadata.json with new mtimes and sizes
-            entry["dependencies"] = [d.to_dict() for d in updated_deps]
+            # Try to update mtime - skip if can't acquire lock
+            lock_handle = self._try_acquire_folder_lock(folder_path)
+            if lock_handle is not None:
+                try:
+                    entry["dependencies"] = [d.to_dict() for d in updated_deps]
 
-            metadata_file = cache_entry_dir / "metadata.json"
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            metadata["dependencies"] = [d.to_dict() for d in updated_deps]
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
+                    metadata_file = cache_entry_dir / "metadata.json"
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                    metadata["dependencies"] = [d.to_dict() for d in updated_deps]
+                    with open(metadata_file, 'w') as f:
+                        json.dump(metadata, f, indent=2)
 
-            self._save_folder_index(folder_path, folder_index)
+                    self._save_folder_index(folder_path, folder_index)
+                finally:
+                    self._release_folder_lock(lock_handle)
 
             return cache_entry_dir
 
@@ -410,7 +440,7 @@ class QuickenCache:
               dependency_repo_paths: List[RepoPath], output_files: List[Path],
               stdout: str, stderr: str, returncode: int,
               repo_dir: Path,
-              input_args: List[str] = []) -> Path:
+              input_args: List[str] = []) -> Optional[Path]:
         """Store tool output in cache with dependency hashes.
         Args:    source_repo_path: RepoPath for source file (or main file)
                  tool_name: Name of the tool
@@ -422,18 +452,34 @@ class QuickenCache:
                  returncode: Tool exit code
                  repo_dir: Repository directory (for hashing dependencies and output paths)
                  input_args: Optional input arguments with file paths
-        Returns: Path to cache entry directory"""
+        Returns: Path to cache entry directory, or None if lock couldn't be acquired"""
+        folder_name = self._make_folder_name(source_repo_path, tool_name, tool_args, input_args, repo_dir)
+        folder_path = self.cache_dir / folder_name
+
+        lock_handle = self._try_acquire_folder_lock(folder_path)
+        if lock_handle is None:
+            return None
+
+        try:
+            return self._store_locked(source_repo_path, tool_name, tool_args,
+                                      dependency_repo_paths, output_files,
+                                      stdout, stderr, returncode, repo_dir, input_args,
+                                      folder_path)
+        finally:
+            self._release_folder_lock(lock_handle)
+
+    def _store_locked(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
+                      dependency_repo_paths: List[RepoPath], output_files: List[Path],
+                      stdout: str, stderr: str, returncode: int,
+                      repo_dir: Path, input_args: List[str],
+                      folder_path: Path) -> Path:
+        """Internal store implementation, called while holding folder lock."""
         source_key = str(source_repo_path)  # repo-relative path
 
         # Create FileMetadata objects from RepoPath instances
         dep_metadata = [FileMetadata.from_file(dep, repo_dir) for dep in dependency_repo_paths]
 
-        folder_name = self._make_folder_name(source_repo_path, tool_name, tool_args, input_args, repo_dir)
-        folder_path = self.cache_dir / folder_name
         compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
-
-        # Create folder if doesn't exist and load folder index
-        folder_path.mkdir(parents=True, exist_ok=True)
         folder_index = self._load_folder_index(folder_path)
 
         # Check if an entry with these exact dependencies already exists in this folder
