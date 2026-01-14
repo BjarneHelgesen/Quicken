@@ -203,21 +203,41 @@ class ToolCmd(ABC):
 
         return cmd
 
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+        """Return patterns for files this tool will create.
+        Patterns are relative to repo_dir and can use glob wildcards.
+        Args:    source_file: Path to source file being processed
+                 repo_dir: Repository root directory
+        Returns: List of glob patterns (relative to repo_dir)"""
+        return ["**/*"]  # Default: scan everything (override in subclasses)
+
     @staticmethod
-    def _get_file_timestamps(directory: Path) -> Dict[Path, int]:
-        """Get dictionary of file paths to their modification timestamps.
-        Arg:     directory: Directory to scan
+    def _get_file_timestamps(directory: Path, patterns: List[str]) -> Dict[Path, int]:
+        """Get dictionary of file paths to their modification timestamps for files matching patterns.
+        Args:    directory: Directory to scan
+                 patterns: List of glob patterns (relative to directory) or absolute paths
         Returns: Dictionary mapping file paths to st_mtime_ns timestamps"""
         if not directory.exists():
             return {}
 
         file_timestamps = {}
-        for f in directory.rglob("*"):
-            if f.is_file():
-                try:
-                    file_timestamps[f] = f.stat().st_mtime_ns
-                except (OSError, FileNotFoundError):
-                    pass
+        for pattern in patterns:
+            pattern_path = Path(pattern)
+            if pattern_path.is_absolute():
+                # Handle absolute path directly
+                if pattern_path.is_file():
+                    try:
+                        file_timestamps[pattern_path] = pattern_path.stat().st_mtime_ns
+                    except (OSError, FileNotFoundError):
+                        pass
+            else:
+                # Relative pattern - use glob
+                for f in directory.glob(pattern):
+                    if f.is_file():
+                        try:
+                            file_timestamps[f] = f.stat().st_mtime_ns
+                        except (OSError, FileNotFoundError):
+                            pass
 
         return file_timestamps
 
@@ -226,7 +246,8 @@ class ToolCmd(ABC):
         Args:    source_file: Path to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
         Returns: Tuple of (output_files, stdout, stderr, returncode)"""
-        files_before = self._get_file_timestamps(repo_dir)
+        patterns = self.get_output_patterns(source_file, repo_dir)
+        files_before = self._get_file_timestamps(repo_dir, patterns)
 
         cmd = self.build_execution_command(source_file)
 
@@ -238,7 +259,7 @@ class ToolCmd(ABC):
             env=self.msvc_env if self.needs_vcvars else None
         )
 
-        files_after = self._get_file_timestamps(repo_dir)
+        files_after = self._get_file_timestamps(repo_dir, patterns)
 
         # Detect output files: new files OR files with updated timestamps
         output_files = [
@@ -254,20 +275,165 @@ class ClCmd(ToolCmd):
     optimization_flags = ["/Od", "/O1", "/O2", "/Ox"]
     needs_vcvars = True
 
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+        """Return patterns for files MSVC cl will create.
+        Parses arguments to find output paths or uses defaults based on source stem."""
+        patterns = []
+        stem = source_file.stem
+        all_args = self.arguments + self.output_args
+
+        # Check for /Fo (object file output path)
+        fo_path = None
+        for arg in all_args:
+            if arg.startswith("/Fo") or arg.startswith("-Fo"):
+                fo_path = arg[3:]
+                break
+
+        # Check for /FA (assembly listing)
+        generates_asm = any(arg.startswith("/FA") or arg.startswith("-FA") for arg in all_args)
+
+        # Check for /Fe (executable output)
+        fe_path = None
+        for arg in all_args:
+            if arg.startswith("/Fe") or arg.startswith("-Fe"):
+                fe_path = arg[3:]
+                break
+
+        # Add object file pattern
+        if fo_path:
+            # If /Fo specifies a directory, add stem.obj in that directory
+            if fo_path.endswith("/") or fo_path.endswith("\\"):
+                patterns.append(f"{fo_path}{stem}.obj")
+            else:
+                patterns.append(fo_path)
+        else:
+            patterns.append(f"{stem}.obj")
+            patterns.append(f"**/{stem}.obj")
+
+        # Add assembly file pattern if /FA is used
+        if generates_asm:
+            if fo_path and (fo_path.endswith("/") or fo_path.endswith("\\")):
+                patterns.append(f"{fo_path}{stem}.asm")
+            else:
+                patterns.append(f"{stem}.asm")
+                patterns.append(f"**/{stem}.asm")
+
+        # Add executable pattern if /Fe is used
+        if fe_path:
+            patterns.append(fe_path)
+        elif not any(arg == "/c" or arg == "-c" for arg in all_args):
+            # No /c flag means linking, so .exe may be created
+            patterns.append(f"{stem}.exe")
+            patterns.append(f"**/{stem}.exe")
+
+        return patterns
+
 class ClangCmd(ToolCmd):
     supports_optimization = True
     optimization_flags = ["-O0", "-O1", "-O2", "-O3"]
     needs_vcvars = False
+
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+        """Return patterns for files clang++ will create.
+        Parses arguments to find output paths or uses defaults based on source stem."""
+        patterns = []
+        stem = source_file.stem
+        all_args = self.arguments + self.output_args
+
+        # Check for -o (explicit output path)
+        output_path = None
+        for i, arg in enumerate(all_args):
+            if arg == "-o" and i + 1 < len(all_args):
+                output_path = all_args[i + 1]
+                break
+            elif arg.startswith("-o"):
+                output_path = arg[2:]
+                break
+
+        # Check for -S (assembly output)
+        generates_asm = "-S" in all_args
+
+        # Check for -c (object file output, no linking)
+        compile_only = "-c" in all_args
+
+        if output_path:
+            patterns.append(output_path)
+            patterns.append(f"**/{output_path}")
+        elif generates_asm:
+            patterns.append(f"{stem}.s")
+            patterns.append(f"**/{stem}.s")
+        elif compile_only:
+            patterns.append(f"{stem}.o")
+            patterns.append(f"**/{stem}.o")
+        else:
+            # Linking, creates executable (a.out or stem)
+            patterns.append(f"{stem}")
+            patterns.append("a.out")
+            patterns.append(f"**/{stem}")
+            patterns.append("**/a.out")
+
+        return patterns
 
 class ClangTidyCmd(ToolCmd):
     supports_optimization = False
     optimization_flags = []
     needs_vcvars = False
 
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+        """Return patterns for files clang-tidy will create.
+        clang-tidy typically doesn't create files, but can with --export-fixes."""
+        patterns = []
+        all_args = self.arguments + self.output_args
+
+        # Check for --export-fixes=<file>
+        for arg in all_args:
+            if arg.startswith("--export-fixes="):
+                fixes_file = arg[len("--export-fixes="):]
+                patterns.append(fixes_file)
+                patterns.append(f"**/{fixes_file}")
+                break
+
+        # clang-tidy doesn't create output files in normal operation
+        # Return empty list if no --export-fixes found
+        return patterns
+
 class DoxygenCmd(ToolCmd):
     supports_optimization = False
     optimization_flags = []
     needs_vcvars = False
+
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+        """Return patterns for files doxygen will create.
+        Parses Doxyfile to find OUTPUT_DIRECTORY and returns patterns for that directory."""
+        patterns = []
+        doxyfile_path = repo_dir / source_file if not source_file.is_absolute() else source_file
+
+        # Parse Doxyfile for OUTPUT_DIRECTORY
+        output_dir = ""
+        if doxyfile_path.exists():
+            try:
+                with open(doxyfile_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("OUTPUT_DIRECTORY"):
+                            # Parse OUTPUT_DIRECTORY = value
+                            parts = line.split("=", 1)
+                            if len(parts) == 2:
+                                output_dir = parts[1].strip().strip('"')
+                            break
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        if output_dir:
+            # Add pattern for all files in output directory
+            patterns.append(f"{output_dir}/**/*")
+        else:
+            # Default doxygen output locations
+            patterns.append("xml/**/*")
+            patterns.append("html/**/*")
+            patterns.append("latex/**/*")
+
+        return patterns
 
     def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
         """Get dependencies for Doxygen: Doxyfile + all C++ source/header files.
