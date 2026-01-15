@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from quicken import Quicken
-from quicken._cache import QuickenCache
+from quicken._cache import QuickenCache, FolderIndex
 from quicken._repo_path import RepoPath
 
 
@@ -170,8 +170,8 @@ class TestInputArgsCaching:
         folders_with_header1 = []
         folders_with_header2 = []
         for cf in compound_folders:
-            folder_index = quicken_instance.cache._load_folder_index(cf)
-            compound_key = folder_index.get("compound_key", "")
+            folder_index = FolderIndex.from_file(cf, temp_dir)
+            compound_key = folder_index.compound_key
             if "header1.h" in compound_key:
                 folders_with_header1.append(cf)
             if "header2.h" in compound_key:

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from quicken import Quicken
-from quicken._cache import QuickenCache
+from quicken._cache import QuickenCache, FolderIndex
 from quicken._repo_path import RepoPath
 
 
@@ -99,8 +99,8 @@ class TestQuickenCache:
 
         # Check folder_index.json
         folder_path = cache_entry_dir.parent
-        folder_index = cache._load_folder_index(folder_path)
-        assert folder_index["next_entry_id"] == 2  # Should be incremented for next entry
+        folder_index = FolderIndex.from_file(folder_path, temp_dir)
+        assert folder_index.next_entry_id == 2  # Should be incremented for next entry
 
     @pytest.mark.pedantic
     def test_cache_store_and_lookup(self, cache_dir, temp_dir):

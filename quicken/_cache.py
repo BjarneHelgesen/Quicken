@@ -196,6 +196,90 @@ class CacheMetadata:
             json.dump(self.to_dict(), f, indent=2)
 
 
+class CacheEntry:
+    """A single entry in the folder index mapping cache_key to dependencies."""
+
+    def __init__(self, cache_key: str, dependencies: List[FileMetadata]):
+        self.cache_key = cache_key
+        self.dependencies = dependencies
+
+    @classmethod
+    def from_dict(cls, data: Dict, repo_dir: Path) -> 'CacheEntry':
+        """Load from JSON dictionary."""
+        return cls(
+            cache_key=data["cache_key"],
+            dependencies=[FileMetadata.from_dict(d, repo_dir) for d in data["dependencies"]]
+        )
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "cache_key": self.cache_key,
+            "dependencies": [d.to_dict() for d in self.dependencies]
+        }
+
+
+class FolderIndex:
+    """Index tracking cache entries within a compound cache folder."""
+
+    def __init__(self, compound_key: str, next_entry_id: int, entries: List[CacheEntry]):
+        self.compound_key = compound_key
+        self.next_entry_id = next_entry_id
+        self.entries = entries
+
+    @classmethod
+    def from_file(cls, folder_path: Path, repo_dir: Path) -> 'FolderIndex':
+        """Load from folder_index.json file."""
+        index_file = folder_path / "folder_index.json"
+        try:
+            with open(index_file, 'r') as f:
+                data = json.load(f)
+            return cls.from_dict(data, repo_dir)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return cls(compound_key="", next_entry_id=1, entries=[])
+
+    @classmethod
+    def from_dict(cls, data: Dict, repo_dir: Path) -> 'FolderIndex':
+        """Load from JSON dictionary."""
+        return cls(
+            compound_key=data["compound_key"],
+            next_entry_id=data["next_entry_id"],
+            entries=[CacheEntry.from_dict(e, repo_dir) for e in data["entries"]]
+        )
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "compound_key": self.compound_key,
+            "next_entry_id": self.next_entry_id,
+            "entries": [e.to_dict() for e in self.entries]
+        }
+
+    def save(self, folder_path: Path):
+        """Save to folder_index.json file."""
+        folder_path.mkdir(parents=True, exist_ok=True)
+        index_file = folder_path / "folder_index.json"
+        with open(index_file, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+    def allocate_entry_id(self) -> str:
+        """Allocate and return a new cache entry key."""
+        cache_key = f"entry_{self.next_entry_id:06d}"
+        self.next_entry_id += 1
+        return cache_key
+
+    def find_entry_by_cache_key(self, cache_key: str) -> Optional[CacheEntry]:
+        """Find entry by cache_key."""
+        for entry in self.entries:
+            if entry.cache_key == cache_key:
+                return entry
+        return None
+
+    def add_entry(self, cache_key: str, dependencies: List[FileMetadata]):
+        """Add a new cache entry."""
+        self.entries.append(CacheEntry(cache_key, dependencies))
+
+
 class QuickenCache:
     """Manages caching of tool outputs based on source file and dependency metadata."""
 
@@ -228,17 +312,6 @@ class QuickenCache:
                 lock_handle.close()
             except:
                 pass
-
-    def _hash_dependencies_from_dicts(self, dependencies: List[Dict]) -> str:
-        """Calculate hash of all dependency hashes combined from dict representation.
-        Args:    dependencies: List of dependency dicts with 'path' and 'hash' keys
-        Returns: 16-character hex string (64-bit hash of all dependency hashes)"""
-        hash_obj = hashlib.blake2b(digest_size=8)
-        for dep in dependencies:
-            # Hash combination of path and content hash for uniqueness
-            dep_str = f"{dep['path']}:{dep['hash']}"
-            hash_obj.update(dep_str.encode('utf-8'))
-        return hash_obj.hexdigest()
 
     def _hash_dependencies(self, dependencies: List[FileMetadata]) -> str:
         """Calculate hash of all dependency hashes combined.
@@ -318,31 +391,6 @@ class QuickenCache:
 
         return f"{sanitized_filename}_{tool_name}_{compound_hash}"
 
-    def _load_folder_index(self, folder_path: Path) -> Dict:
-        """Load the folder index from folder_index.json.
-        Args:    folder_path: Path to compound folder
-        Returns: Dict with 'compound_key', 'next_entry_id', and 'entries' list"""
-        index_file = folder_path / "folder_index.json"
-        try:
-            with open(index_file, 'r') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            # Return empty structure
-            return {
-                "compound_key": "",
-                "next_entry_id": 1,
-                "entries": []
-            }
-
-    def _save_folder_index(self, folder_path: Path, folder_index: Dict):
-        """Save the folder index to folder_index.json.
-        Args:    folder_path: Path to compound folder
-                 folder_index: Dict with 'compound_key', 'next_entry_id', and 'entries'"""
-        folder_path.mkdir(parents=True, exist_ok=True)
-        index_file = folder_path / "folder_index.json"
-        with open(index_file, 'w') as f:
-            json.dump(folder_index, f, indent=2)
-
     def _check_entry_mtime_match(self, cached_deps: List[FileMetadata], repo_dir: Path) -> bool:
         """Check if all dependencies match by mtime+size (no hashing).
         Args:    cached_deps: List of FileMetadata from cache entry
@@ -416,25 +464,23 @@ class QuickenCache:
         return updated_deps
 
     def _get_cache_folder_info(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-                                input_args: List[str], repo_dir: Path) -> Tuple[Optional[Path], Optional[Dict], Optional[List]]:
-        """Get cache folder path, index, and entries for the given parameters.
+                                input_args: List[str], repo_dir: Path) -> Tuple[Optional[Path], Optional[FolderIndex]]:
+        """Get cache folder path and index for the given parameters.
         Performs folder name calculation and folder index loading (file I/O + JSON parsing).
         Args:    source_repo_path: RepoPath for source file
                  tool_name: Name of the tool
                  tool_args: Tool arguments list
                  input_args: Optional input arguments with file paths
                  repo_dir: Repository root directory
-        Returns: Tuple of (folder_path, folder_index, entries) or (None, None, None) if folder doesn't exist"""
+        Returns: Tuple of (folder_path, folder_index) or (None, None) if folder doesn't exist"""
         folder_name = self._make_folder_name(source_repo_path, tool_name, tool_args, input_args, repo_dir)
         folder_path = self.cache_dir / folder_name
 
         if not folder_path.exists():
-            return None, None, None
+            return None, None
 
-        folder_index = self._load_folder_index(folder_path)
-        entries = folder_index["entries"]
-
-        return folder_path, folder_index, entries
+        folder_index = FolderIndex.from_file(folder_path, repo_dir)
+        return folder_path, folder_index
 
     def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
                repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
@@ -451,32 +497,28 @@ class QuickenCache:
         Returns: Cache entry directory path if found, None otherwise"""
 
         # Load folder info once
-        folder_path, folder_index, entries = self._get_cache_folder_info(
+        folder_path, folder_index = self._get_cache_folder_info(
             source_repo_path, tool_name, tool_args, input_args, repo_dir)
 
         if folder_path is None:
             return None
 
         # Pass 1: Try mtime+size match (fast path - no hashing)
-        for entry in entries:
-            cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
-
-            if self._check_entry_mtime_match(cached_deps, repo_dir):
-                cache_entry_dir = folder_path / entry["cache_key"]
+        for entry in folder_index.entries:
+            if self._check_entry_mtime_match(entry.dependencies, repo_dir):
+                cache_entry_dir = folder_path / entry.cache_key
                 if cache_entry_dir.exists():
                     return cache_entry_dir
 
         # Pass 2: Try hash-based matching (hash only changed files)
         hash_cache = {}
 
-        for entry in entries:
-            cached_deps = [FileMetadata.from_dict(d, repo_dir) for d in entry["dependencies"]]
-
-            updated_deps = self._check_entry_hash_match(cached_deps, repo_dir, hash_cache)
+        for entry in folder_index.entries:
+            updated_deps = self._check_entry_hash_match(entry.dependencies, repo_dir, hash_cache)
             if updated_deps is None:
                 continue
 
-            cache_entry_dir = folder_path / entry["cache_key"]
+            cache_entry_dir = folder_path / entry.cache_key
             if not cache_entry_dir.exists():
                 continue
 
@@ -484,14 +526,14 @@ class QuickenCache:
             lock_handle = self._try_acquire_folder_lock(folder_path)
             if lock_handle is not None:
                 try:
-                    entry["dependencies"] = [d.to_dict() for d in updated_deps]
+                    entry.dependencies = updated_deps
 
                     metadata_file = cache_entry_dir / "metadata.json"
                     metadata = CacheMetadata.from_file(metadata_file, repo_dir)
                     metadata.dependencies = updated_deps
                     metadata.save(metadata_file)
 
-                    self._save_folder_index(folder_path, folder_index)
+                    folder_index.save(folder_path)
                 finally:
                     self._release_folder_lock(lock_handle)
 
@@ -543,21 +585,20 @@ class QuickenCache:
         dep_metadata = [FileMetadata.from_file(dep, repo_dir) for dep in dependency_repo_paths]
 
         compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
-        folder_index = self._load_folder_index(folder_path)
+        folder_index = FolderIndex.from_file(folder_path, repo_dir)
 
         # Check if an entry with these exact dependencies already exists in this folder
         dep_hash_str = self._hash_dependencies(dep_metadata)
-        existing_cache_key = None
-        for entry in folder_index["entries"]:
-            entry_deps = entry["dependencies"]
-            entry_dep_hash = self._hash_dependencies_from_dicts(entry_deps)
+        existing_entry = None
+        for entry in folder_index.entries:
+            entry_dep_hash = self._hash_dependencies(entry.dependencies)
             if entry_dep_hash == dep_hash_str:
-                existing_cache_key = entry["cache_key"]
+                existing_entry = entry
                 break
 
-        if existing_cache_key:
+        if existing_entry:
             # Reuse existing cache entry - just update metadata with current mtime/size
-            cache_key = existing_cache_key
+            cache_key = existing_entry.cache_key
             cache_entry_dir = folder_path / cache_key
 
             # Update metadata with current mtime and size values
@@ -567,14 +608,10 @@ class QuickenCache:
             metadata.save(metadata_file)
 
             # Update the folder index entry
-            for entry in folder_index["entries"]:
-                if entry["cache_key"] == cache_key:
-                    entry["dependencies"] = [d.to_dict() for d in dep_metadata]
-                    break
+            existing_entry.dependencies = dep_metadata
         else:
             # Create new cache entry
-            cache_key = f"entry_{folder_index['next_entry_id']:06d}"
-            folder_index["next_entry_id"] += 1
+            cache_key = folder_index.allocate_entry_id()
 
             cache_entry_dir = folder_path / cache_key
             cache_entry_dir.mkdir(parents=True, exist_ok=True)
@@ -610,16 +647,13 @@ class QuickenCache:
             metadata.save(cache_entry_dir / "metadata.json")
 
             # Add new entry to folder index
-            folder_index["entries"].append({
-                "cache_key": cache_key,
-                "dependencies": [d.to_dict() for d in dep_metadata]
-            })
+            folder_index.add_entry(cache_key, dep_metadata)
 
         # Set compound_key in folder_index (always, to ensure it's current)
-        folder_index["compound_key"] = compound_key
+        folder_index.compound_key = compound_key
 
         # Save folder index
-        self._save_folder_index(folder_path, folder_index)
+        folder_index.save(folder_path)
 
         return cache_entry_dir
 
