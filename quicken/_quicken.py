@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from ._cache import QuickenCache
+from ._cache import QuickenCache, CacheKey, make_args_repo_relative
 from ._logger import QuickenLogger
 from ._repo_path import RepoPath
 from ._tool_cmd import ToolCmd, ToolCmdFactory
@@ -61,13 +61,16 @@ class Quicken:
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, optimization, output_args, input_args)
         modified_args = tool.add_optimization_flags(tool_args)
 
+        # Create cache key once for both lookup and store
+        repo_relative_input_args = make_args_repo_relative(input_args, self.repo_dir)
+        cache_key = CacheKey(source_repo_path, tool_name, modified_args, repo_relative_input_args, self.repo_dir)
+
         # Try cache lookup (mtime first, then hash)
-        cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
+        cache_entry = self.cache.lookup(cache_key)
         if cache_entry:
             returncode = self.cache.restore(cache_entry, self.repo_dir)
             log("CACHE HIT", returncode)
             return returncode
-
 
         # Get dependencies from tool
         dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
@@ -78,11 +81,8 @@ class Quicken:
         print(result.stdout, end='')
         print(result.stderr, end='', file=sys.stderr)
 
-        self.cache.store(
-            source_repo_path, tool_name, modified_args, dependency_repo_paths, result.output_files,
-            result.stdout, result.stderr, result.returncode, self.repo_dir,
-            input_args=input_args
-        )
+        self.cache.store(cache_key, dependency_repo_paths, result.output_files,
+                         result.stdout, result.stderr, result.returncode)
         log("CACHE MISS", result.returncode)
 
         return result.returncode

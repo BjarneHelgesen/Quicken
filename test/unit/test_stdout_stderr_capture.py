@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from quicken import Quicken
-from quicken._cache import QuickenCache
+from quicken._cache import QuickenCache, CacheKey
 from quicken._repo_path import RepoPath
 
 
@@ -117,10 +117,8 @@ class TestStdoutStderrCapture:
         returncode = 0
 
         # Store in cache
-        cache_entry = cache.store(
-            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            stdout, stderr, returncode, temp_dir
-        )
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], stdout, stderr, returncode)
 
         # Verify metadata.json contains stdout and stderr
         metadata_file = cache_entry / "metadata.json"
@@ -155,10 +153,8 @@ class TestStdoutStderrCapture:
         returncode = 0
 
         # Store in cache
-        cache_entry = cache.store(
-            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, returncode, temp_dir
-        )
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], original_stdout, original_stderr, returncode)
 
         # Delete output file
         output_file.unlink()
@@ -200,10 +196,8 @@ class TestStdoutStderrCapture:
         tool_args = ["/c", "/nologo"]
 
         # Store with empty stdout and stderr
-        cache_entry = cache.store(
-            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            "", "", 0, temp_dir
-        )
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], "", "", 0)
 
         # Restore - capture output
         old_stdout = sys.stdout
@@ -244,10 +238,8 @@ class TestStdoutStderrCapture:
         original_stdout = "Line 1\nLine 2\nLine 3\n"
         original_stderr = "Error on line 10\nError on line 20\n"
 
-        cache_entry = cache.store(
-            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, 0, temp_dir
-        )
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], original_stdout, original_stderr, 0)
 
         # Restore and verify exact preservation - capture output
         old_stdout = sys.stdout
@@ -288,10 +280,8 @@ class TestStdoutStderrCapture:
         original_stdout = "C:\\Path\\To\\File.cpp\nTest: 100% complete\n"
         original_stderr = "Warning: '\t' tab and \"quotes\"\n"
 
-        cache_entry = cache.store(
-            source_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            original_stdout, original_stderr, 0, temp_dir
-        )
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], original_stdout, original_stderr, 0)
 
         # Restore and verify - capture output
         old_stdout = sys.stdout
@@ -560,10 +550,8 @@ class TestRepoToolStdoutStderr:
         returncode = 0
 
         # Store cache entry
-        cache_entry = cache.store(
-            main_repo_path, tool_name, tool_args, dep_repo_paths, [output_file],
-            stdout, stderr, returncode, temp_dir
-        )
+        cache_key = CacheKey(main_repo_path, tool_name, tool_args, [], temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], stdout, stderr, returncode)
 
         # Verify metadata contains stdout/stderr
         metadata_file = cache_entry / "metadata.json"
@@ -597,10 +585,8 @@ class TestErrorCases:
         returncode = 2
 
         # Store error result (no output files created)
-        cache_entry = cache.store(
-            source_repo_path, tool_name, tool_args, dep_repo_paths, [],
-            stdout, stderr, returncode, temp_dir
-        )
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, [], stdout, stderr, returncode)
 
         # Restore - capture output
         old_stdout = sys.stdout

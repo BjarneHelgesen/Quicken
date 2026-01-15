@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from quicken import Quicken
-from quicken._cache import QuickenCache, FolderIndex
+from quicken._cache import QuickenCache, FolderIndex, make_args_repo_relative
 from quicken._repo_path import RepoPath
 
 
@@ -55,51 +55,43 @@ class TestInputArgsPathTranslation:
 
     def test_translate_input_args_repo_relative(self, cache_dir, temp_dir):
         """Test that absolute paths in repo are converted to repo-relative."""
-        cache = QuickenCache(cache_dir)
-
         # Create a file in the repo
         header_file = temp_dir / "default_header.h"
         header_file.write_text("#pragma once\n")
 
         # Test with absolute path to file in repo
         input_args = ["-include", str(header_file)]
-        translated = cache._translate_input_args_for_cache_key(input_args, temp_dir)
+        translated = make_args_repo_relative(input_args, temp_dir)
 
         # Should translate absolute path to repo-relative
         assert translated == ["-include", "default_header.h"]
 
     def test_translate_input_args_outside_repo(self, cache_dir, temp_dir):
         """Test that absolute paths outside repo remain absolute."""
-        cache = QuickenCache(cache_dir)
-
         # Use a path outside the repo (system path)
         outside_path = Path("C:\\Windows\\System32\\config.ini")
 
         input_args = ["-include", str(outside_path)]
-        translated = cache._translate_input_args_for_cache_key(input_args, temp_dir)
+        translated = make_args_repo_relative(input_args, temp_dir)
 
         # Should keep absolute path (normalized)
         assert translated == ["-include", str(outside_path.resolve())]
 
     def test_translate_input_args_with_flags(self, cache_dir, temp_dir):
         """Test that flag arguments are preserved."""
-        cache = QuickenCache(cache_dir)
-
         # Create a file in the repo
         header_file = temp_dir / "header.h"
         header_file.write_text("#pragma once\n")
 
         # Test with flags and file paths
         input_args = ["-include", str(header_file), "-DDEBUG"]
-        translated = cache._translate_input_args_for_cache_key(input_args, temp_dir)
+        translated = make_args_repo_relative(input_args, temp_dir)
 
         # Flags should be preserved, paths translated
         assert translated == ["-include", "header.h", "-DDEBUG"]
 
     def test_translate_input_args_relative_path(self, cache_dir, temp_dir):
         """Test that relative paths are converted to repo-relative."""
-        cache = QuickenCache(cache_dir)
-
         # Create a file in a subdirectory
         subdir = temp_dir / "include"
         subdir.mkdir()
@@ -108,15 +100,13 @@ class TestInputArgsPathTranslation:
 
         # Test with relative path
         input_args = ["-include", "include/config.h"]
-        translated = cache._translate_input_args_for_cache_key(input_args, temp_dir)
+        translated = make_args_repo_relative(input_args, temp_dir)
 
         # Should normalize to repo-relative
         assert translated == ["-include", "include/config.h"]
 
     def test_translate_input_args_with_parent_refs(self, cache_dir, temp_dir):
         """Test that relative paths with .. are resolved correctly."""
-        cache = QuickenCache(cache_dir)
-
         # Create a file in the repo
         header_file = temp_dir / "header.h"
         header_file.write_text("#pragma once\n")
@@ -124,7 +114,7 @@ class TestInputArgsPathTranslation:
         # Test with relative path containing ..
         # From temp_dir/subdir, reference ../header.h
         input_args = ["-include", "subdir/../header.h"]
-        translated = cache._translate_input_args_for_cache_key(input_args, temp_dir)
+        translated = make_args_repo_relative(input_args, temp_dir)
 
         # Should resolve to just header.h
         assert translated == ["-include", "header.h"]

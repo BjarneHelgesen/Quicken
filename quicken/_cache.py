@@ -280,6 +280,74 @@ class FolderIndex:
         self.entries.append(CacheEntry(cache_key, dependencies))
 
 
+def make_args_repo_relative(args: List[str], repo_dir: Path) -> List[str]:
+    """Convert file/folder paths in args to repo-relative paths.
+    Converts absolute paths inside the repo to repo-relative paths.
+    Keeps paths outside the repo as absolute paths.
+    Preserves flag arguments (starting with - or /) and non-path arguments as-is.
+    Args:    args: Arguments that may contain file paths
+             repo_dir: Repository root directory
+    Returns: List of arguments with repo paths made relative"""
+    result = []
+    for arg in args:
+        # Skip obvious flag arguments
+        if arg.startswith('-') or arg.startswith('/'):
+            result.append(arg)
+            continue
+
+        try:
+            repo_path = RepoPath(repo_dir, Path(arg))
+            result.append(str(repo_path) if repo_path else arg)
+        except (ValueError, OSError):
+            # Can't parse as path, keep as-is
+            result.append(arg)
+
+    return result
+
+
+class CacheKey:
+    """Identifies a cache entry by source file, tool, and arguments.
+
+    Computes the cache key string and folder name from the parameters.
+    Input args are assumed to be repo-relative.
+    """
+
+    def __init__(self, source_repo_path: RepoPath, tool_name: str,
+                 tool_args: List[str], input_args: List[str], repo_dir: Path):
+        self.source_repo_path = source_repo_path
+        self.tool_name = tool_name
+        self.tool_args = tool_args
+        self.input_args = input_args
+        self.repo_dir = repo_dir
+
+        # Compute derived values eagerly (used in every lookup/store)
+        self.key = self._get_key()
+        self.folder_name = self._get_folder_name()
+
+    def _get_key(self) -> str:
+        """Build cache key string: 'file::tool::args::input_args'"""
+        source_key = str(self.source_repo_path)
+        args_str = json.dumps(self.tool_args, separators=(',', ':'))
+        input_args_str = json.dumps(self.input_args, separators=(',', ':'))
+        return f"{source_key}::{self.tool_name}::{args_str}::{input_args_str}"
+
+    def _get_folder_name(self) -> str:
+        """Build folder name: 'filename_toolname_hash'"""
+        # Extract just filename from path (e.g., "main.cpp" from "src/main.cpp")
+        filename = Path(str(self.source_repo_path)).name
+
+        # Sanitize filename for filesystem (replace problematic chars)
+        sanitized_filename = filename.replace('\\', '_').replace('/', '_').replace(':', '_')
+
+        # Hash: full_repo_path + tool_name + args + input_args
+        args_str = json.dumps(self.tool_args, separators=(',', ':'))
+        input_args_str = json.dumps(self.input_args, separators=(',', ':'))
+        hash_input = f"{str(self.source_repo_path)}::{self.tool_name}::{args_str}::{input_args_str}"
+        compound_hash = hashlib.blake2b(hash_input.encode('utf-8'), digest_size=8).hexdigest()
+
+        return f"{sanitized_filename}_{self.tool_name}_{compound_hash}"
+
+
 class QuickenCache:
     """Manages caching of tool outputs based on source file and dependency metadata."""
 
@@ -323,73 +391,6 @@ class QuickenCache:
             dep_str = f"{str(dep.path)}:{dep.hash}"
             hash_obj.update(dep_str.encode('utf-8'))
         return hash_obj.hexdigest()
-
-    def _translate_input_args_for_cache_key(self, input_args: List[str], repo_dir: Path) -> List[str]:
-        """Translate file/folder paths in input_args to repo-relative for cache key portability.
-        Converts absolute paths to files/folders in the repo to repo-relative paths.
-        Keeps paths outside the repo as absolute paths.
-        Preserves flag arguments (starting with - or /) and non-path arguments as-is.
-        Args:    input_args: Input arguments containing file paths
-                 repo_dir: Repository root directory
-        Returns: List of arguments with repo paths made relative and external paths absolute"""
-
-        translated = []
-        for arg in input_args:
-            # Skip obvious flag arguments (just for code clarity. They would have been filtered out as not paths anyway)
-            if arg.startswith('-') or arg.startswith('/'):
-                translated.append(arg)
-                continue
-
-            try:
-                repo_path = RepoPath(repo_dir, Path(arg))
-                translated.append(str(repo_path) if repo_path else arg)
-
-            except (ValueError, OSError):
-                # Can't parse as path, keep as-is
-                translated.append(arg)
-
-        return translated
-
-    def _make_cache_key(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str], input_args: List[str]=[], repo_dir: Path = None) -> str:
-        """Build compound cache key from source file, tool, and args (without size).
-        Args:    source_repo_path: RepoPath for source file
-                 tool_name: Name of the tool
-                 tool_args: Tool arguments list
-                 input_args: Optional input arguments (paths will be translated)
-                 repo_dir: Repository root for translating input_args paths
-        Returns: Compound key string in format: "file::tool::args::input_args" """
-        source_key = str(source_repo_path)
-        args_str = json.dumps(tool_args, separators=(',', ':'))
-
-        # Translate paths in input_args for cache portability
-        translated_input_args = self._translate_input_args_for_cache_key(input_args, repo_dir)
-        input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
-        return f"{source_key}::{tool_name}::{args_str}::{input_args_str}"
-
-    def _make_folder_name(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str], input_args: List[str], repo_dir: Path) -> str:
-        """Build compound folder name from source file, tool, and args.
-        Args:    source_repo_path: RepoPath for source file
-                 tool_name: Name of the tool
-                 tool_args: Tool arguments list
-                 input_args: Optional input arguments
-                 repo_dir: Repository root
-        Returns: Folder name string in format: "filename_toolname_hash" """
-        # Extract just filename from path (e.g., "main.cpp" from "src/main.cpp")
-        filename = Path(str(source_repo_path)).name
-
-        # Sanitize filename for filesystem (replace problematic chars)
-        sanitized_filename = filename.replace('\\', '_').replace('/', '_').replace(':', '_')
-
-        # Create JSON strings for args and input_args
-        args_str = json.dumps(tool_args, separators=(',', ':'))
-        translated_input_args = self._translate_input_args_for_cache_key(input_args, repo_dir)
-        input_args_str = json.dumps(translated_input_args, separators=(',', ':'))
-
-        # Hash: full_repo_path + tool_name + args + input_args
-        hash_input = f"{str(source_repo_path)}::{tool_name}::{args_str}::{input_args_str}"
-        compound_hash = hashlib.blake2b(hash_input.encode('utf-8'), digest_size=8).hexdigest()
-
-        return f"{sanitized_filename}_{tool_name}_{compound_hash}"
 
     def _check_entry_mtime_match(self, cached_deps: List[FileMetadata], repo_dir: Path) -> bool:
         """Check if all dependencies match by mtime+size (no hashing).
@@ -463,45 +464,33 @@ class QuickenCache:
 
         return updated_deps
 
-    def _get_cache_folder_info(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-                                input_args: List[str], repo_dir: Path) -> Tuple[Optional[Path], Optional[FolderIndex]]:
-        """Get cache folder path and index for the given parameters.
-        Performs folder name calculation and folder index loading (file I/O + JSON parsing).
-        Args:    source_repo_path: RepoPath for source file
-                 tool_name: Name of the tool
-                 tool_args: Tool arguments list
-                 input_args: Optional input arguments with file paths
-                 repo_dir: Repository root directory
+    def _get_cache_folder_info(self, cache_key: CacheKey) -> Tuple[Optional[Path], Optional[FolderIndex]]:
+        """Get cache folder path and index for the given cache key.
+        Performs folder index loading (file I/O + JSON parsing).
         Returns: Tuple of (folder_path, folder_index) or (None, None) if folder doesn't exist"""
-        folder_name = self._make_folder_name(source_repo_path, tool_name, tool_args, input_args, repo_dir)
-        folder_path = self.cache_dir / folder_name
+        folder_path = self.cache_dir / cache_key.folder_name
 
         if not folder_path.exists():
             return None, None
 
-        folder_index = FolderIndex.from_file(folder_path, repo_dir)
+        folder_index = FolderIndex.from_file(folder_path, cache_key.repo_dir)
         return folder_path, folder_index
 
-    def lookup(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-               repo_dir: Path, input_args: List[str] = []) -> Optional[Path]:
+    def lookup(self, cache_key: CacheKey) -> Optional[Path]:
         """Look up cached output using two-pass strategy: mtime first, then hash.
 
         Pass 1: Check all entries for mtime+size match (no hashing - fast)
         Pass 2: Check all entries using hash comparison (only if pass 1 fails)
 
-        Args:    source_repo_path: RepoPath for source file
-                 tool_name: Name of the tool
-                 tool_args: Tool arguments list
-                 repo_dir: Repository root
-                 input_args: Optional input arguments with file paths
         Returns: Cache entry directory path if found, None otherwise"""
 
         # Load folder info once
-        folder_path, folder_index = self._get_cache_folder_info(
-            source_repo_path, tool_name, tool_args, input_args, repo_dir)
+        folder_path, folder_index = self._get_cache_folder_info(cache_key)
 
         if folder_path is None:
             return None
+
+        repo_dir = cache_key.repo_dir
 
         # Pass 1: Try mtime+size match (fast path - no hashing)
         for entry in folder_index.entries:
@@ -541,51 +530,39 @@ class QuickenCache:
 
         return None
 
-    def store(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-              dependency_repo_paths: List[RepoPath], output_files: List[Path],
-              stdout: str, stderr: str, returncode: int,
-              repo_dir: Path,
-              input_args: List[str] = []) -> Optional[Path]:
+    def store(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
+              output_files: List[Path], stdout: str, stderr: str, returncode: int) -> Optional[Path]:
         """Store tool output in cache with dependency hashes.
-        Args:    source_repo_path: RepoPath for source file (or main file)
-                 tool_name: Name of the tool
-                 tool_args: Tool arguments (without main_file path)
+        Args:    cache_key: CacheKey identifying the cache entry
                  dependency_repo_paths: List of RepoPath instances for dependencies
                  output_files: List of output file paths
                  stdout: Tool stdout
                  stderr: Tool stderr
                  returncode: Tool exit code
-                 repo_dir: Repository directory (for hashing dependencies and output paths)
-                 input_args: Optional input arguments with file paths
         Returns: Path to cache entry directory, or None if lock couldn't be acquired"""
-        folder_name = self._make_folder_name(source_repo_path, tool_name, tool_args, input_args, repo_dir)
-        folder_path = self.cache_dir / folder_name
+
+        folder_path = self.cache_dir / cache_key.folder_name
 
         lock_handle = self._try_acquire_folder_lock(folder_path)
         if lock_handle is None:
             return None
 
         try:
-            return self._store_locked(source_repo_path, tool_name, tool_args,
-                                      dependency_repo_paths, output_files,
-                                      stdout, stderr, returncode, repo_dir, input_args,
-                                      folder_path)
+            return self._store_locked(cache_key, dependency_repo_paths, output_files,
+                                      stdout, stderr, returncode, folder_path)
         finally:
             self._release_folder_lock(lock_handle)
 
-    def _store_locked(self, source_repo_path: RepoPath, tool_name: str, tool_args: List[str],
-                      dependency_repo_paths: List[RepoPath], output_files: List[Path],
-                      stdout: str, stderr: str, returncode: int,
-                      repo_dir: Path, input_args: List[str],
+    def _store_locked(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
+                      output_files: List[Path], stdout: str, stderr: str, returncode: int,
                       folder_path: Path) -> Path:
         """Internal store implementation, called while holding folder lock."""
-        source_key = str(source_repo_path)  # repo-relative path
+        source_key = str(cache_key.source_repo_path)  # repo-relative path
 
         # Create FileMetadata objects from RepoPath instances
-        dep_metadata = [FileMetadata.from_file(dep, repo_dir) for dep in dependency_repo_paths]
+        dep_metadata = [FileMetadata.from_file(dep, cache_key.repo_dir) for dep in dependency_repo_paths]
 
-        compound_key = self._make_cache_key(source_repo_path, tool_name, tool_args, input_args, repo_dir)
-        folder_index = FolderIndex.from_file(folder_path, repo_dir)
+        folder_index = FolderIndex.from_file(folder_path, cache_key.repo_dir)
 
         # Check if an entry with these exact dependencies already exists in this folder
         dep_hash_str = self._hash_dependencies(dep_metadata)
@@ -598,12 +575,12 @@ class QuickenCache:
 
         if existing_entry:
             # Reuse existing cache entry - just update metadata with current mtime/size
-            cache_key = existing_entry.cache_key
-            cache_entry_dir = folder_path / cache_key
+            entry_key = existing_entry.cache_key
+            cache_entry_dir = folder_path / entry_key
 
             # Update metadata with current mtime and size values
             metadata_file = cache_entry_dir / "metadata.json"
-            metadata = CacheMetadata.from_file(metadata_file, repo_dir)
+            metadata = CacheMetadata.from_file(metadata_file, cache_key.repo_dir)
             metadata.dependencies = dep_metadata
             metadata.save(metadata_file)
 
@@ -611,16 +588,16 @@ class QuickenCache:
             existing_entry.dependencies = dep_metadata
         else:
             # Create new cache entry
-            cache_key = folder_index.allocate_entry_id()
+            entry_key = folder_index.allocate_entry_id()
 
-            cache_entry_dir = folder_path / cache_key
+            cache_entry_dir = folder_path / entry_key
             cache_entry_dir.mkdir(parents=True, exist_ok=True)
 
             stored_files = []
             for output_file in output_files:
                 if output_file.exists():
                     try:
-                        rel_path = output_file.relative_to(repo_dir)
+                        rel_path = output_file.relative_to(cache_key.repo_dir)
                         dest = cache_entry_dir / rel_path
                         file_path_str = str(rel_path)
                     except ValueError:
@@ -632,25 +609,25 @@ class QuickenCache:
                     stored_files.append(file_path_str)
 
             metadata = CacheMetadata(
-                cache_key=cache_key,
+                cache_key=entry_key,
                 source_file=source_key,
-                tool_name=tool_name,
-                tool_args=tool_args,
+                tool_name=cache_key.tool_name,
+                tool_args=cache_key.tool_args,
                 main_file_path=source_key,
                 dependencies=dep_metadata,
                 files=stored_files,
                 stdout=stdout,
                 stderr=stderr,
                 returncode=returncode,
-                repo_dir=str(repo_dir)
+                repo_dir=str(cache_key.repo_dir)
             )
             metadata.save(cache_entry_dir / "metadata.json")
 
             # Add new entry to folder index
-            folder_index.add_entry(cache_key, dep_metadata)
+            folder_index.add_entry(entry_key, dep_metadata)
 
         # Set compound_key in folder_index (always, to ensure it's current)
-        folder_index.compound_key = compound_key
+        folder_index.compound_key = cache_key.key
 
         # Save folder index
         folder_index.save(folder_path)
