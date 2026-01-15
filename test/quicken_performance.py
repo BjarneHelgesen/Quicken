@@ -13,14 +13,23 @@ from quicken import Quicken
 from quicken._cache import QuickenCache
 
 
-SIMPLE_CPP_CODE = """
-#include <iostream>
+NUM_HEADERS = 40
 
-int main() {
-    std::cout << "Hello, World!" << std::endl;
-    return 0;
-}
-"""
+
+def create_test_files(temp_dir: Path):
+    """Create test cpp file with 40 local header dependencies."""
+    # Create header files
+    for i in range(NUM_HEADERS):
+        header = temp_dir / f"header{i}.h"
+        header.write_text(f"// Header {i}\nclass Class{i} {{ int value = {i}; }};\n")
+
+    # Create main cpp that includes all headers
+    includes = "\n".join([f'#include "header{i}.h"' for i in range(NUM_HEADERS)])
+    cpp_code = f"{includes}\nint main() {{ return 0; }}\n"
+
+    cpp_file = temp_dir / "test.cpp"
+    cpp_file.write_text(cpp_code)
+    return cpp_file
 
 
 def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
@@ -92,9 +101,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         temp_dir = Path(tmpdir)
 
-        # Create test file
-        cpp_file = temp_dir / "test.cpp"
-        cpp_file.write_text(SIMPLE_CPP_CODE)
+        # Create test file with 40 header dependencies
+        cpp_file = create_test_files(temp_dir)
 
         # Create cache directory
         cache_dir = temp_dir / "cache"
