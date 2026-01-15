@@ -131,6 +131,71 @@ class FileMetadata:
         return f"FileMetadata({self.path!r}, hash={self.hash[:8]}..., size={self.size})"
 
 
+class CacheMetadata:
+    """Metadata for a cached tool execution result stored in metadata.json."""
+
+    def __init__(self, cache_key: str, source_file: str, tool_name: str,
+                 tool_args: List[str], main_file_path: str,
+                 dependencies: List[FileMetadata], files: List[str],
+                 stdout: str, stderr: str, returncode: int, repo_dir: str):
+        self.cache_key = cache_key
+        self.source_file = source_file
+        self.tool_name = tool_name
+        self.tool_args = tool_args
+        self.main_file_path = main_file_path
+        self.dependencies = dependencies
+        self.files = files
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+        self.repo_dir = repo_dir
+
+    @classmethod
+    def from_file(cls, metadata_file: Path, repo_dir: Path) -> 'CacheMetadata':
+        """Load from metadata.json file."""
+        with open(metadata_file, 'r') as f:
+            data = json.load(f)
+        return cls.from_dict(data, repo_dir)
+
+    @classmethod
+    def from_dict(cls, data: Dict, repo_dir: Path) -> 'CacheMetadata':
+        """Load from JSON dictionary."""
+        return cls(
+            cache_key=data["cache_key"],
+            source_file=data["source_file"],
+            tool_name=data["tool_name"],
+            tool_args=data["tool_args"],
+            main_file_path=data["main_file_path"],
+            dependencies=[FileMetadata.from_dict(d, repo_dir) for d in data["dependencies"]],
+            files=data["files"],
+            stdout=data["stdout"],
+            stderr=data["stderr"],
+            returncode=data["returncode"],
+            repo_dir=data.get("repo_dir", str(repo_dir))
+        )
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "cache_key": self.cache_key,
+            "source_file": self.source_file,
+            "tool_name": self.tool_name,
+            "tool_args": self.tool_args,
+            "main_file_path": self.main_file_path,
+            "dependencies": [d.to_dict() for d in self.dependencies],
+            "files": self.files,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "returncode": self.returncode,
+            "repo_dir": self.repo_dir
+        }
+
+    def save(self, metadata_file: Path):
+        """Save to metadata.json file."""
+        with open(metadata_file, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+
 class QuickenCache:
     """Manages caching of tool outputs based on source file and dependency metadata."""
 
@@ -422,11 +487,9 @@ class QuickenCache:
                     entry["dependencies"] = [d.to_dict() for d in updated_deps]
 
                     metadata_file = cache_entry_dir / "metadata.json"
-                    with open(metadata_file, 'r') as f:
-                        metadata = json.load(f)
-                    metadata["dependencies"] = [d.to_dict() for d in updated_deps]
-                    with open(metadata_file, 'w') as f:
-                        json.dump(metadata, f, indent=2)
+                    metadata = CacheMetadata.from_file(metadata_file, repo_dir)
+                    metadata.dependencies = updated_deps
+                    metadata.save(metadata_file)
 
                     self._save_folder_index(folder_path, folder_index)
                 finally:
@@ -499,11 +562,9 @@ class QuickenCache:
 
             # Update metadata with current mtime and size values
             metadata_file = cache_entry_dir / "metadata.json"
-            with open(metadata_file, 'r') as f:
-                metadata = json.load(f)
-            metadata["dependencies"] = [d.to_dict() for d in dep_metadata]
-            with open(metadata_file, 'w') as f:
-                json.dump(metadata, f, indent=2)
+            metadata = CacheMetadata.from_file(metadata_file, repo_dir)
+            metadata.dependencies = dep_metadata
+            metadata.save(metadata_file)
 
             # Update the folder index entry
             for entry in folder_index["entries"]:
@@ -533,22 +594,20 @@ class QuickenCache:
                     shutil.copyfile(output_file, dest)
                     stored_files.append(file_path_str)
 
-            metadata = {
-                "cache_key": cache_key,
-                "source_file": source_key,
-                "tool_name": tool_name,
-                "tool_args": tool_args,
-                "main_file_path": source_key,  # repo-relative path
-                "dependencies": [d.to_dict() for d in dep_metadata],
-                "files": stored_files,
-                "stdout": stdout,
-                "stderr": stderr,
-                "returncode": returncode,
-                "repo_dir": str(repo_dir)  # Normalized absolute path for path translation
-            }
-
-            with open(cache_entry_dir / "metadata.json", 'w') as f:
-                json.dump(metadata, f, indent=2)
+            metadata = CacheMetadata(
+                cache_key=cache_key,
+                source_file=source_key,
+                tool_name=tool_name,
+                tool_args=tool_args,
+                main_file_path=source_key,
+                dependencies=dep_metadata,
+                files=stored_files,
+                stdout=stdout,
+                stderr=stderr,
+                returncode=returncode,
+                repo_dir=str(repo_dir)
+            )
+            metadata.save(cache_entry_dir / "metadata.json")
 
             # Add new entry to folder index
             folder_index["entries"].append({
@@ -576,7 +635,7 @@ class QuickenCache:
         shutil.copyfile(src, dest)
 
     def _translate_paths(self, text: str, old_repo_dir: str, new_repo_dir: str,
-                        main_file_path: str, dependencies: List[Dict], files: List[str]) -> str:
+                        main_file_path: str, dependencies: List[FileMetadata], files: List[str]) -> str:
         """Translate absolute paths in text from old repo location to new repo location.
         Only translates paths for explicitly tracked files (main file, dependencies, artifacts).
         Paths are normalized (no ..) before replacement.
@@ -584,7 +643,7 @@ class QuickenCache:
                  old_repo_dir: Old repository root (normalized)
                  new_repo_dir: New repository root (normalized)
                  main_file_path: Repo-relative path to main source file
-                 dependencies: List of dependency dicts with 'path' keys
+                 dependencies: List of FileMetadata instances
                  files: List of repo-relative artifact paths
         Returns: Text with translated paths"""
         if not text or old_repo_dir == new_repo_dir:
@@ -600,7 +659,7 @@ class QuickenCache:
 
         # Add all dependencies
         for dep in dependencies:
-            dep_rel_path = dep["path"]
+            dep_rel_path = str(dep.path)
             old_dep = str(Path(old_repo_dir) / dep_rel_path)
             new_dep = str(Path(new_repo_dir) / dep_rel_path)
             path_mappings.append((old_dep, new_dep))
@@ -628,15 +687,11 @@ class QuickenCache:
         Handles both flat files and directory trees using relative paths.
         Translates absolute paths in stdout/stderr from cached repo location to current location.
         Returns: returncode"""
-        metadata_file = cache_entry_dir / "metadata.json"
-        with open(metadata_file, 'r') as f:
-            metadata = json.load(f)
-
-        files = metadata["files"]
+        metadata = CacheMetadata.from_file(cache_entry_dir / "metadata.json", repo_dir)
 
         # Collect all unique parent directories
         folders = set()
-        for file_path_str in files:
+        for file_path_str in metadata.files:
             dest = repo_dir / file_path_str
             folders.add(dest.parent)
 
@@ -647,20 +702,18 @@ class QuickenCache:
         # Submit one copy job per file to thread pool for parallel execution
         futures = [
             self._copy_executor.submit(self._copy_file, cache_entry_dir, repo_dir, file_path_str)
-            for file_path_str in files
+            for file_path_str in metadata.files
         ]
 
         # Translate paths in stdout/stderr from old repo location to new location
-        old_repo_dir = metadata.get("repo_dir", str(repo_dir))  # Default to current if not stored
         new_repo_dir = str(repo_dir)
-
-        stdout = metadata["stdout"]
-        stderr = metadata["stderr"]
-        if old_repo_dir != new_repo_dir:
-            main_file_path = metadata["main_file_path"]
-            dependencies = metadata["dependencies"]
-            stdout = self._translate_paths(stdout, old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
-            stderr = self._translate_paths(stderr, old_repo_dir, new_repo_dir, main_file_path, dependencies, files)
+        stdout = metadata.stdout
+        stderr = metadata.stderr
+        if metadata.repo_dir != new_repo_dir:
+            stdout = self._translate_paths(stdout, metadata.repo_dir, new_repo_dir,
+                                           metadata.main_file_path, metadata.dependencies, metadata.files)
+            stderr = self._translate_paths(stderr, metadata.repo_dir, new_repo_dir,
+                                           metadata.main_file_path, metadata.dependencies, metadata.files)
 
         print(stdout, end='')
         print(stderr, end='', file=sys.stderr)
@@ -669,7 +722,7 @@ class QuickenCache:
         for future in futures:
             future.result(timeout=60)
 
-        return metadata["returncode"]
+        return metadata.returncode
 
     def clear(self):
         """Clear all cached entries."""
