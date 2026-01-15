@@ -15,6 +15,16 @@ from abc import ABC
 from ._repo_path import RepoPath
 
 
+class ToolRunResult:
+    """Result of running a tool command."""
+
+    def __init__(self, output_files: List[Path], stdout: str, stderr: str, returncode: int):
+        self.output_files = output_files
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+
 class ToolCmd(ABC):
     """Base class for tool command wrappers.
 
@@ -241,11 +251,11 @@ class ToolCmd(ABC):
 
         return file_timestamps
 
-    def run(self, source_file: Path, repo_dir: Path) -> Tuple[List[Path], str, str, int]:
+    def run(self, source_file: Path, repo_dir: Path) -> ToolRunResult:
         """Run the tool and detect output files.
         Args:    source_file: Path to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
-        Returns: Tuple of (output_files, stdout, stderr, returncode)"""
+        Returns: ToolRunResult with output_files, stdout, stderr, returncode"""
         patterns = self.get_output_patterns(source_file, repo_dir)
         files_before = self._get_file_timestamps(repo_dir, patterns)
 
@@ -267,7 +277,7 @@ class ToolCmd(ABC):
             if f not in files_before or mtime > files_before[f]
         ]
 
-        return output_files, result.stdout, result.stderr, result.returncode
+        return ToolRunResult(output_files, result.stdout, result.stderr, result.returncode)
 
 
 class ClCmd(ToolCmd):

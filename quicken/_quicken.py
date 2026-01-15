@@ -42,8 +42,8 @@ class Quicken:
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
         Returns: Tool exit code (integer)"""
 
-        def log(status: str):
-            """Log cache operation with local context. Locals need to be initalized before calling log()"""
+        def log(status: str, returncode: int):
+            """Log cache operation with local context."""
             elapsed = time.perf_counter() - start_time
             cache_entry_name = cache_entry.name if cache_entry else "N/A"
             msg = f"{status}: {source_repo_path}, tool: {tool_name}, Time: {elapsed:.3f}s, args: {modified_args}, returncode: {returncode}, cache_entry: {cache_entry_name}"
@@ -65,7 +65,7 @@ class Quicken:
         cache_entry = self.cache.lookup(source_repo_path, tool_name, modified_args, self.repo_dir, input_args)
         if cache_entry:
             returncode = self.cache.restore(cache_entry, self.repo_dir)
-            log("CACHE HIT")
+            log("CACHE HIT", returncode)
             return returncode
 
 
@@ -73,19 +73,19 @@ class Quicken:
         dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
 
         # Execute tool and store artifacts in cache
-        output_files, stdout, stderr, returncode = tool.run(abs_source_file, self.repo_dir)
+        result = tool.run(abs_source_file, self.repo_dir)
 
-        print(stdout, end='')
-        print(stderr, end='', file=sys.stderr)
+        print(result.stdout, end='')
+        print(result.stderr, end='', file=sys.stderr)
 
         self.cache.store(
-            source_repo_path, tool_name, modified_args, dependency_repo_paths, output_files,
-            stdout, stderr, returncode, self.repo_dir,
+            source_repo_path, tool_name, modified_args, dependency_repo_paths, result.output_files,
+            result.stdout, result.stderr, result.returncode, self.repo_dir,
             input_args=input_args
         )
-        log("CACHE MISS")
+        log("CACHE MISS", result.returncode)
 
-        return returncode
+        return result.returncode
 
     def clear_cache(self):
         """Clear the entire cache."""
