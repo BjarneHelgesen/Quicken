@@ -9,7 +9,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 from abc import ABC
 
 from ._repo_path import RepoPath
@@ -213,11 +213,11 @@ class ToolCmd(ABC):
 
         return cmd
 
-    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+    def get_output_patterns(self, _source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files this tool will create.
         Patterns are relative to repo_dir and can use glob wildcards.
-        Args:    source_file: Path to source file being processed
-                 repo_dir: Repository root directory
+        Args:    _source_file: Path to source file (used by subclasses)
+                 _repo_dir: Repository root directory (used by subclasses)
         Returns: List of glob patterns (relative to repo_dir)"""
         return ["**/*"]  # Default: scan everything (override in subclasses)
 

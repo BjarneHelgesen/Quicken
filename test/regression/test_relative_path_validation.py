@@ -41,7 +41,7 @@ def test_relative_path_outside_repo_rejected(temp_dir):
     Root cause:
     - RepoPath constructor expects resolved paths but run() doesn't resolve before calling
     - Relative paths like "../outside.cpp" bypass validation
-    - The path gets stored as-is, and toAbsolutePath() creates repo_dir / "../outside.cpp"
+    - The path gets stored as-is, and to_absolute_path() creates repo_dir / "../outside.cpp"
 
     Fix: Call source_file.resolve() before creating RepoPath in run() and run_repo_tool()
     """

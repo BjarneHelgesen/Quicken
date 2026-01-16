@@ -12,7 +12,7 @@ from typing import List, Optional
 from ._cache import QuickenCache, CacheKey, make_args_repo_relative
 from ._logger import QuickenLogger
 from ._repo_path import RepoPath
-from ._tool_cmd import ToolCmd, ToolCmdFactory
+from ._tool_cmd import ToolCmdFactory
 from ._type_check import typecheck_methods
 
 
@@ -57,7 +57,7 @@ class Quicken:
             raise ValueError(f"Source file {source_file} is outside repository {self.repo_dir}")
 
         # Convert RepoPath back to absolute path for tool execution
-        abs_source_file = source_repo_path.toAbsolutePath(self.repo_dir)
+        abs_source_file = source_repo_path.to_absolute_path(self.repo_dir)
 
         start_time = time.perf_counter()
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, output_args, input_args, optimization)

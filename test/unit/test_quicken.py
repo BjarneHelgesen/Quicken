@@ -100,7 +100,7 @@ class TestQuickenCache:
 
         # Check folder_index.json
         folder_path = cache_entry_dir.parent
-        folder_index = FolderIndex.from_file(folder_path, temp_dir)
+        folder_index = FolderIndex.from_file(folder_path)
         assert folder_index.next_entry_id == 2  # Should be incremented for next entry
 
     @pytest.mark.pedantic

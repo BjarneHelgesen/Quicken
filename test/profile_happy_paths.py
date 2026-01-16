@@ -59,7 +59,7 @@ def analyze_profiler_detailed(profiler):
         'restore_submit': 0,
         'restore_wait': 0,
         'path_operations': 0,
-        'toAbsolutePath': 0,
+        'to_absolute_path': 0,
         'fromString': 0,
     }
 
@@ -100,9 +100,9 @@ def analyze_profiler_detailed(profiler):
             breakdown['restore_copy'] += tottime
 
         # Path operations
-        elif func_name == 'toAbsolutePath':
+        elif func_name == 'to_absolute_path':
             breakdown['path_operations'] += tottime
-            breakdown['toAbsolutePath'] += tottime
+            breakdown['to_absolute_path'] += tottime
         elif func_name == 'fromString':
             breakdown['fromString'] += tottime
         elif func_name == 'resolve' or func_name == 'realpath':
@@ -187,7 +187,7 @@ def main():
         ('    Copy files', 'restore_copy'),
         ('    JSON load', 'restore_json_load'),
         ('Path operations', 'path_operations'),
-        ('  toAbsolutePath', 'toAbsolutePath'),
+        ('  to_absolute_path', 'to_absolute_path'),
         ('  fromString', 'fromString'),
     ]
 

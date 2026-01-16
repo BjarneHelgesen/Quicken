@@ -162,7 +162,7 @@ class TestInputArgsCaching:
         folders_with_header1 = []
         folders_with_header2 = []
         for cf in compound_folders:
-            folder_index = FolderIndex.from_file(cf, temp_dir)
+            folder_index = FolderIndex.from_file(cf)
             compound_key = folder_index.compound_key
             if "header1.h" in compound_key:
                 folders_with_header1.append(cf)

@@ -38,7 +38,7 @@ class RepoPath:
             self.path = None
 
 
-    def toAbsolutePath(self, repo: Path) -> Path:
+    def to_absolute_path(self, repo: Path) -> Path:
         """Convert this repo-relative path to an absolute path.
         Args:    repo: Repository root directory
         Returns: Absolute path by joining repo with relative path, or None if invalid"""

@@ -36,7 +36,7 @@ class FileMetadata:
         Returns: 16-character hex string (64-bit BLAKE2b hash), or None if invalid path"""
         if not repo_path:
             return None
-        file_path = repo_path.toAbsolutePath(repo_dir)
+        file_path = repo_path.to_absolute_path(repo_dir)
 
         return hash_cpp_source(file_path)
 
@@ -52,10 +52,9 @@ class FileMetadata:
         self.size = size
 
     @classmethod
-    def from_dict(cls, data: Dict, repo_dir: Path) -> 'FileMetadata':
+    def from_dict(cls, data: Dict) -> 'FileMetadata':
         """Load from JSON dictionary.
         Args:    data: Dictionary with 'path', 'hash', 'mtime_ns', 'size' keys
-                 repo_dir: Repository root directory to create RepoPath
         Returns: FileMetadata instance"""
         repo_path = RepoPath.from_relative_string(data["path"])
         return cls(
@@ -81,7 +80,7 @@ class FileMetadata:
         Args:    repo_path: RepoPath instance for the file
                  repo_dir: Repository root directory
         Returns: FileMetadata instance with current file state"""
-        file_path = repo_path.toAbsolutePath(repo_dir)
+        file_path = repo_path.to_absolute_path(repo_dir)
         stat = file_path.stat()
         return cls(
             path=repo_path,
@@ -103,7 +102,7 @@ class FileMetadata:
         if not self.path:
             return False, None
 
-        file_path = self.path.toAbsolutePath(repo_dir)
+        file_path = self.path.to_absolute_path(repo_dir)
         try:
             stat = os.stat(file_path)
         except (FileNotFoundError, OSError):
@@ -166,7 +165,7 @@ class CacheMetadata:
             tool_name=data["tool_name"],
             tool_args=data["tool_args"],
             main_file_path=data["main_file_path"],
-            dependencies=[FileMetadata.from_dict(d, repo_dir) for d in data["dependencies"]],
+            dependencies=[FileMetadata.from_dict(d) for d in data["dependencies"]],
             files=data["files"],
             stdout=data["stdout"],
             stderr=data["stderr"],
@@ -204,11 +203,11 @@ class CacheEntry:
         self.dependencies = dependencies
 
     @classmethod
-    def from_dict(cls, data: Dict, repo_dir: Path) -> 'CacheEntry':
+    def from_dict(cls, data: Dict) -> 'CacheEntry':
         """Load from JSON dictionary."""
         return cls(
             cache_key=data["cache_key"],
-            dependencies=[FileMetadata.from_dict(d, repo_dir) for d in data["dependencies"]]
+            dependencies=[FileMetadata.from_dict(d) for d in data["dependencies"]]
         )
 
     def to_dict(self) -> Dict:
@@ -228,23 +227,23 @@ class FolderIndex:
         self.entries = entries
 
     @classmethod
-    def from_file(cls, folder_path: Path, repo_dir: Path) -> 'FolderIndex':
+    def from_file(cls, folder_path: Path) -> 'FolderIndex':
         """Load from folder_index.json file."""
         index_file = folder_path / "folder_index.json"
         try:
             with open(index_file, 'r') as f:
                 data = json.load(f)
-            return cls.from_dict(data, repo_dir)
+            return cls.from_dict(data)
         except (FileNotFoundError, json.JSONDecodeError):
             return cls(compound_key="", next_entry_id=1, entries=[])
 
     @classmethod
-    def from_dict(cls, data: Dict, repo_dir: Path) -> 'FolderIndex':
+    def from_dict(cls, data: Dict) -> 'FolderIndex':
         """Load from JSON dictionary."""
         return cls(
             compound_key=data["compound_key"],
             next_entry_id=data["next_entry_id"],
-            entries=[CacheEntry.from_dict(e, repo_dir) for e in data["entries"]]
+            entries=[CacheEntry.from_dict(e) for e in data["entries"]]
         )
 
     def to_dict(self) -> Dict:
@@ -401,7 +400,7 @@ class QuickenCache:
             if not cached_dep.path:
                 return False
 
-            file_path = cached_dep.path.toAbsolutePath(repo_dir)
+            file_path = cached_dep.path.to_absolute_path(repo_dir)
             try:
                 stat = file_path.stat()
             except (FileNotFoundError, OSError):
@@ -429,7 +428,7 @@ class QuickenCache:
             if not cached_dep.path:
                 return None
 
-            file_path = cached_dep.path.toAbsolutePath(repo_dir)
+            file_path = cached_dep.path.to_absolute_path(repo_dir)
             if not file_path.is_file():
                 return None
 
@@ -473,7 +472,7 @@ class QuickenCache:
         if not folder_path.exists():
             return None, None
 
-        folder_index = FolderIndex.from_file(folder_path, cache_key.repo_dir)
+        folder_index = FolderIndex.from_file(folder_path)
         return folder_path, folder_index
 
     def lookup(self, cache_key: CacheKey) -> Optional[Path]:
@@ -562,7 +561,7 @@ class QuickenCache:
         # Create FileMetadata objects from RepoPath instances
         dep_metadata = [FileMetadata.from_file(dep, cache_key.repo_dir) for dep in dependency_repo_paths]
 
-        folder_index = FolderIndex.from_file(folder_path, cache_key.repo_dir)
+        folder_index = FolderIndex.from_file(folder_path)
 
         # Check if an entry with these exact dependencies already exists in this folder
         dep_hash_str = self._hash_dependencies(dep_metadata)

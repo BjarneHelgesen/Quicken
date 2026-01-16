@@ -7,7 +7,7 @@ Provides runtime type checking that is only active during unit tests.
 import functools
 import inspect
 from pathlib import Path
-from typing import get_type_hints, get_origin, get_args, List, Optional, Union
+from typing import get_type_hints, get_origin, get_args, Union
 
 
 # Set to True by Quicken's test fixtures to enable type checking
@@ -94,7 +94,7 @@ def typecheck(func):
         params = list(sig.parameters.keys())
 
         # Check positional arguments
-        for i, (param_name, value) in enumerate(zip(params, args)):
+        for param_name, value in zip(params, args):
             if param_name in hints:
                 _check_type(value, hints[param_name], param_name)
 
