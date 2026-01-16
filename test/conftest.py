@@ -125,6 +125,9 @@ def persistent_tool_cache():
 def setup_quicken_config():
     """Set up Quicken configuration for tests.
     This fixture runs once per test session and copies test tools.json to ~/.quicken/tools.json."""
+    from quicken import _type_check
+    _type_check.TYPECHECK_ENABLED = True
+
     project_tools = Path(__file__).parent / "tools.json"
 
     if not project_tools.exists():

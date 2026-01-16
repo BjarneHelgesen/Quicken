@@ -64,14 +64,18 @@ class TestCacheHits:
         returncode1 = quicken_instance.run(
             test_cpp_file,
             "cl",
-            args_config1
+            args_config1,
+            [],
+            []
         )
         assert returncode1 == 0
 
         returncode2 = quicken_instance.run(
             test_cpp_file,
             "cl",
-            args_config2
+            args_config2,
+            [],
+            []
         )
         assert returncode2 == 0
 

@@ -95,7 +95,9 @@ def test_output_detection_does_not_scan_subdirectories(temp_dir):
     returncode = quicken.run(
         source_file,
         "cl",
-        ["/c", "/nologo", "/EHsc"])
+        ["/c", "/nologo", "/EHsc"],
+        [],
+        [])
 
     assert returncode == 0, "Compilation should succeed"
 
@@ -143,7 +145,9 @@ def test_performance_with_large_directory_tree(temp_dir):
     returncode = quicken.run(
         source_file,
         "cl",
-        ["/c", "/nologo", "/EHsc"])
+        ["/c", "/nologo", "/EHsc"],
+        [],
+        [])
     duration = time.time() - start
 
     assert returncode == 0, "Compilation should succeed"

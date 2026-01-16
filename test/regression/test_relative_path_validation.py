@@ -73,7 +73,9 @@ def test_relative_path_outside_repo_rejected(temp_dir):
         quicken.run(
             relative_path_to_outside,
             "cl",
-            ["/c", "/nologo", "/EHsc"])
+            ["/c", "/nologo", "/EHsc"],
+            [],
+            [])
 
 
 @pytest.mark.regression_test
@@ -104,7 +106,9 @@ def test_relative_path_inside_repo_accepted(temp_dir):
     returncode = quicken.run(
         relative_path,
         "cl",
-        ["/c", "/nologo", "/EHsc"])
+        ["/c", "/nologo", "/EHsc"],
+        [],
+        [])
 
     # Should succeed (0 or whatever the compilation returns)
     assert isinstance(returncode, int), "Should complete without ValueError"
@@ -144,7 +148,9 @@ def test_relative_path_with_dotdot_inside_repo(temp_dir):
     returncode = quicken.run(
         relative_path,
         "cl",
-        ["/c", "/nologo", "/EHsc"])
+        ["/c", "/nologo", "/EHsc"],
+        [],
+        [])
 
     assert isinstance(returncode, int), "Should complete without ValueError"
 
@@ -175,7 +181,9 @@ def test_absolute_path_outside_repo_rejected(temp_dir):
         quicken.run(
             outside_file,  # Absolute path
             "cl",
-            ["/c", "/nologo", "/EHsc"])
+            ["/c", "/nologo", "/EHsc"],
+            [],
+            [])
 
 
 if __name__ == "__main__":

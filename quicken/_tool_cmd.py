@@ -38,15 +38,15 @@ class ToolCmd(ABC):
     optimization_flags = []  # e.g., ["/Od", "/O1", "/O2", "/Ox"] for MSVC
     needs_vcvars = False
 
-    def __init__(self, tool_name: str, arguments: List[str], logger, config, data_dir, optimization=None, output_args=None, input_args=None):
+    def __init__(self, tool_name: str, arguments: List[str], logger, config, data_dir, output_args: List[str], input_args: List[str], optimization=None):
         self.tool_name = tool_name
         self.arguments = arguments
         self.optimization = optimization
         self.config = config
         self.logger = logger
         self.data_dir = data_dir  # Directory for caching MSVC environment
-        self.output_args = output_args if output_args is not None else []  # Output-specific arguments (not part of cache key)
-        self.input_args = input_args if input_args is not None else []  # Input-specific arguments (part of cache key)
+        self.output_args = output_args  # Output-specific arguments (not part of cache key)
+        self.input_args = input_args  # Input-specific arguments (part of cache key)
         self._tool_path = None  # Lazy-loaded tool path
         self._msvc_env = None  # Lazy-loaded MSVC environment
 
@@ -490,14 +490,14 @@ class ToolCmdFactory:
 
     @classmethod
     def create(cls, tool_name: str, arguments: List[str],
-               logger, optimization=None, output_args=None, input_args=None) -> ToolCmd:
+               logger, output_args: List[str], input_args: List[str], optimization=None) -> ToolCmd:
         """Create ToolCmd instance for the given tool name.
         Args:    tool_name: Name of the tool (must be registered)
                  arguments: Command-line arguments (part of cache key)
                  logger: Logger instance
-                 optimization: Optional optimization level
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
+                 optimization: Optional optimization level
         Returns: ToolCmd subclass instance
         Raises:  ValueError: If tool_name is not registered"""
         if tool_name not in cls._registry:
@@ -507,4 +507,4 @@ class ToolCmdFactory:
         config = cls._get_config()
 
         return tool_class(tool_name, arguments, logger, config,
-                         cls._data_dir, optimization, output_args, input_args)
+                         cls._data_dir, output_args, input_args, optimization)

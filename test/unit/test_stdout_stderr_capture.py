@@ -313,7 +313,7 @@ class TestMSVCStdoutStderr:
         # First run (cache miss) - capture output
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "cl", tool_args,
+            test_cpp_file, "cl", tool_args, [], [],
         )
 
         if returncode1 != 0:
@@ -327,7 +327,7 @@ class TestMSVCStdoutStderr:
         # Second run (cache hit) - capture output
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "cl", tool_args,
+            test_cpp_file, "cl", tool_args, [], [],
         )
 
         # Verify outputs are identical
@@ -347,7 +347,7 @@ class TestMSVCStdoutStderr:
         # First run (cache miss)
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
-            cpp_file, "cl", tool_args,
+            cpp_file, "cl", tool_args, [], [],
         )
 
         # Should succeed with warnings
@@ -365,7 +365,7 @@ class TestMSVCStdoutStderr:
         # Second run (cache hit)
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            cpp_file, "cl", tool_args,
+            cpp_file, "cl", tool_args, [], [],
         )
         
         # Verify exact reproduction
@@ -384,7 +384,7 @@ class TestMSVCStdoutStderr:
 
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "cl", tool_args_banner,
+            test_cpp_file, "cl", tool_args_banner, [], [],
         )
 
         if returncode1 != 0:
@@ -399,7 +399,7 @@ class TestMSVCStdoutStderr:
 
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "cl", tool_args_nologo,
+            test_cpp_file, "cl", tool_args_nologo, [], [],
         )
 
         if returncode2 != 0:
@@ -424,7 +424,7 @@ class TestClangStdoutStderr:
         # First run (cache miss)
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "clang++", tool_args,
+            test_cpp_file, "clang++", tool_args, [], [],
         )
 
         if returncode1 != 0:
@@ -438,7 +438,7 @@ class TestClangStdoutStderr:
         # Second run (cache hit)
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "clang++", tool_args,
+            test_cpp_file, "clang++", tool_args, [], [],
         )
 
         # Verify exact reproduction
@@ -457,7 +457,7 @@ class TestClangStdoutStderr:
         # First run (cache miss)
         returncode1, stdout1, stderr1 = capture_output(
             quicken_instance.run,
-            cpp_file, "clang++", tool_args,
+            cpp_file, "clang++", tool_args, [], [],
         )
 
         if returncode1 != 0:
@@ -474,7 +474,7 @@ class TestClangStdoutStderr:
         # Second run (cache hit)
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            cpp_file, "clang++", tool_args,
+            cpp_file, "clang++", tool_args, [], [],
         )
 
         # Verify exact reproduction
@@ -498,7 +498,7 @@ class TestClangTidyStdoutStderr:
         try:
             returncode1, stdout1, stderr1 = capture_output(
                 quicken_instance.run,
-                test_cpp_file, "clang-tidy", tool_args,
+                test_cpp_file, "clang-tidy", tool_args, [], [],
             )
         except Exception:
             pytest.skip("clang-tidy not available or failed")
@@ -510,7 +510,7 @@ class TestClangTidyStdoutStderr:
         # Second run (cache hit)
         returncode2, stdout2, stderr2 = capture_output(
             quicken_instance.run,
-            test_cpp_file, "clang-tidy", tool_args,
+            test_cpp_file, "clang-tidy", tool_args, [], [],
         )
 
         # Verify exact reproduction

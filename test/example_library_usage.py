@@ -36,7 +36,9 @@ def example_library_usage_verbose():
         # Using new convenience method (recommended)
         returncode = quicken.cl(
             source_file=Path(source_file),
-            tool_args=["/c"]
+            tool_args=["/c"],
+            output_args=[],
+            input_args=[]
         )
     elapsed = time.perf_counter() - start
 
@@ -58,7 +60,9 @@ def example_library_usage_quiet():
         # Using convenience method
         returncode = quicken.cl(
             source_file=Path(source_file),
-            tool_args=["/c"]
+            tool_args=["/c"],
+            output_args=[],
+            input_args=[]
         )
         if returncode != 0:
             print(f"ERROR: {source_file} failed with code {returncode}")
@@ -83,7 +87,9 @@ def example_parallel_builds():
         # Using convenience method
         returncode = quicken.cl(
             source_file=Path(source_file),
-            tool_args=["/c", "/W4"]
+            tool_args=["/c", "/W4"],
+            output_args=[],
+            input_args=[]
         )
         return source_file, returncode
 

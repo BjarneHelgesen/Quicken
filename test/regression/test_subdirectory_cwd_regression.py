@@ -99,7 +99,9 @@ def test_subdirectory_source_file_with_relative_args(temp_dir):
     returncode = quicken.run(
         doxyfile_path,           # Absolute: /repo/.doxygen/Doxyfile.xml
         "doxygen",
-        [str(doxyfile_relative)] # Relative: .doxygen/Doxyfile.xml
+        [str(doxyfile_relative)], # Relative: .doxygen/Doxyfile.xml
+        [],
+        []
     )
 
     # Verify Doxygen succeeded

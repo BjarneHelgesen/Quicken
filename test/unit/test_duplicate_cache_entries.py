@@ -67,6 +67,7 @@ int add(int a, int b) {
         "clang++",
         tool_args,
         output_args=["-o", str(dir1 / "test.s")],
+        input_args=[],
         optimization=0
     )
 
@@ -98,6 +99,7 @@ int add(int a, int b) {
         "clang++",
         tool_args,
         output_args=["-o", str(dir2 / "test.s")],
+        input_args=[],
         optimization=0
     )
 
@@ -181,6 +183,7 @@ int multiply(int x, int y) {
             "clang++",
             ["-std=c++20", "-Wall", "-S", "-masm=intel"],
             output_args=["-o", str(compile_dir / "test.s")],
+            input_args=[],
             optimization=0
         )
 

@@ -140,6 +140,7 @@ class TestInputArgsCaching:
         # First run with header1
         returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
+            output_args=[],
             input_args=input_args1
         )
         assert returncode1 == 0
@@ -147,6 +148,7 @@ class TestInputArgsCaching:
         # Second run with header2 - should be different cache entry
         returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
+            output_args=[],
             input_args=input_args2
         )
         assert returncode2 == 0
@@ -189,6 +191,7 @@ class TestInputArgsCaching:
         # First run
         returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
+            output_args=[],
             input_args=input_args
         )
         assert returncode1 == 0
@@ -201,6 +204,7 @@ class TestInputArgsCaching:
         # Second run with same input_args - should hit cache
         returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
+            output_args=[],
             input_args=input_args
         )
         assert returncode2 == 0
@@ -224,6 +228,7 @@ class TestInputArgsCaching:
         # Run compilation in first location with input_args
         returncode1 = quicken1.run(
             cpp_file1, "cl", ["/c", "/nologo", "/EHsc"],
+            output_args=[],
             input_args=["-include", str(header1)]
         )
         if returncode1 != 0:
@@ -243,6 +248,7 @@ class TestInputArgsCaching:
         # Run in second location - should hit cache because paths are repo-relative
         returncode2 = quicken2.run(
             cpp_file2, "cl", ["/c", "/nologo", "/EHsc"],
+            output_args=[],
             input_args=["-include", str(header2)]
         )
 
@@ -255,7 +261,7 @@ class TestInputArgsCaching:
 
         # Run without input_args (should work as before)
         returncode1 = quicken_instance.run(
-            test_cpp_file, "cl", tool_args)
+            test_cpp_file, "cl", tool_args, [], [])
         assert returncode1 == 0
 
         # Delete output
@@ -265,7 +271,7 @@ class TestInputArgsCaching:
 
         # Second run should hit cache
         returncode2 = quicken_instance.run(
-            test_cpp_file, "cl", tool_args)
+            test_cpp_file, "cl", tool_args, [], [])
         assert returncode2 == 0
 
         # Output should be restored

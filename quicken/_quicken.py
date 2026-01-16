@@ -13,8 +13,10 @@ from ._cache import QuickenCache, CacheKey, make_args_repo_relative
 from ._logger import QuickenLogger
 from ._repo_path import RepoPath
 from ._tool_cmd import ToolCmd, ToolCmdFactory
+from ._type_check import typecheck_methods
 
 
+@typecheck_methods
 class Quicken:
     """Main Quicken application."""
 
@@ -32,7 +34,7 @@ class Quicken:
 
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
-            optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
+            output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> int:
         """Main execution: optimized cache lookup, or get dependencies and run tool.
         Args:    source_file: File to process (absolute or relative path) - C++ file for compilers, Doxyfile for Doxygen
                  tool_name: Tool to run
@@ -58,7 +60,7 @@ class Quicken:
         abs_source_file = source_repo_path.toAbsolutePath(self.repo_dir)
 
         start_time = time.perf_counter()
-        tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, optimization, output_args, input_args)
+        tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, output_args, input_args, optimization)
         modified_args = tool.add_optimization_flags(tool_args)
 
         # Create cache key once for both lookup and store
@@ -93,7 +95,7 @@ class Quicken:
 
     # Convenience methods for common tools
     def cl(self, source_file: Path, tool_args: List[str],
-           optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
+           output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> int:
         """Compile with MSVC cl compiler.
         Args:    source_file: C++ source file to compile
                  tool_args: Compiler arguments (part of cache key)
@@ -101,10 +103,10 @@ class Quicken:
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key)
         Returns: Tool exit code"""
-        return self.run(source_file, "cl", tool_args, optimization, output_args, input_args)
+        return self.run(source_file, "cl", tool_args, output_args, input_args, optimization)
 
     def clang(self, source_file: Path, tool_args: List[str],
-              optimization: int = None, output_args: List[str] = None, input_args: List[str] = []) -> int:
+              output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> int:
         """Compile with clang++ compiler.
         Args:    source_file: C++ source file to compile
                  tool_args: Compiler arguments (part of cache key)
@@ -112,24 +114,24 @@ class Quicken:
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key)
         Returns: Tool exit code"""
-        return self.run(source_file, "clang++", tool_args, optimization, output_args, input_args)
+        return self.run(source_file, "clang++", tool_args, output_args, input_args, optimization)
 
     def clang_tidy(self, source_file: Path, tool_args: List[str],
-                   output_args: List[str] = None, input_args: List[str] = []) -> int:
+                   output_args: List[str], input_args: List[str]) -> int:
         """Analyze with clang-tidy static analyzer.
         Args:    source_file: C++ source file to analyze
                  tool_args: Analyzer arguments (part of cache key)
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key)
         Returns: Tool exit code"""
-        return self.run(source_file, "clang-tidy", tool_args, None, output_args, input_args)
+        return self.run(source_file, "clang-tidy", tool_args, output_args, input_args)
 
-    def doxygen(self, doxyfile: Path, tool_args: List[str] = [],
-                output_args: List[str] = None, input_args: List[str] = []) -> int:
+    def doxygen(self, doxyfile: Path, tool_args: List[str],
+                output_args: List[str], input_args: List[str]) -> int:
         """Generate documentation with Doxygen.
         Args:    doxyfile: Doxyfile configuration file
                  tool_args: Doxygen arguments (part of cache key)
                  output_args: Output-specific arguments (NOT part of cache key)
                  input_args: Input-specific arguments (part of cache key)
         Returns: Tool exit code"""
-        return self.run(doxyfile, "doxygen", tool_args, None, output_args, input_args)
+        return self.run(doxyfile, "doxygen", tool_args, output_args, input_args)
