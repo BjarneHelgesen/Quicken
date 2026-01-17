@@ -730,4 +730,3 @@ class QuickenCache:
                     shutil.rmtree(entry)
                 else:
                     entry.unlink()
-

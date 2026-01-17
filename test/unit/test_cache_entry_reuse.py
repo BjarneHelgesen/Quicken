@@ -64,10 +64,11 @@ class TestCacheEntryReuse:
         """
         test_cpp = temp_dir / "test.cpp"
         args = ['/c', '/nologo', '/EHsc']
+        cl = quicken_instance.cl(args, [], [])
 
         # Step 1: Compile V1
         test_cpp.write_text(TEST_CPP_V1)
-        _, _, returncode = quicken_instance.run(test_cpp, "cl", args, [], [])
+        _, _, returncode = quicken_instance.run(test_cpp, cl)
         assert returncode == 0
 
         # Find the compound folder for test.cpp
@@ -83,7 +84,7 @@ class TestCacheEntryReuse:
         # Step 2: Modify and compile V2
         time.sleep(0.01)  # Ensure different mtime
         test_cpp.write_text(TEST_CPP_V2)
-        _, _, returncode = quicken_instance.run(test_cpp, "cl", args, [], [])
+        _, _, returncode = quicken_instance.run(test_cpp, cl)
         assert returncode == 0
 
         # Verify entry_000002 was created
@@ -93,7 +94,7 @@ class TestCacheEntryReuse:
         # Step 3: Revert to V1 and compile
         time.sleep(0.01)  # Ensure different mtime
         test_cpp.write_text(TEST_CPP_V1)
-        _, _, returncode = quicken_instance.run(test_cpp, "cl", args, [], [])
+        _, _, returncode = quicken_instance.run(test_cpp, cl)
         assert returncode == 0
 
         # Step 4: Verify entry_000003 does NOT exist (entry_000001 was reused)
@@ -111,10 +112,11 @@ class TestCacheEntryReuse:
         """
         test_cpp = temp_dir / "test.cpp"
         args = ['/c', '/nologo', '/EHsc']
+        cl = quicken_instance.cl(args, [], [])
 
         # Step 1: Compile V1
         test_cpp.write_text(TEST_CPP_V1)
-        _, _, returncode = quicken_instance.run(test_cpp, "cl", args, [], [])
+        _, _, returncode = quicken_instance.run(test_cpp, cl)
         assert returncode == 0
 
         # Find the compound folder for test.cpp
@@ -135,7 +137,7 @@ class TestCacheEntryReuse:
         test_cpp.write_text(TEST_CPP_V1)  # Same content, new mtime
 
         # Step 3: Compile again - should be cache hit with mtime update
-        _, _, returncode = quicken_instance.run(test_cpp, "cl", args, [], [])
+        _, _, returncode = quicken_instance.run(test_cpp, cl)
         assert returncode == 0
 
         # Step 4: Verify mtime was updated in metadata
@@ -155,13 +157,15 @@ class TestCacheEntryReuse:
 
         args1 = ['/c', '/nologo', '/EHsc']
         args2 = ['/c', '/nologo', '/EHsc', '/W4']
+        cl1 = quicken_instance.cl(args1, [], [])
+        cl2 = quicken_instance.cl(args2, [], [])
 
         # Compile with args1
-        _, _, returncode = quicken_instance.run(test_cpp, "cl", args1, [], [])
+        _, _, returncode = quicken_instance.run(test_cpp, cl1)
         assert returncode == 0
 
         # Compile with args2 (different args, same content)
-        _, _, returncode = quicken_instance.run(test_cpp, "cl", args2, [], [])
+        _, _, returncode = quicken_instance.run(test_cpp, cl2)
         assert returncode == 0
 
         # Verify 2 compound folders were created (different args = different folders)

@@ -27,12 +27,11 @@ quicken = Quicken(repo_dir=Path.cwd())
 ## Compile Files
 
 ```python
+# Create a reusable compiler command
+cl = quicken.cl(tool_args=["/c", "/W4"], output_args=[], input_args=[])
+
 # Compile a single file
-stdout, stderr, returncode = quicken.run(
-    source_file=Path("myfile.cpp"),
-    tool_name="cl",
-    tool_args=["/c", "/W4"]
-)
+stdout, stderr, returncode = quicken.run(Path("myfile.cpp"), cl)
 
 if returncode != 0:
     print("Compilation failed!")
@@ -53,29 +52,70 @@ Initialize Quicken instance.
 quicken = Quicken(repo_dir=Path.cwd())
 ```
 
-`Quicken.run(source_file, tool_name, tool_args, optimization=None, output_args=None, input_args=[]) -> Tuple[str, str, int]`
+`Quicken.cl(tool_args, output_args, input_args, optimization=None) -> ToolCmd`
 
-Execute a tool on a C++ file (with caching).
+Create a reusable MSVC cl compiler command.
 
 **Parameters:**
-- `source_file` (Path): Source file to process
-- `tool_name` (str): Tool name from `~/.quicken/tools.json` (e.g., "cl", "clang-tidy")
 - `tool_args` (List[str]): Arguments to pass to the tool
+- `output_args` (List[str]): Output-specific arguments not part of cache key
+- `input_args` (List[str]): Input-specific arguments part of cache key
 - `optimization` (int, optional): Optimization level (0-3), or None to accept any cached level
-- `output_args` (List[str], optional): Output-specific arguments not part of cache key
-- `input_args` (List[str], optional): Input-specific arguments part of cache key
+
+**Returns:**
+- `ToolCmd`: Reusable tool command object
+
+---
+
+`Quicken.clang(tool_args, output_args, input_args, optimization=None) -> ToolCmd`
+
+Create a reusable clang++ compiler command.
+
+**Parameters:** Same as `cl()`
+
+---
+
+`Quicken.clang_tidy(tool_args, output_args, input_args) -> ToolCmd`
+
+Create a reusable clang-tidy command.
+
+**Parameters:**
+- `tool_args` (List[str]): Arguments to pass to the tool
+- `output_args` (List[str]): Output-specific arguments not part of cache key
+- `input_args` (List[str]): Input-specific arguments part of cache key
+
+---
+
+`Quicken.doxygen(tool_args, output_args, input_args) -> ToolCmd`
+
+Create a reusable doxygen command.
+
+**Parameters:** Same as `clang_tidy()`
+
+---
+
+`Quicken.run(file, tool_cmd) -> Tuple[str, str, int]`
+
+Execute a tool on a file (with caching).
+
+**Parameters:**
+- `file` (Path): File to process (C++ file for compilers, Doxyfile for Doxygen)
+- `tool_cmd` (ToolCmd): Tool command created by `cl()`, `clang()`, `clang_tidy()`, or `doxygen()`
 
 **Returns:**
 - `Tuple[str, str, int]`: (stdout, stderr, returncode)
 
 **Example:**
 ```python
-stdout, stderr, returncode = quicken.run(
-    source_file=Path("myfile.cpp"),
-    tool_name="cl",
-    tool_args=["/c", "/W4"]
-)
+cl = quicken.cl(tool_args=["/c", "/W4"], output_args=[], input_args=[])
+stdout, stderr, returncode = quicken.run(Path("myfile.cpp"), cl)
 ```
+
+---
+
+`Quicken.clear_cache()`
+
+Clear the entire cache.
 
 ## Configuration
 

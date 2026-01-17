@@ -131,7 +131,7 @@ def profile_happy_path(scenario_name: str, num_headers: int, touch_files: bool):
         quicken.cache = QuickenCache(cache_dir)
 
         # Populate cache
-        quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"], [], [])
+        quicken.run(main_cpp, quicken.cl(["/c", "/nologo", "/EHsc"], [], []))
 
         obj_file = main_cpp.parent / "main.obj"
         obj_file.unlink()
@@ -146,7 +146,7 @@ def profile_happy_path(scenario_name: str, num_headers: int, touch_files: bool):
         profiler = cProfile.Profile()
         profiler.enable()
 
-        quicken.run(main_cpp, "cl", ["/c", "/nologo", "/EHsc"], [], [])
+        quicken.run(main_cpp, quicken.cl(["/c", "/nologo", "/EHsc"], [], []))
 
         profiler.disable()
 

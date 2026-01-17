@@ -61,22 +61,12 @@ class TestCacheHits:
         ]
 
         # Run both configurations
-        _, _, returncode1 = quicken_instance.run(
-            test_cpp_file,
-            "cl",
-            args_config1,
-            [],
-            []
-        )
+        cl1 = quicken_instance.cl(args_config1, [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, cl1)
         assert returncode1 == 0
 
-        _, _, returncode2 = quicken_instance.run(
-            test_cpp_file,
-            "cl",
-            args_config2,
-            [],
-            []
-        )
+        cl2 = quicken_instance.cl(args_config2, [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, cl2)
         assert returncode2 == 0
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Example of using Quicken 
+Example of using Quicken
 """
 
 from pathlib import Path
@@ -31,18 +31,16 @@ def example_library_usage_verbose():
 
     files = ["test.cpp"] * 10
 
+    # Create reusable tool command
+    cl = quicken.cl(tool_args=["/c"], output_args=[], input_args=[])
+
     start = time.perf_counter()
     for source_file in files:
-        # Using new convenience method (recommended)
-        returncode = quicken.cl(
-            source_file=Path(source_file),
-            tool_args=["/c"],
-            output_args=[],
-            input_args=[]
-        )
+        # Run the tool on each file
+        _, _, returncode = quicken.run(Path(source_file), cl)
     elapsed = time.perf_counter() - start
 
-    print(f"\nLibrary method (verbose, using cl() convenience method): {elapsed:.2f}s for {len(files)} calls")
+    print(f"\nLibrary method (verbose): {elapsed:.2f}s for {len(files)} calls")
     print(f"  ~{elapsed/len(files)*1000:.1f}ms per call")
 
 
@@ -54,21 +52,18 @@ def example_library_usage_quiet():
 
     files = ["test.cpp"] * 100  # Simulate 100 files
 
+    # Create reusable tool command
+    cl = quicken.cl(tool_args=["/c"], output_args=[], input_args=[])
+
     print("\n[Running 100 files in quiet mode...]")
     start = time.perf_counter()
     for source_file in files:
-        # Using convenience method
-        returncode = quicken.cl(
-            source_file=Path(source_file),
-            tool_args=["/c"],
-            output_args=[],
-            input_args=[]
-        )
+        _, _, returncode = quicken.run(Path(source_file), cl)
         if returncode != 0:
             print(f"ERROR: {source_file} failed with code {returncode}")
     elapsed = time.perf_counter() - start
 
-    print(f"\nLibrary method (quiet, using cl() convenience method): {elapsed:.2f}s for {len(files)} calls")
+    print(f"\nLibrary method (quiet): {elapsed:.2f}s for {len(files)} calls")
     print(f"  ~{elapsed/len(files)*1000:.1f}ms per call")
     print(f"  Estimated time for 1000 files: {elapsed*10:.1f}s")
 
@@ -82,15 +77,12 @@ def example_parallel_builds():
     # Simulate a larger project
     files = ["test.cpp"] * 500
 
+    # Create reusable tool command
+    cl = quicken.cl(tool_args=["/c", "/W4"], output_args=[], input_args=[])
+
     def compile_file(source_file):
         """Compile a single file"""
-        # Using convenience method
-        returncode = quicken.cl(
-            source_file=Path(source_file),
-            tool_args=["/c", "/W4"],
-            output_args=[],
-            input_args=[]
-        )
+        _, _, returncode = quicken.run(Path(source_file), cl)
         return source_file, returncode
 
     print("\n[Parallel compilation of 500 files...]")
@@ -137,8 +129,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("Summary:")
     print("  - Tools must be pre-configured in ~/.quicken/tools.json (by installer)")
-    print("  - Initialize Quicken once with repo_dir, use convenience methods many times")
-    print("  - Convenience methods: quicken.cl(), quicken.clang(), quicken.clang_tidy(), quicken.doxygen()")
-    print("  - Generic method available: quicken.run() for flexibility")
-    print("  - Use output_args for output-specific flags (not part of cache key)")
+    print("  - Initialize Quicken once with repo_dir")
+    print("  - Create reusable tool commands: cl = quicken.cl(...)")
+    print("  - Run on files: quicken.run(file, cl)")
+    print("  - Reuse tool commands across many files for efficiency")
     print("=" * 60)

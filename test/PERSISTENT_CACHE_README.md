@@ -59,8 +59,10 @@ All tests automatically use the persistent cache via the `quicken_instance` fixt
 
 ```python
 def test_msvc_cache_miss_and_hit(quicken_instance, test_cpp_file):
+    # Create reusable tool command
+    cl = quicken_instance.cl(["/c", "/nologo", "/EHsc"], [], [])
     # Automatically uses persistent cache
-    returncode = quicken_instance.run(test_cpp_file, "cl", ["/c", "/nologo", "/EHsc"], ...)
+    _, _, returncode = quicken_instance.run(test_cpp_file, cl)
     # Tool result comes from cache (~0.05s instead of ~1.4s)
 ```
 

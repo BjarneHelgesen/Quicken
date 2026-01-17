@@ -200,7 +200,8 @@ class TestQuickenMSVC:
         tool_args = ["/c", "/nologo", "/EHsc"]
 
         # First run - cache miss
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "cl", tool_args, [], [])
+        cl = quicken_instance.cl(tool_args, [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, cl)
         assert returncode1 == 0  # Compilation should succeed
 
         # Check that .obj file was created
@@ -214,7 +215,7 @@ class TestQuickenMSVC:
         obj_file.unlink()
 
         # Second run - cache hit
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "cl", tool_args, [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, cl)
         assert returncode2 == 0
 
         # .obj file should be restored from cache
@@ -224,7 +225,8 @@ class TestQuickenMSVC:
     def test_msvc_different_flags_different_cache(self, quicken_instance, test_cpp_file):
         """Test that different compilation flags create different cache entries."""
         # Compile with /W3
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "cl", ["/c", "/nologo", "/EHsc", "/W3"], [], [])
+        cl_w3 = quicken_instance.cl(["/c", "/nologo", "/EHsc", "/W3"], [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, cl_w3)
         assert returncode1 == 0
 
         obj_file = test_cpp_file.parent / "test.obj"
@@ -232,16 +234,18 @@ class TestQuickenMSVC:
             obj_file.unlink()
 
         # Compile with /W4 - should be a cache miss
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "cl", ["/c", "/nologo", "/EHsc", "/W4"], [], [])
+        cl_w4 = quicken_instance.cl(["/c", "/nologo", "/EHsc", "/W4"], [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, cl_w4)
         assert returncode2 == 0
 
     @pytest.mark.pedantic
     def test_msvc_file_modification_invalidates_cache(self, quicken_instance, test_cpp_file):
         """Test that modifying the source file invalidates the cache."""
         tool_args = ["/c", "/nologo", "/EHsc"]
+        cl = quicken_instance.cl(tool_args, [], [])
 
         # First compilation
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "cl", tool_args, [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, cl)
         assert returncode1 == 0
 
         obj_file = test_cpp_file.parent / "test.obj"
@@ -252,7 +256,7 @@ class TestQuickenMSVC:
         test_cpp_file.write_text(SIMPLE_CPP_CODE_MODIFIED)
 
         # Second compilation - should be cache miss due to file change
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "cl", tool_args, [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, cl)
         assert returncode2 == 0
 
     def test_msvc_custom_output_dir(self, quicken_instance, test_cpp_file, temp_dir):
@@ -263,11 +267,10 @@ class TestQuickenMSVC:
 
         # Compile with /Fo to specify output directory
         tool_args = ["/c", "/nologo", "/EHsc", f"/Fo{output_dir}/"]
+        cl = quicken_instance.cl(tool_args, [], [])
 
         # First run - cache miss
-        _, _, returncode1 = quicken_instance.run(
-            test_cpp_file, "cl", tool_args, [], [],
-        )
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, cl)
         assert returncode1 == 0
 
         # Check that .obj file was created in custom directory
@@ -279,9 +282,7 @@ class TestQuickenMSVC:
         obj_file.unlink()
 
         # Second run - cache hit
-        _, _, returncode2 = quicken_instance.run(
-            test_cpp_file, "cl", tool_args, [], [],
-        )
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, cl)
         assert returncode2 == 0
 
         # .obj file should be restored from cache to custom directory
@@ -294,9 +295,10 @@ class TestQuickenClang:
     def test_clang_cache_miss_and_hit(self, quicken_instance, test_cpp_file):
         """Test clang++ compilation with cache miss followed by cache hit."""
         tool_args = ["-c"]
+        clang = quicken_instance.clang(tool_args, [], [])
 
         # First run - cache miss
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "clang++", tool_args, [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, clang)
         # Clang may fail due to missing headers, that's okay for testing cache behavior
         if returncode1 != 0:
             pytest.fail("clang++ compilation failed, likely due to missing headers")
@@ -310,7 +312,7 @@ class TestQuickenClang:
         obj_file.unlink()
 
         # Second run - cache hit
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "clang++", tool_args, [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, clang)
         assert returncode2 == returncode1
 
         # .o file should be restored from cache
@@ -320,8 +322,8 @@ class TestQuickenClang:
     def test_clang_different_optimization_levels(self, quicken_instance, test_cpp_file):
         """Test that different optimization levels create different cache entries."""
         # Compile with -O0
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "clang++", ["-c"], [], [],
-                                           optimization=0)
+        clang_o0 = quicken_instance.clang(["-c"], [], [], optimization=0)
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, clang_o0)
         if returncode1 != 0:
             pytest.fail("clang++ compilation failed")
 
@@ -330,8 +332,8 @@ class TestQuickenClang:
             obj_file.unlink()
 
         # Compile with -O2 - should be a cache miss
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "clang++", ["-c"], [], [],
-                                           optimization=2)
+        clang_o2 = quicken_instance.clang(["-c"], [], [], optimization=2)
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, clang_o2)
         # Just check it completes, return code may vary
         assert isinstance(returncode2, int)
 
@@ -342,9 +344,10 @@ class TestQuickenClang:
         cpp_file.write_text(CPP_CODE_WITH_WARNING)
 
         tool_args = ["-c", "-Wall"]
+        clang = quicken_instance.clang(tool_args, [], [])
 
         # First run
-        _, _, returncode1 = quicken_instance.run(cpp_file, "clang++", tool_args, [], [])
+        _, _, returncode1 = quicken_instance.run(cpp_file, clang)
         if returncode1 != 0:
             pytest.fail("clang++ compilation failed")
 
@@ -355,7 +358,7 @@ class TestQuickenClang:
         obj_file.unlink()
 
         # Second run - cache hit
-        _, _, returncode2 = quicken_instance.run(cpp_file, "clang++", tool_args, [], [])
+        _, _, returncode2 = quicken_instance.run(cpp_file, clang)
         assert returncode2 == returncode1
 
         assert obj_file.exists()
@@ -367,13 +370,14 @@ class TestQuickenClangTidy:
     def test_clang_tidy_cache_miss_and_hit(self, quicken_instance, test_cpp_file):
         """Test clang-tidy analysis with cache miss followed by cache hit."""
         tool_args = ["--checks=readability-*"]
+        clang_tidy = quicken_instance.clang_tidy(tool_args, [], [])
 
         # First run - cache miss
         # clang-tidy may return non-zero if it finds issues, so we don't assert returncode
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "clang-tidy", tool_args, [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, clang_tidy)
 
         # Second run - cache hit (should produce same result)
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "clang-tidy", tool_args, [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, clang_tidy)
 
         # Return codes should match
         assert returncode1 == returncode2
@@ -382,10 +386,12 @@ class TestQuickenClangTidy:
     def test_clang_tidy_different_checks(self, quicken_instance, test_cpp_file):
         """Test that different check sets create different cache entries."""
         # Run with modernize checks
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "clang-tidy", ["--checks=modernize-*"], [], [])
+        clang_tidy_mod = quicken_instance.clang_tidy(["--checks=modernize-*"], [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, clang_tidy_mod)
 
         # Run with readability checks - should be a cache miss
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "clang-tidy", ["--checks=readability-*"], [], [])
+        clang_tidy_read = quicken_instance.clang_tidy(["--checks=readability-*"], [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, clang_tidy_read)
 
         # Both should complete (return codes may vary based on findings)
         assert isinstance(returncode1, int)
@@ -394,15 +400,16 @@ class TestQuickenClangTidy:
     def test_clang_tidy_cache_invalidation_on_change(self, quicken_instance, test_cpp_file):
         """Test that modifying source invalidates clang-tidy cache."""
         tool_args = ["--checks=*"]
+        clang_tidy = quicken_instance.clang_tidy(tool_args, [], [])
 
         # First run
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "clang-tidy", tool_args, [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, clang_tidy)
 
         # Modify source
         test_cpp_file.write_text(SIMPLE_CPP_CODE_MODIFIED)
 
         # Second run - should be cache miss
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, "clang-tidy", tool_args, [], [])
+        _, _, returncode2 = quicken_instance.run(test_cpp_file, clang_tidy)
 
         # Should complete
         assert isinstance(returncode2, int)
@@ -421,9 +428,10 @@ class TestQuickenIntegration:
 
         # Create Quicken instance with shared cache
         quicken1 = Quicken(temp_dir, cache_dir=cache_dir)
+        cl1 = quicken1.cl(["/c", "/nologo", "/EHsc"], [], [])
 
         # Run compilation in first location - cache miss
-        returncode1 = quicken1.run(cpp_file1, "cl", ["/c", "/nologo", "/EHsc"], [], [])
+        _, _, returncode1 = quicken1.run(cpp_file1, cl1)
         if returncode1 != 0:
             pytest.skip("MSVC compilation failed, skipping path translation test")
 
@@ -435,9 +443,10 @@ class TestQuickenIntegration:
 
         # Create new Quicken instance with same cache
         quicken2 = Quicken(temp_dir, cache_dir=cache_dir)
+        cl2 = quicken2.cl(["/c", "/nologo", "/EHsc"], [], [])
 
         # Run compilation in second location - should be cache hit
-        stdout_output, stderr_output, returncode2 = quicken2.run(cpp_file2, "cl", ["/c", "/nologo", "/EHsc"], [], [])
+        stdout_output, stderr_output, returncode2 = quicken2.run(cpp_file2, cl2)
 
         # Verify return code matches
         assert returncode2 == returncode1
@@ -456,16 +465,19 @@ class TestQuickenIntegration:
     def test_multiple_tools_same_file(self, quicken_instance, test_cpp_file):
         """Test that the same file can be processed by multiple tools with separate caches."""
         # Compile with MSVC
-        _, _, returncode_cl = quicken_instance.run(test_cpp_file, "cl", ["/c", "/nologo", "/EHsc"], [], [])
+        cl = quicken_instance.cl(["/c", "/nologo", "/EHsc"], [], [])
+        _, _, returncode_cl = quicken_instance.run(test_cpp_file, cl)
         if returncode_cl != 0:
             pytest.fail("MSVC compilation failed")
 
         # Compile with clang
-        _, _, returncode_clang = quicken_instance.run(test_cpp_file, "clang++", ["-c"], [], [])
+        clang = quicken_instance.clang(["-c"], [], [])
+        _, _, returncode_clang = quicken_instance.run(test_cpp_file, clang)
         # Clang may fail, that's okay
 
         # Analyze with clang-tidy
-        _, _, returncode_tidy = quicken_instance.run(test_cpp_file, "clang-tidy", ["--checks=*"], [], [])
+        clang_tidy = quicken_instance.clang_tidy(["--checks=*"], [], [])
+        _, _, returncode_tidy = quicken_instance.run(test_cpp_file, clang_tidy)
         assert isinstance(returncode_tidy, int)
 
 
@@ -473,15 +485,17 @@ class TestQuickenIntegration:
     def test_cache_index_persistence(self, quicken_instance, test_cpp_file, cache_dir):
         """Test that cache index persists across Quicken instances."""
         tool_args = ["/c", "/nologo", "/EHsc"]
+        cl = quicken_instance.cl(tool_args, [], [])
 
         # First run
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, "cl", tool_args, [], [])
+        _, _, returncode1 = quicken_instance.run(test_cpp_file, cl)
         if returncode1 != 0:
             pytest.fail("MSVC compilation failed")
 
         # Create new instance with same cache (use same repo_dir as quicken_instance)
         from quicken import Quicken
         quicken2 = Quicken(test_cpp_file.parent, cache_dir=cache_dir)  # Use same repo_dir
+        cl2 = quicken2.cl(tool_args, [], [])
 
         # Delete output file
         obj_file = test_cpp_file.parent / "test.obj"
@@ -489,7 +503,7 @@ class TestQuickenIntegration:
             obj_file.unlink()
 
         # Second run with new instance should hit cache
-        _, _, returncode2 = quicken2.run(test_cpp_file, "cl", tool_args, [], [])
+        _, _, returncode2 = quicken2.run(test_cpp_file, cl2)
 
         # Should restore the file if it was created in the first place
         if returncode1 == 0:

@@ -50,10 +50,20 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     print(f"Testing {tool_name}")
     print('='*60)
 
+    # Create tool command based on tool_name
+    if tool_name == "cl":
+        tool_cmd = quicken.cl(tool_args, [], [])
+    elif tool_name == "clang++":
+        tool_cmd = quicken.clang(tool_args, [], [])
+    elif tool_name == "clang-tidy":
+        tool_cmd = quicken.clang_tidy(tool_args, [], [])
+    else:
+        raise ValueError(f"Unknown tool: {tool_name}")
+
     # Cache MISS - First run
     print(f"[{tool_name}] Running cache MISS test...")
     start = time.time()
-    _, _, returncode1 = quicken.run(cpp_file, tool_name, tool_args, [], [])
+    _, _, returncode1 = quicken.run(cpp_file, tool_cmd)
     miss_time = time.time() - start
 
     if returncode1 != 0:
@@ -75,7 +85,7 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     # Cache HIT - Second run
     print(f"[{tool_name}] Running cache HIT test...")
     start = time.time()
-    _, _, returncode2 = quicken.run(cpp_file, tool_name, tool_args, [], [])
+    _, _, returncode2 = quicken.run(cpp_file, tool_cmd)
     hit_time = time.time() - start
 
     if returncode2 != 0:

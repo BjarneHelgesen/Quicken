@@ -29,11 +29,8 @@ test/
 from quicken import Quicken
 
 quicken = Quicken(repo_dir=Path.cwd())
-stdout, stderr, returncode = quicken.run(
-    source_file=Path("main.cpp"),
-    tool_name="cl",
-    tool_args=["/c", "/W4"]
-)
+cl = quicken.cl(tool_args=["/c", "/W4"], output_args=[], input_args=[])
+stdout, stderr, returncode = quicken.run(Path("main.cpp"), cl)
 ```
 
 ## Caching Strategy
