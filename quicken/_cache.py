@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ._cpp_normalizer import hash_cpp_source
 from ._repo_path import RepoPath
+from ._tool_cmd import ToolRunResult
 
 
 class FileMetadata:
@@ -530,14 +531,11 @@ class QuickenCache:
         return None
 
     def store(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
-              output_files: List[Path], stdout: str, stderr: str, returncode: int) -> Optional[Path]:
+              result: ToolRunResult) -> Optional[Path]:
         """Store tool output in cache with dependency hashes.
         Args:    cache_key: CacheKey identifying the cache entry
                  dependency_repo_paths: List of RepoPath instances for dependencies
-                 output_files: List of output file paths
-                 stdout: Tool stdout
-                 stderr: Tool stderr
-                 returncode: Tool exit code
+                 result: ToolRunResult containing output files, stdout, stderr, returncode
         Returns: Path to cache entry directory, or None if lock couldn't be acquired"""
 
         folder_path = self.cache_dir / cache_key.folder_name
@@ -547,14 +545,12 @@ class QuickenCache:
             return None
 
         try:
-            return self._store_locked(cache_key, dependency_repo_paths, output_files,
-                                      stdout, stderr, returncode, folder_path)
+            return self._store_locked(cache_key, dependency_repo_paths, result, folder_path)
         finally:
             self._release_folder_lock(lock_handle)
 
     def _store_locked(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
-                      output_files: List[Path], stdout: str, stderr: str, returncode: int,
-                      folder_path: Path) -> Path:
+                      result: ToolRunResult, folder_path: Path) -> Path:
         """Internal store implementation, called while holding folder lock."""
         source_key = str(cache_key.source_repo_path)  # repo-relative path
 
@@ -593,7 +589,7 @@ class QuickenCache:
             cache_entry_dir.mkdir(parents=True, exist_ok=True)
 
             stored_files = []
-            for output_file in output_files:
+            for output_file in result.output_files:
                 if output_file.exists():
                     try:
                         rel_path = output_file.relative_to(cache_key.repo_dir)
@@ -615,9 +611,9 @@ class QuickenCache:
                 main_file_path=source_key,
                 dependencies=dep_metadata,
                 files=stored_files,
-                stdout=stdout,
-                stderr=stderr,
-                returncode=returncode,
+                stdout=result.stdout,
+                stderr=result.stderr,
+                returncode=result.returncode,
                 repo_dir=str(cache_key.repo_dir)
             )
             metadata.save(cache_entry_dir / "metadata.json")

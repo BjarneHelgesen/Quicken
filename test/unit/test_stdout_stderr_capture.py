@@ -21,6 +21,7 @@ import pytest
 from quicken import Quicken
 from quicken._cache import QuickenCache, CacheKey
 from quicken._repo_path import RepoPath
+from quicken._tool_cmd import ToolRunResult
 
 
 # Sample C++ code for testing
@@ -118,7 +119,7 @@ class TestStdoutStderrCapture:
 
         # Store in cache
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], stdout, stderr, returncode)
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode))
 
         # Verify metadata.json contains stdout and stderr
         metadata_file = cache_entry / "metadata.json"
@@ -154,7 +155,7 @@ class TestStdoutStderrCapture:
 
         # Store in cache
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], original_stdout, original_stderr, returncode)
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, returncode))
 
         # Delete output file
         output_file.unlink()
@@ -197,7 +198,7 @@ class TestStdoutStderrCapture:
 
         # Store with empty stdout and stderr
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], "", "", 0)
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], "", "", 0))
 
         # Restore - capture output
         old_stdout = sys.stdout
@@ -239,7 +240,7 @@ class TestStdoutStderrCapture:
         original_stderr = "Error on line 10\nError on line 20\n"
 
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], original_stdout, original_stderr, 0)
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0))
 
         # Restore and verify exact preservation - capture output
         old_stdout = sys.stdout
@@ -281,7 +282,7 @@ class TestStdoutStderrCapture:
         original_stderr = "Warning: '\t' tab and \"quotes\"\n"
 
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], original_stdout, original_stderr, 0)
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0))
 
         # Restore and verify - capture output
         old_stdout = sys.stdout
@@ -551,7 +552,7 @@ class TestRepoToolStdoutStderr:
 
         # Store cache entry
         cache_key = CacheKey(main_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, [output_file], stdout, stderr, returncode)
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode))
 
         # Verify metadata contains stdout/stderr
         metadata_file = cache_entry / "metadata.json"
@@ -586,7 +587,7 @@ class TestErrorCases:
 
         # Store error result (no output files created)
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, [], stdout, stderr, returncode)
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([], stdout, stderr, returncode))
 
         # Restore - capture output
         old_stdout = sys.stdout

@@ -8,15 +8,8 @@ Example usage:
     from quicken import Quicken
 
     quicken = Quicken(repo_dir=Path.cwd())
-
-    # Convenience methods (recommended)
-    quicken.cl(source_file=Path("main.cpp"), tool_args=["/c", "/W4"])
-    quicken.clang(source_file=Path("main.cpp"), tool_args=["-c", "-Wall"])
-    quicken.clang_tidy(source_file=Path("main.cpp"), tool_args=["--checks=*"])
-    quicken.doxygen(doxyfile=Path("Doxyfile"))
-
-    # Generic method (for flexibility)
-    quicken.run(source_file=Path("main.cpp"), tool_name="cl", tool_args=["/c", "/W4"])
+    quicken.run(source_file=Path("main.cpp"), tool_name="cl",
+                tool_args=["/c", "/W4"], output_args=[], input_args=[])
 """
 
 from ._quicken import Quicken

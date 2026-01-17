@@ -73,54 +73,10 @@ class Quicken:
         print(result.stdout, end='')
         print(result.stderr, end='', file=sys.stderr)
 
-        self.cache.store(cache_key, dependency_repo_paths, result.output_files,
-                         result.stdout, result.stderr, result.returncode)
+        self.cache.store(cache_key, dependency_repo_paths, result)
 
         return result.returncode
 
     def clear_cache(self):
         """Clear the entire cache."""
         self.cache.clear()
-
-    # Convenience methods for common tools
-    def cl(self, source_file: Path, tool_args: List[str],
-           output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> int:
-        """Compile with MSVC cl compiler.
-        Args:    source_file: C++ source file to compile
-                 tool_args: Compiler arguments (part of cache key)
-                 optimization: Optimization level (0-3)
-                 output_args: Output-specific arguments (NOT part of cache key)
-                 input_args: Input-specific arguments (part of cache key)
-        Returns: Tool exit code"""
-        return self.run(source_file, "cl", tool_args, output_args, input_args, optimization)
-
-    def clang(self, source_file: Path, tool_args: List[str],
-              output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> int:
-        """Compile with clang++ compiler.
-        Args:    source_file: C++ source file to compile
-                 tool_args: Compiler arguments (part of cache key)
-                 optimization: Optimization level (0-3)
-                 output_args: Output-specific arguments (NOT part of cache key)
-                 input_args: Input-specific arguments (part of cache key)
-        Returns: Tool exit code"""
-        return self.run(source_file, "clang++", tool_args, output_args, input_args, optimization)
-
-    def clang_tidy(self, source_file: Path, tool_args: List[str],
-                   output_args: List[str], input_args: List[str]) -> int:
-        """Analyze with clang-tidy static analyzer.
-        Args:    source_file: C++ source file to analyze
-                 tool_args: Analyzer arguments (part of cache key)
-                 output_args: Output-specific arguments (NOT part of cache key)
-                 input_args: Input-specific arguments (part of cache key)
-        Returns: Tool exit code"""
-        return self.run(source_file, "clang-tidy", tool_args, output_args, input_args)
-
-    def doxygen(self, doxyfile: Path, tool_args: List[str],
-                output_args: List[str], input_args: List[str]) -> int:
-        """Generate documentation with Doxygen.
-        Args:    doxyfile: Doxyfile configuration file
-                 tool_args: Doxygen arguments (part of cache key)
-                 output_args: Output-specific arguments (NOT part of cache key)
-                 input_args: Input-specific arguments (part of cache key)
-        Returns: Tool exit code"""
-        return self.run(doxyfile, "doxygen", tool_args, output_args, input_args)
