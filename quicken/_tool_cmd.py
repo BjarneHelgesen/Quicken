@@ -1,8 +1,8 @@
 """
 Tool command wrappers for Quicken.
 
-Provides ToolCmd base class, tool-specific subclasses, and factory for creating
-tool command instances with appropriate optimization flags and dependency tracking.
+Provides ToolCmd base class and tool-specific subclasses with appropriate
+optimization flags and dependency tracking.
 """
 
 import json
@@ -38,30 +38,40 @@ class ToolCmd(ABC):
     optimization_flags = []  # e.g., ["/Od", "/O1", "/O2", "/Ox"] for MSVC
     needs_vcvars = False
 
-    def __init__(self, tool_name: str, arguments: List[str], logger, config, data_dir, output_args: List[str], input_args: List[str], optimization=None):
+    # Shared class attributes for config
+    _data_dir = Path.home() / ".quicken"
+    _config = None
+
+    def __init__(self, tool_name: str, arguments: List[str], logger, output_args: List[str], input_args: List[str], optimization=None):
         self.tool_name = tool_name
         self.arguments = arguments
         self.optimization = optimization
-        self.config = config
         self.logger = logger
-        self.data_dir = data_dir  # Directory for caching MSVC environment
         self.output_args = output_args  # Output-specific arguments (not part of cache key)
         self.input_args = input_args  # Input-specific arguments (part of cache key)
         self._tool_path = None  # Lazy-loaded tool path
         self._msvc_env = None  # Lazy-loaded MSVC environment
 
+    @classmethod
+    def _get_config(cls) -> Dict:
+        """Load configuration from tools.json (lazy, cached)."""
+        if cls._config is None:
+            with open(cls._data_dir / "tools.json", 'r') as f:
+                cls._config = json.load(f)
+        return cls._config
+
     @property
     def tool_path(self) -> str:
         """Get the full path to the tool, loading it lazily from config."""
         if self._tool_path is None:
-            self._tool_path = self.get_tool_path(self.config, self.tool_name)
+            self._tool_path = self._get_config()[self.tool_name]
         return self._tool_path
 
     @property
     def msvc_env(self) -> Dict:
         """Get MSVC environment, loading it lazily when first accessed."""
         if self._msvc_env is None:
-            self._msvc_env = ToolCmd.get_msvc_environment(self.config, self.data_dir)
+            self._msvc_env = ToolCmd._get_msvc_environment()
         return self._msvc_env
 
     def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
@@ -70,7 +80,7 @@ class ToolCmd(ABC):
         Args:    main_file: Main file being processed (source file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository root directory
         Returns: List of RepoPath instances for all dependencies"""
-        cl_path = ToolCmd.get_tool_path(self.config, "cl")
+        cl_path = self._get_config()["cl"]
 
         # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
         result = subprocess.run(
@@ -96,25 +106,15 @@ class ToolCmd(ABC):
 
         return dependencies
 
-    @staticmethod
-    def get_tool_path(config: Dict, tool_name: str) -> str:
-        """Get the full path to a tool from config.
-        Args:    config: Configuration dictionary
-                 tool_name: Name of the tool
-        Returns: Full path to the tool executable"""
-        return config[tool_name]
-
-    @staticmethod
-    def get_msvc_environment(config: Dict, data_dir: Path) -> Dict:
-        """Get MSVC environment variables, cached to avoid repeated vcvarsall.bat calls.
-        Args:    config: Configuration dictionary
-                 data_dir: Directory for caching MSVC environment
-        Returns: Dictionary of environment variables"""
-        vcvarsall = ToolCmd.get_tool_path(config, "vcvarsall")
+    @classmethod
+    def _get_msvc_environment(cls) -> Dict:
+        """Get MSVC environment variables, cached to avoid repeated vcvarsall.bat calls."""
+        config = cls._get_config()
+        vcvarsall = config["vcvarsall"]
         msvc_arch = config.get("msvc_arch", "x64")
 
         # Cache file location
-        cache_file = data_dir / "msvc_env.json"
+        cache_file = cls._data_dir / "msvc_env.json"
 
         # Try to load from cache
         if cache_file.exists():
@@ -468,50 +468,3 @@ class DoxygenCmd(ToolCmd):
 
         return dependencies
 
-class ToolCmdFactory:
-    """Factory for creating ToolCmd instances.
-
-    Manages configuration loading and provides ToolCmd instances.
-    Configuration is loaded lazily from ~/.quicken/tools.json.
-    """
-
-    _registry = {
-        "cl": ClCmd,
-        "clang++": ClangCmd,
-        "clang-tidy": ClangTidyCmd,
-        "doxygen": DoxygenCmd,
-    }
-
-    _config = None
-    _data_dir = Path.home() / ".quicken"
-
-    @classmethod
-    def _get_config(cls) -> Dict:
-        """Load configuration from tools.json (lazy, cached).
-        Returns: Configuration dictionary"""
-        if cls._config is None:
-            config_path = cls._data_dir / "tools.json"
-            with open(config_path, 'r') as f:
-                cls._config = json.load(f)
-        return cls._config
-
-    @classmethod
-    def create(cls, tool_name: str, arguments: List[str],
-               logger, output_args: List[str], input_args: List[str], optimization=None) -> ToolCmd:
-        """Create ToolCmd instance for the given tool name.
-        Args:    tool_name: Name of the tool (must be registered)
-                 arguments: Command-line arguments (part of cache key)
-                 logger: Logger instance
-                 output_args: Output-specific arguments (NOT part of cache key)
-                 input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
-                 optimization: Optional optimization level
-        Returns: ToolCmd subclass instance
-        Raises:  ValueError: If tool_name is not registered"""
-        if tool_name not in cls._registry:
-            raise ValueError(f"Unsupported tool: {tool_name}")
-
-        tool_class = cls._registry[tool_name]
-        config = cls._get_config()
-
-        return tool_class(tool_name, arguments, logger, config,
-                         cls._data_dir, output_args, input_args, optimization)

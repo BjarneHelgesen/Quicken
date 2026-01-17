@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 from ._cache import QuickenCache, CacheKey
 from ._logger import QuickenLogger
 from ._repo_path import RepoPath
-from ._tool_cmd import ToolCmd, ToolCmdFactory
+from ._tool_cmd import ToolCmd, ClCmd, ClangCmd, ClangTidyCmd, DoxygenCmd
 from ._type_check import typecheck_methods
 
 
@@ -30,24 +30,23 @@ class Quicken:
         self.cache = QuickenCache(cache_path)
         self.logger = QuickenLogger(self._data_dir)
 
-
     def cl(self, tool_args: List[str], output_args: List[str], input_args: List[str],
            optimization: Optional[int] = None) -> ToolCmd:
         """Create a reusable MSVC cl compiler command."""
-        return ToolCmdFactory.create("cl", tool_args, self.logger, output_args, input_args, optimization)
+        return ClCmd("cl", tool_args, self.logger, output_args, input_args, optimization)
 
     def clang(self, tool_args: List[str], output_args: List[str], input_args: List[str],
               optimization: Optional[int] = None) -> ToolCmd:
         """Create a reusable clang++ compiler command."""
-        return ToolCmdFactory.create("clang++", tool_args, self.logger, output_args, input_args, optimization)
+        return ClangCmd("clang++", tool_args, self.logger, output_args, input_args, optimization)
 
     def clang_tidy(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable clang-tidy command."""
-        return ToolCmdFactory.create("clang-tidy", tool_args, self.logger, output_args, input_args, None)
+        return ClangTidyCmd("clang-tidy", tool_args, self.logger, output_args, input_args, None)
 
     def doxygen(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable doxygen command."""
-        return ToolCmdFactory.create("doxygen", tool_args, self.logger, output_args, input_args, None)
+        return DoxygenCmd("doxygen", tool_args, self.logger, output_args, input_args, None)
 
     def run(self, file: Path, tool_cmd: ToolCmd) -> Tuple[str, str, int]:
         """Main execution: optimized cache lookup, or get dependencies and run tool.
