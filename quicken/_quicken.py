@@ -4,7 +4,6 @@ Main Quicken application and tool execution.
 Provides the main Quicken class for managing cached tool execution.
 """
 
-import time
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -44,13 +43,6 @@ class Quicken:
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
         Returns: Tool exit code (integer)"""
 
-        def log(status: str, returncode: int):
-            """Log cache operation with local context."""
-            elapsed = time.perf_counter() - start_time
-            cache_entry_name = cache_entry.name if cache_entry else "N/A"
-            msg = f"{status}: {source_repo_path}, tool: {tool_name}, Time: {elapsed:.3f}s, args: {modified_args}, returncode: {returncode}, cache_entry: {cache_entry_name}"
-            self.logger.info(msg)
-
         # Convert source_file to RepoPath and validate it's inside repo
         source_repo_path = RepoPath(self.repo_dir, source_file)
         if not source_repo_path:
@@ -59,20 +51,18 @@ class Quicken:
         # Convert RepoPath back to absolute path for tool execution
         abs_source_file = source_repo_path.to_absolute_path(self.repo_dir)
 
-        start_time = time.perf_counter()
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, output_args, input_args, optimization)
         modified_args = tool.add_optimization_flags(tool_args)
 
-        # Create cache key once for both lookup and store
+        # Create cache key 
         repo_relative_input_args = make_args_repo_relative(input_args, self.repo_dir)
         cache_key = CacheKey(source_repo_path, tool_name, modified_args, repo_relative_input_args, self.repo_dir)
 
         # Try cache lookup (mtime first, then hash)
         cache_entry = self.cache.lookup(cache_key)
+        self.logger.info(f"Cached entry found: {cache_entry}: {source_repo_path}, tool: {tool_name} source:{source_file}")
         if cache_entry:
-            returncode = self.cache.restore(cache_entry, self.repo_dir)
-            log("CACHE HIT", returncode)
-            return returncode
+            return self.cache.restore(cache_entry, self.repo_dir)
 
         # Get dependencies from tool
         dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
@@ -85,7 +75,6 @@ class Quicken:
 
         self.cache.store(cache_key, dependency_repo_paths, result.output_files,
                          result.stdout, result.stderr, result.returncode)
-        log("CACHE MISS", result.returncode)
 
         return result.returncode
 
