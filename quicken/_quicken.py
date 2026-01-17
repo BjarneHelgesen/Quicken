@@ -55,20 +55,20 @@ class Quicken:
 
         # Create cache key
         repo_relative_input_args = make_args_repo_relative(input_args, self.repo_dir)
-        cache_key = CacheKey(source_repo_path, tool_name, modified_args, repo_relative_input_args, self.repo_dir)
+        cache_key = CacheKey(source_repo_path, tool_name, modified_args, repo_relative_input_args)
 
         # Cache lookup
-        cache_entry = self.cache.lookup(cache_key)
+        cache_entry = self.cache.lookup(cache_key, self.repo_dir)
         self.logger.info(f"Cached entry found: {cache_entry}: {source_repo_path}, tool: {tool_name} source:{source_file}")
         if cache_entry:
             return self.cache.restore(cache_entry, self.repo_dir)
 
         # Execute tool and get dependencies
-        result, dependency_repo_paths = tool.run(abs_source_file, self.repo_dir)
+        result, dependencies = tool.run(abs_source_file, self.repo_dir)
 
         # Store artifacts in cache if it was successful
         if result.returncode == 0:
-            self.cache.store(cache_key, dependency_repo_paths, result)
+            self.cache.store(cache_key, dependencies, result, self.repo_dir)
 
         return result.stdout, result.stderr, result.returncode
 

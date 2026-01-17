@@ -94,8 +94,8 @@ class TestQuickenCache:
         source_file.write_text("int main() { return 0; }")
         source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
-        cache_key = CacheKey(source_repo_path, "cl", ["/c"], [], temp_dir)
-        cache_entry_dir = cache.store(cache_key, dep_repo_paths, ToolRunResult([], "", "", 0))
+        cache_key = CacheKey(source_repo_path, "cl", ["/c"], [])
+        cache_entry_dir = cache.store(cache_key, dep_repo_paths, ToolRunResult([], "", "", 0), temp_dir)
 
         # Check folder_index.json
         folder_path = cache_entry_dir.parent
@@ -123,18 +123,18 @@ class TestQuickenCache:
         returncode = 0
 
         # Store in cache
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode))
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
         assert cache_entry.exists()
 
         # Lookup should find it
-        found = cache.lookup(cache_key)
+        found = cache.lookup(cache_key, temp_dir)
         assert found is not None
         assert found == cache_entry
 
         # Different command should not find it
-        different_key = CacheKey(source_repo_path, tool_name, ["/c", "/W4"], [], temp_dir)
-        not_found = cache.lookup(different_key)
+        different_key = CacheKey(source_repo_path, tool_name, ["/c", "/W4"], [])
+        not_found = cache.lookup(different_key, temp_dir)
         assert not_found is None
 
     @pytest.mark.pedantic
@@ -160,8 +160,8 @@ class TestQuickenCache:
         stderr = "No warnings"
         returncode = 0
 
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode))
+        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Delete the original file
         output_file.unlink()

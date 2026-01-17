@@ -312,12 +312,11 @@ class CacheKey:
     """
 
     def __init__(self, source_repo_path: RepoPath, tool_name: str,
-                 tool_args: List[str], input_args: List[str], repo_dir: Path):
+                 tool_args: List[str], input_args: List[str]):
         self.source_repo_path = source_repo_path
         self.tool_name = tool_name
         self.tool_args = tool_args
         self.input_args = input_args
-        self.repo_dir = repo_dir
 
         # Compute derived values eagerly (used in every lookup/store)
         self.key = self._get_key()
@@ -475,7 +474,7 @@ class QuickenCache:
         folder_index = FolderIndex.from_file(folder_path)
         return folder_path, folder_index
 
-    def lookup(self, cache_key: CacheKey) -> Optional[Path]:
+    def lookup(self, cache_key: CacheKey, repo_dir: Path) -> Optional[Path]:
         """Look up cached output using two-pass strategy: mtime first, then hash.
 
         Pass 1: Check all entries for mtime+size match (no hashing - fast)
@@ -488,8 +487,6 @@ class QuickenCache:
 
         if folder_path is None:
             return None
-
-        repo_dir = cache_key.repo_dir
 
         # Pass 1: Try mtime+size match (fast path - no hashing)
         for entry in folder_index.entries:
@@ -530,11 +527,12 @@ class QuickenCache:
         return None
 
     def store(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
-              result: ToolRunResult) -> Optional[Path]:
+              result: ToolRunResult, repo_dir: Path) -> Optional[Path]:
         """Store tool output in cache with dependency hashes.
         Args:    cache_key: CacheKey identifying the cache entry
                  dependency_repo_paths: List of RepoPath instances for dependencies
                  result: ToolRunResult containing output files, stdout, stderr, returncode
+                 repo_dir: Repository root directory
         Returns: Path to cache entry directory, or None if lock couldn't be acquired"""
 
         folder_path = self.cache_dir / cache_key.folder_name
@@ -544,17 +542,17 @@ class QuickenCache:
             return None
 
         try:
-            return self._store_locked(cache_key, dependency_repo_paths, result, folder_path)
+            return self._store_locked(cache_key, dependency_repo_paths, result, folder_path, repo_dir)
         finally:
             self._release_folder_lock(lock_handle)
 
     def _store_locked(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
-                      result: ToolRunResult, folder_path: Path) -> Path:
+                      result: ToolRunResult, folder_path: Path, repo_dir: Path) -> Path:
         """Internal store implementation, called while holding folder lock."""
         source_key = str(cache_key.source_repo_path)  # repo-relative path
 
         # Create FileMetadata objects from RepoPath instances
-        dep_metadata = [FileMetadata.from_file(dep, cache_key.repo_dir) for dep in dependency_repo_paths]
+        dep_metadata = [FileMetadata.from_file(dep, repo_dir) for dep in dependency_repo_paths]
 
         folder_index = FolderIndex.from_file(folder_path)
 
@@ -574,7 +572,7 @@ class QuickenCache:
 
             # Update metadata with current mtime and size values
             metadata_file = cache_entry_dir / "metadata.json"
-            metadata = CacheMetadata.from_file(metadata_file, cache_key.repo_dir)
+            metadata = CacheMetadata.from_file(metadata_file, repo_dir)
             metadata.dependencies = dep_metadata
             metadata.save(metadata_file)
 
@@ -591,7 +589,7 @@ class QuickenCache:
             for output_file in result.output_files:
                 if output_file.exists():
                     try:
-                        rel_path = output_file.relative_to(cache_key.repo_dir)
+                        rel_path = output_file.relative_to(repo_dir)
                         dest = cache_entry_dir / rel_path
                         file_path_str = str(rel_path)
                     except ValueError:
@@ -613,7 +611,7 @@ class QuickenCache:
                 stdout=result.stdout,
                 stderr=result.stderr,
                 returncode=result.returncode,
-                repo_dir=str(cache_key.repo_dir)
+                repo_dir=str(repo_dir)
             )
             metadata.save(cache_entry_dir / "metadata.json")
 
