@@ -33,17 +33,17 @@ class ToolCmd(ABC):
     to ensure consistent behavior across all installations.
     """
 
-    # Class attributes (overridden by subclasses)
-    supports_optimization = False
-    optimization_flags = []  # e.g., ["/Od", "/O1", "/O2", "/Ox"] for MSVC
-    needs_vcvars = False
-
     # Shared class attributes for config
     _data_dir = Path.home() / ".quicken"
     _config = None
 
-    def __init__(self, tool_name: str, arguments: List[str], logger, output_args: List[str], input_args: List[str], optimization=None):
+    def __init__(self, tool_name: str, supports_optimization: bool, optimization_flags: List[str],
+                 needs_vcvars: bool, arguments: List[str], logger, output_args: List[str],
+                 input_args: List[str], optimization=None):
         self.tool_name = tool_name
+        self.supports_optimization = supports_optimization
+        self.optimization_flags = optimization_flags
+        self.needs_vcvars = needs_vcvars
         self.arguments = arguments
         self.optimization = optimization
         self.logger = logger
@@ -286,9 +286,9 @@ class ToolCmd(ABC):
 
 
 class ClCmd(ToolCmd):
-    supports_optimization = True
-    optimization_flags = ["/Od", "/O1", "/O2", "/Ox"]
-    needs_vcvars = True
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str], optimization: int = None):
+        super().__init__("cl", True, ["/Od", "/O1", "/O2", "/Ox"], True,
+                         arguments, logger, output_args, input_args, optimization)
 
     def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files MSVC cl will create.
@@ -344,9 +344,9 @@ class ClCmd(ToolCmd):
         return patterns
 
 class ClangCmd(ToolCmd):
-    supports_optimization = True
-    optimization_flags = ["-O0", "-O1", "-O2", "-O3"]
-    needs_vcvars = False
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str], optimization: int = None):
+        super().__init__("clang++", True, ["-O0", "-O1", "-O2", "-O3"], False,
+                         arguments, logger, output_args, input_args, optimization)
 
     def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files clang++ will create.
@@ -390,9 +390,9 @@ class ClangCmd(ToolCmd):
         return patterns
 
 class ClangTidyCmd(ToolCmd):
-    supports_optimization = False
-    optimization_flags = []
-    needs_vcvars = False
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str]):
+        super().__init__("clang-tidy", False, [], False,
+                         arguments, logger, output_args, input_args, None)
 
     def get_output_patterns(self, _source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files clang-tidy will create.
@@ -416,9 +416,10 @@ class MocCmd(ToolCmd):
     """Qt Meta-Object Compiler command wrapper.
     MOC reads C++ header files containing Q_OBJECT macro and generates
     meta-object source code (typically moc_*.cpp files)."""
-    supports_optimization = False
-    optimization_flags = []
-    needs_vcvars = False
+
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str]):
+        super().__init__("moc", False, [], False,
+                         arguments, logger, output_args, input_args, None)
 
     def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files MOC will create.
@@ -449,9 +450,9 @@ class MocCmd(ToolCmd):
 
 
 class DoxygenCmd(ToolCmd):
-    supports_optimization = False
-    optimization_flags = []
-    needs_vcvars = False
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str]):
+        super().__init__("doxygen", False, [], False,
+                         arguments, logger, output_args, input_args, None)
 
     def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
         """Return patterns for files doxygen will create.

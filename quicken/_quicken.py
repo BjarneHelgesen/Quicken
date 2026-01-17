@@ -33,24 +33,24 @@ class Quicken:
     def cl(self, tool_args: List[str], output_args: List[str], input_args: List[str],
            optimization: Optional[int] = None) -> ToolCmd:
         """Create a reusable MSVC cl compiler command."""
-        return ClCmd("cl", tool_args, self.logger, output_args, input_args, optimization)
+        return ClCmd(tool_args, self.logger, output_args, input_args, optimization)
 
     def clang(self, tool_args: List[str], output_args: List[str], input_args: List[str],
               optimization: Optional[int] = None) -> ToolCmd:
         """Create a reusable clang++ compiler command."""
-        return ClangCmd("clang++", tool_args, self.logger, output_args, input_args, optimization)
+        return ClangCmd(tool_args, self.logger, output_args, input_args, optimization)
 
     def clang_tidy(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable clang-tidy command."""
-        return ClangTidyCmd("clang-tidy", tool_args, self.logger, output_args, input_args, None)
+        return ClangTidyCmd(tool_args, self.logger, output_args, input_args)
 
     def doxygen(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable doxygen command."""
-        return DoxygenCmd("doxygen", tool_args, self.logger, output_args, input_args, None)
+        return DoxygenCmd(tool_args, self.logger, output_args, input_args)
 
     def moc(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable Qt MOC (Meta-Object Compiler) command."""
-        return MocCmd("moc", tool_args, self.logger, output_args, input_args, None)
+        return MocCmd(tool_args, self.logger, output_args, input_args)
 
     def run(self, file: Path, tool_cmd: ToolCmd) -> Tuple[str, str, int]:
         """Main execution: optimized cache lookup, or get dependencies and run tool.
