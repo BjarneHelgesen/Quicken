@@ -40,14 +40,14 @@ class FileMetadata:
 
         return hash_cpp_source(file_path)
 
-    def __init__(self, path: RepoPath, hash: str, mtime_ns: int, size: int):
+    def __init__(self, path: RepoPath, file_hash: str, mtime_ns: int, size: int):
         """Initialize file metadata.
         Args:    path: RepoPath instance for the file
-                 hash: 16-character hex string (64-bit BLAKE2b hash)
+                 file_hash: 16-character hex string (64-bit BLAKE2b hash)
                  mtime_ns: Modification time in nanoseconds
                  size: File size in bytes"""
         self.path = path
-        self.hash = hash
+        self.hash = file_hash
         self.mtime_ns = mtime_ns
         self.size = size
 
@@ -59,7 +59,7 @@ class FileMetadata:
         repo_path = RepoPath.from_relative_string(data["path"])
         return cls(
             path=repo_path,
-            hash=data["hash"],
+            file_hash=data["hash"],
             mtime_ns=data["mtime_ns"],
             size=data["size"]
         )
@@ -84,7 +84,7 @@ class FileMetadata:
         stat = file_path.stat()
         return cls(
             path=repo_path,
-            hash=cls.calculate_hash(repo_path, repo_dir),
+            file_hash=cls.calculate_hash(repo_path, repo_dir),
             mtime_ns=stat.st_mtime_ns,
             size=stat.st_size
         )
@@ -367,7 +367,7 @@ class QuickenCache:
         except (IOError, OSError):
             try:
                 f.close()
-            except:
+            except (IOError, OSError):
                 pass
             return None
 
@@ -377,7 +377,7 @@ class QuickenCache:
             try:
                 msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
                 lock_handle.close()
-            except:
+            except (IOError, OSError):
                 pass
 
     def _hash_dependencies(self, dependencies: List[FileMetadata]) -> str:

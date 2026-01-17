@@ -285,7 +285,7 @@ class ClCmd(ToolCmd):
     optimization_flags = ["/Od", "/O1", "/O2", "/Ox"]
     needs_vcvars = True
 
-    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+    def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files MSVC cl will create.
         Parses arguments to find output paths or uses defaults based on source stem."""
         patterns = []
@@ -343,7 +343,7 @@ class ClangCmd(ToolCmd):
     optimization_flags = ["-O0", "-O1", "-O2", "-O3"]
     needs_vcvars = False
 
-    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+    def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files clang++ will create.
         Parses arguments to find output paths or uses defaults based on source stem."""
         patterns = []
@@ -356,7 +356,7 @@ class ClangCmd(ToolCmd):
             if arg == "-o" and i + 1 < len(all_args):
                 output_path = all_args[i + 1]
                 break
-            elif arg.startswith("-o"):
+            if arg.startswith("-o"):
                 output_path = arg[2:]
                 break
 
@@ -389,7 +389,7 @@ class ClangTidyCmd(ToolCmd):
     optimization_flags = []
     needs_vcvars = False
 
-    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+    def get_output_patterns(self, _source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files clang-tidy will create.
         clang-tidy typically doesn't create files, but can with --export-fixes."""
         patterns = []
