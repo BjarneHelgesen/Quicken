@@ -7,7 +7,7 @@ Provides the main Quicken class for managing cached tool execution.
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from ._cache import QuickenCache, CacheKey, make_args_repo_relative
+from ._cache import QuickenCache, CacheKey
 from ._logger import QuickenLogger
 from ._repo_path import RepoPath
 from ._tool_cmd import ToolCmdFactory
@@ -31,7 +31,7 @@ class Quicken:
         self.logger = QuickenLogger(self._data_dir)
 
 
-    def run(self, source_file: Path, tool_name: str, tool_args: List[str],
+    def run(self, file: Path, tool_name: str, tool_args: List[str],
             output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> Tuple[str, str, int]:
         """Main execution: optimized cache lookup, or get dependencies and run tool.
         Args:    source_file: File to process (absolute or relative path) - C++ file for compilers, Doxyfile for Doxygen
@@ -42,26 +42,19 @@ class Quicken:
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
         Returns: Tuple of (stdout, stderr, returncode)"""
 
-        # Convert source_file to RepoPath and validate it's inside repo
-        source_repo_path = RepoPath(self.repo_dir, source_file)
-        if not source_repo_path:
-            raise ValueError(f"Source file {source_file} is outside repository {self.repo_dir}")
+        repo_file = RepoPath(self.repo_dir, file)
 
-        tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, output_args, input_args, optimization)
-        modified_args = tool.add_optimization_flags(tool_args)
-
-        # Create cache key
-        repo_relative_input_args = make_args_repo_relative(input_args, self.repo_dir)
-        cache_key = CacheKey(source_repo_path, tool_name, modified_args, repo_relative_input_args)
+        tool_command = ToolCmdFactory.create(tool_name, tool_args, self.logger, output_args, input_args, optimization)
+        cache_key = CacheKey(repo_file, tool_command, self.repo_dir)
 
         # Cache lookup
         cache_entry = self.cache.lookup(cache_key, self.repo_dir)
-        self.logger.info(f"Cached entry found: {cache_entry}: {source_repo_path}, tool: {tool_name} source:{source_file}")
+        self.logger.info(f"Cached entry found: {cache_entry}: {repo_file}, tool: {tool_name} source:{file}")
         if cache_entry:
             return self.cache.restore(cache_entry, self.repo_dir)
 
         # Execute tool and get dependencies
-        result, dependencies = tool.run(source_repo_path, self.repo_dir)
+        result, dependencies = tool_command.run(repo_file, self.repo_dir)
 
         # Store artifacts in cache if it was successful
         if result.returncode == 0:

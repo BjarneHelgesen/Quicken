@@ -88,9 +88,11 @@ class ToolCmd(ABC):
             if line.startswith("Note: including file:"):
                 # Extract the file path (after "Note: including file:")
                 file_path_str = line.split(":", 2)[2].strip()
-                repo_path = RepoPath(repo_dir, file_path_str)
-                if repo_path:  # Only include dependencies inside repo
+                try:
+                    repo_path = RepoPath(repo_dir, Path(file_path_str))
                     dependencies.append(repo_path)
+                except ValueError:
+                    pass  # Skip dependencies outside repo (e.g., system headers)
 
         return dependencies
 
@@ -458,9 +460,11 @@ class DoxygenCmd(ToolCmd):
         # Add all C++ source and header files in the repo
         for pattern in ['**/*.cpp', '**/*.h', '**/*.hpp']:
             for file_path in repo_dir.glob(pattern):
-                repo_path = RepoPath(repo_dir, file_path)
-                if repo_path:
+                try:
+                    repo_path = RepoPath(repo_dir, file_path)
                     dependencies.append(repo_path)
+                except ValueError:
+                    pass  # Skip files outside repo
 
         return dependencies
 

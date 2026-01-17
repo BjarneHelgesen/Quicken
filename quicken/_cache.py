@@ -296,9 +296,9 @@ def make_args_repo_relative(args: List[str], repo_dir: Path) -> List[str]:
 
         try:
             repo_path = RepoPath(repo_dir, Path(arg))
-            result.append(str(repo_path) if repo_path else arg)
+            result.append(str(repo_path))
         except (ValueError, OSError):
-            # Can't parse as path, keep as-is
+            # Path outside repo or can't parse as path - keep as-is
             result.append(arg)
 
     return result
@@ -308,15 +308,14 @@ class CacheKey:
     """Identifies a cache entry by source file, tool, and arguments.
 
     Computes the cache key string and folder name from the parameters.
-    Input args are assumed to be repo-relative.
+    Takes a ToolCmd and computes modified args and repo-relative input args internally.
     """
 
-    def __init__(self, source_repo_path: RepoPath, tool_name: str,
-                 tool_args: List[str], input_args: List[str]):
+    def __init__(self, source_repo_path: RepoPath, tool_cmd, repo_dir: Path):
         self.source_repo_path = source_repo_path
-        self.tool_name = tool_name
-        self.tool_args = tool_args
-        self.input_args = input_args
+        self.tool_name = tool_cmd.tool_name
+        self.tool_args = tool_cmd.add_optimization_flags(tool_cmd.arguments)
+        self.input_args = make_args_repo_relative(tool_cmd.input_args, repo_dir)
 
         # Compute derived values eagerly (used in every lookup/store)
         self.key = self._get_key()

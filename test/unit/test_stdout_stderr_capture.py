@@ -21,6 +21,18 @@ from quicken._repo_path import RepoPath
 from quicken._tool_cmd import ToolRunResult
 
 
+class MockToolCmd:
+    """Mock ToolCmd for unit tests that need to create CacheKey objects directly."""
+
+    def __init__(self, tool_name: str, arguments: list, input_args: list = None):
+        self.tool_name = tool_name
+        self.arguments = arguments
+        self.input_args = input_args or []
+
+    def add_optimization_flags(self, args):
+        return args  # No optimization flags in mock
+
+
 # Sample C++ code for testing
 SIMPLE_CPP_CODE = """
 #include <iostream>
@@ -103,7 +115,7 @@ class TestStdoutStderrCapture:
         returncode = 0
 
         # Store in cache
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Verify metadata.json contains stdout and stderr
@@ -139,7 +151,7 @@ class TestStdoutStderrCapture:
         returncode = 0
 
         # Store in cache
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, returncode), temp_dir)
 
         # Delete output file
@@ -170,7 +182,7 @@ class TestStdoutStderrCapture:
         tool_args = ["/c", "/nologo"]
 
         # Store with empty stdout and stderr
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], "", "", 0), temp_dir)
 
         # Restore
@@ -201,7 +213,7 @@ class TestStdoutStderrCapture:
         original_stdout = "Line 1\nLine 2\nLine 3\n"
         original_stderr = "Error on line 10\nError on line 20\n"
 
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
 
         # Restore and verify exact preservation
@@ -232,7 +244,7 @@ class TestStdoutStderrCapture:
         original_stdout = "C:\\Path\\To\\File.cpp\nTest: 100% complete\n"
         original_stderr = "Warning: '\t' tab and \"quotes\"\n"
 
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
 
         # Restore and verify
@@ -491,7 +503,7 @@ class TestRepoToolStdoutStderr:
         returncode = 0
 
         # Store cache entry
-        cache_key = CacheKey(main_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(main_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Verify metadata contains stdout/stderr
@@ -526,7 +538,7 @@ class TestErrorCases:
         returncode = 2
 
         # Store error result (no output files created)
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([], stdout, stderr, returncode), temp_dir)
 
         # Restore

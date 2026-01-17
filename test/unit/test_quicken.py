@@ -15,9 +15,21 @@ from pathlib import Path
 import pytest
 
 from quicken import Quicken
-from quicken._cache import QuickenCache, FolderIndex, CacheKey, make_args_repo_relative
+from quicken._cache import QuickenCache, FolderIndex, CacheKey
 from quicken._repo_path import RepoPath
 from quicken._tool_cmd import ToolRunResult
+
+
+class MockToolCmd:
+    """Mock ToolCmd for unit tests that need to create CacheKey objects directly."""
+
+    def __init__(self, tool_name: str, arguments: list, input_args: list = None):
+        self.tool_name = tool_name
+        self.arguments = arguments
+        self.input_args = input_args or []
+
+    def add_optimization_flags(self, args):
+        return args  # No optimization flags in mock
 
 
 # Sample C++ code for testing
@@ -94,7 +106,7 @@ class TestQuickenCache:
         source_file.write_text("int main() { return 0; }")
         source_repo_path = RepoPath(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
-        cache_key = CacheKey(source_repo_path, "cl", ["/c"], [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd("cl", ["/c"]), temp_dir)
         cache_entry_dir = cache.store(cache_key, dep_repo_paths, ToolRunResult([], "", "", 0), temp_dir)
 
         # Check folder_index.json
@@ -123,7 +135,7 @@ class TestQuickenCache:
         returncode = 0
 
         # Store in cache
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
         assert cache_entry.exists()
 
@@ -133,7 +145,7 @@ class TestQuickenCache:
         assert found == cache_entry
 
         # Different command should not find it
-        different_key = CacheKey(source_repo_path, tool_name, ["/c", "/W4"], [])
+        different_key = CacheKey(source_repo_path, MockToolCmd(tool_name, ["/c", "/W4"]), temp_dir)
         not_found = cache.lookup(different_key, temp_dir)
         assert not_found is None
 
@@ -160,7 +172,7 @@ class TestQuickenCache:
         stderr = "No warnings"
         returncode = 0
 
-        cache_key = CacheKey(source_repo_path, tool_name, tool_args, [])
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Delete the original file
