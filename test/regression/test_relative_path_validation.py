@@ -103,7 +103,7 @@ def test_relative_path_inside_repo_accepted(temp_dir):
     relative_path = Path("src/main.cpp")
 
     # This SHOULD work (and currently might, but let's verify)
-    returncode = quicken.run(
+    _stdout, _stderr, returncode = quicken.run(
         relative_path,
         "cl",
         ["/c", "/nologo", "/EHsc"],
@@ -145,7 +145,7 @@ def test_relative_path_with_dotdot_inside_repo(temp_dir):
     relative_path = Path("src/../lib/util.cpp")
 
     # This SHOULD work
-    returncode = quicken.run(
+    _stdout, _stderr, returncode = quicken.run(
         relative_path,
         "cl",
         ["/c", "/nologo", "/EHsc"],

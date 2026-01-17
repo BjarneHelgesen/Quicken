@@ -9,7 +9,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from abc import ABC
 
 from ._repo_path import RepoPath
@@ -251,11 +251,13 @@ class ToolCmd(ABC):
 
         return file_timestamps
 
-    def run(self, source_file: Path, repo_dir: Path) -> ToolRunResult:
+    def run(self, source_file: Path, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoPath]]:
         """Run the tool and detect output files.
         Args:    source_file: Path to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
-        Returns: ToolRunResult with output_files, stdout, stderr, returncode"""
+        Returns: Tuple of (ToolRunResult, dependencies)"""
+        dependencies = self.get_dependencies(source_file, repo_dir)
+
         patterns = self.get_output_patterns(source_file, repo_dir)
         files_before = self._get_file_timestamps(repo_dir, patterns)
 
@@ -277,7 +279,7 @@ class ToolCmd(ABC):
             if f not in files_before or mtime > files_before[f]
         ]
 
-        return ToolRunResult(output_files, result.stdout, result.stderr, result.returncode)
+        return ToolRunResult(output_files, result.stdout, result.stderr, result.returncode), dependencies
 
 
 class ClCmd(ToolCmd):

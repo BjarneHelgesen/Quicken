@@ -53,7 +53,7 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     # Cache MISS - First run
     print(f"[{tool_name}] Running cache MISS test...")
     start = time.time()
-    returncode1 = quicken.run(cpp_file, tool_name, tool_args, [], [])
+    _, _, returncode1 = quicken.run(cpp_file, tool_name, tool_args, [], [])
     miss_time = time.time() - start
 
     if returncode1 != 0:
@@ -75,7 +75,7 @@ def test_tool(quicken, cpp_file, tool_name, tool_args, expected_outputs):
     # Cache HIT - Second run
     print(f"[{tool_name}] Running cache HIT test...")
     start = time.time()
-    returncode2 = quicken.run(cpp_file, tool_name, tool_args, [], [])
+    _, _, returncode2 = quicken.run(cpp_file, tool_name, tool_args, [], [])
     hit_time = time.time() - start
 
     if returncode2 != 0:

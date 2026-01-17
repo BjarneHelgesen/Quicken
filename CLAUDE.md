@@ -29,7 +29,7 @@ test/
 from quicken import Quicken
 
 quicken = Quicken(repo_dir=Path.cwd())
-returncode = quicken.run(
+stdout, stderr, returncode = quicken.run(
     source_file=Path("main.cpp"),
     tool_name="cl",
     tool_args=["/c", "/W4"]

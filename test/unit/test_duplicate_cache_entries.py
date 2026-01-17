@@ -178,7 +178,7 @@ int multiply(int x, int y) {
         # Create a new Quicken instance for each directory
         quicken = Quicken(compile_dir, cache_dir=cache_dir)
 
-        returncode = quicken.run(
+        _, _, returncode = quicken.run(
             source_file.relative_to(compile_dir),
             "clang++",
             ["-std=c++20", "-Wall", "-S", "-masm=intel"],

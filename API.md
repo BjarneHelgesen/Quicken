@@ -28,7 +28,7 @@ quicken = Quicken(repo_dir=Path.cwd())
 
 ```python
 # Compile a single file
-returncode = quicken.run(
+stdout, stderr, returncode = quicken.run(
     source_file=Path("myfile.cpp"),
     tool_name="cl",
     tool_args=["/c", "/W4"]
@@ -53,7 +53,7 @@ Initialize Quicken instance.
 quicken = Quicken(repo_dir=Path.cwd())
 ```
 
-`Quicken.run(source_file, tool_name, tool_args, optimization=None, output_args=None, input_args=[]) -> int`
+`Quicken.run(source_file, tool_name, tool_args, optimization=None, output_args=None, input_args=[]) -> Tuple[str, str, int]`
 
 Execute a tool on a C++ file (with caching).
 
@@ -66,11 +66,11 @@ Execute a tool on a C++ file (with caching).
 - `input_args` (List[str], optional): Input-specific arguments part of cache key
 
 **Returns:**
-- `int`: Tool exit code (0 = success)
+- `Tuple[str, str, int]`: (stdout, stderr, returncode)
 
 **Example:**
 ```python
-returncode = quicken.run(
+stdout, stderr, returncode = quicken.run(
     source_file=Path("myfile.cpp"),
     tool_name="cl",
     tool_args=["/c", "/W4"]

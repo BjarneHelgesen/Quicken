@@ -63,13 +63,12 @@ class Quicken:
         if cache_entry:
             return self.cache.restore(cache_entry, self.repo_dir)
 
-        # Get dependencies from tool
-        dependency_repo_paths = tool.get_dependencies(abs_source_file, self.repo_dir)
+        # Execute tool and get dependencies
+        result, dependency_repo_paths = tool.run(abs_source_file, self.repo_dir)
 
-        # Execute tool and store artifacts in cache
-        result = tool.run(abs_source_file, self.repo_dir)
-
-        self.cache.store(cache_key, dependency_repo_paths, result)
+        # Store artifacts in cache if it was successful
+        if result.returncode == 0:
+            self.cache.store(cache_key, dependency_repo_paths, result)
 
         return result.stdout, result.stderr, result.returncode
 
