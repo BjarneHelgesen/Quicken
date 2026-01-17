@@ -4,9 +4,8 @@ Main Quicken application and tool execution.
 Provides the main Quicken class for managing cached tool execution.
 """
 
-import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from ._cache import QuickenCache, CacheKey, make_args_repo_relative
 from ._logger import QuickenLogger
@@ -33,7 +32,7 @@ class Quicken:
 
 
     def run(self, source_file: Path, tool_name: str, tool_args: List[str],
-            output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> int:
+            output_args: List[str], input_args: List[str], optimization: Optional[int] = None) -> Tuple[str, str, int]:
         """Main execution: optimized cache lookup, or get dependencies and run tool.
         Args:    source_file: File to process (absolute or relative path) - C++ file for compilers, Doxyfile for Doxygen
                  tool_name: Tool to run
@@ -41,7 +40,7 @@ class Quicken:
                  optimization: Optimization level (0-3, or None for tools that don't support optimization)
                  output_args: Output-specific arguments (NOT part of cache key, e.g., ['-o', 'output.s'])
                  input_args: Input-specific arguments (part of cache key, paths translated to repo-relative)
-        Returns: Tool exit code (integer)"""
+        Returns: Tuple of (stdout, stderr, returncode)"""
 
         # Convert source_file to RepoPath and validate it's inside repo
         source_repo_path = RepoPath(self.repo_dir, source_file)
@@ -54,11 +53,11 @@ class Quicken:
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, output_args, input_args, optimization)
         modified_args = tool.add_optimization_flags(tool_args)
 
-        # Create cache key 
+        # Create cache key
         repo_relative_input_args = make_args_repo_relative(input_args, self.repo_dir)
         cache_key = CacheKey(source_repo_path, tool_name, modified_args, repo_relative_input_args, self.repo_dir)
 
-        # Try cache lookup (mtime first, then hash)
+        # Cache lookup
         cache_entry = self.cache.lookup(cache_key)
         self.logger.info(f"Cached entry found: {cache_entry}: {source_repo_path}, tool: {tool_name} source:{source_file}")
         if cache_entry:
@@ -70,12 +69,9 @@ class Quicken:
         # Execute tool and store artifacts in cache
         result = tool.run(abs_source_file, self.repo_dir)
 
-        print(result.stdout, end='')
-        print(result.stderr, end='', file=sys.stderr)
-
         self.cache.store(cache_key, dependency_repo_paths, result)
 
-        return result.returncode
+        return result.stdout, result.stderr, result.returncode
 
     def clear_cache(self):
         """Clear the entire cache."""

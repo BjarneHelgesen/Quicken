@@ -61,7 +61,7 @@ class TestCacheHits:
         ]
 
         # Run both configurations
-        returncode1 = quicken_instance.run(
+        _, _, returncode1 = quicken_instance.run(
             test_cpp_file,
             "cl",
             args_config1,
@@ -70,7 +70,7 @@ class TestCacheHits:
         )
         assert returncode1 == 0
 
-        returncode2 = quicken_instance.run(
+        _, _, returncode2 = quicken_instance.run(
             test_cpp_file,
             "cl",
             args_config2,

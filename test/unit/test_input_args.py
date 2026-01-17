@@ -138,7 +138,7 @@ class TestInputArgsCaching:
         input_args2 = ["-include", str(header2)]
 
         # First run with header1
-        returncode1 = quicken_instance.run(
+        _, _, returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
             output_args=[],
             input_args=input_args1
@@ -146,7 +146,7 @@ class TestInputArgsCaching:
         assert returncode1 == 0
 
         # Second run with header2 - should be different cache entry
-        returncode2 = quicken_instance.run(
+        _, _, returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
             output_args=[],
             input_args=input_args2
@@ -189,7 +189,7 @@ class TestInputArgsCaching:
         input_args = ["-include", str(header)]
 
         # First run
-        returncode1 = quicken_instance.run(
+        _, _, returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
             output_args=[],
             input_args=input_args
@@ -202,7 +202,7 @@ class TestInputArgsCaching:
             obj_file.unlink()
 
         # Second run with same input_args - should hit cache
-        returncode2 = quicken_instance.run(
+        _, _, returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args,
             output_args=[],
             input_args=input_args
@@ -226,7 +226,7 @@ class TestInputArgsCaching:
         quicken1 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Run compilation in first location with input_args
-        returncode1 = quicken1.run(
+        _, _, returncode1 = quicken1.run(
             cpp_file1, "cl", ["/c", "/nologo", "/EHsc"],
             output_args=[],
             input_args=["-include", str(header1)]
@@ -246,7 +246,7 @@ class TestInputArgsCaching:
         quicken2 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Run in second location - should hit cache because paths are repo-relative
-        returncode2 = quicken2.run(
+        _, _, returncode2 = quicken2.run(
             cpp_file2, "cl", ["/c", "/nologo", "/EHsc"],
             output_args=[],
             input_args=["-include", str(header2)]
@@ -260,7 +260,7 @@ class TestInputArgsCaching:
         tool_args = ["/c", "/nologo", "/EHsc"]
 
         # Run without input_args (should work as before)
-        returncode1 = quicken_instance.run(
+        _, _, returncode1 = quicken_instance.run(
             test_cpp_file, "cl", tool_args, [], [])
         assert returncode1 == 0
 
@@ -270,7 +270,7 @@ class TestInputArgsCaching:
             obj_file.unlink()
 
         # Second run should hit cache
-        returncode2 = quicken_instance.run(
+        _, _, returncode2 = quicken_instance.run(
             test_cpp_file, "cl", tool_args, [], [])
         assert returncode2 == 0
 
@@ -315,7 +315,7 @@ int add(int a, int b) {
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
         input_args = ["-include", str(header_file)]  # Multi-element: [flag, absolute_path]
 
-        returncode1 = quicken1.run(
+        _, _, returncode1 = quicken1.run(
             cpp_file1.relative_to(repo1),
             "clang++",
             tool_args,
@@ -338,7 +338,7 @@ int add(int a, int b) {
         # - Same tool_args
         # - Same input_args (with normalized absolute path to header_file)
         # - Different repo_dir (should NOT affect cache key)
-        returncode2 = quicken2.run(
+        _, _, returncode2 = quicken2.run(
             cpp_file2.relative_to(repo2),
             "clang++",
             tool_args,
@@ -390,7 +390,7 @@ int multiply(int x, int y) {
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
         input_args = ["-include", str(header1), "-include", str(header2)]
 
-        returncode1 = quicken.run(
+        _, _, returncode1 = quicken.run(
             cpp_file.relative_to(repo),
             "clang++",
             tool_args,
@@ -410,7 +410,7 @@ int multiply(int x, int y) {
         cache_entries_before = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Second run with same input_args - should HIT cache
-        returncode2 = quicken.run(
+        _, _, returncode2 = quicken.run(
             cpp_file.relative_to(repo),
             "clang++",
             tool_args,

@@ -77,7 +77,7 @@ class TestArtifactOverwrite:
         # Step 1: Initial compilation (cache miss)
         cpp_file.write_text(INITIAL_CPP_CODE)
 
-        returncode1 = quicken_instance.run(
+        _, _, returncode1 = quicken_instance.run(
             cpp_file, "cl", tool_args, [], [],
         )
         assert returncode1 == 0, "Initial compilation should succeed"
@@ -96,7 +96,7 @@ class TestArtifactOverwrite:
         # Verify the old obj file still exists before compilation
         assert obj_file.exists(), "Old .obj file should still exist before recompilation"
 
-        returncode2 = quicken_instance.run(
+        _, _, returncode2 = quicken_instance.run(
             cpp_file, "cl", tool_args, [], [],
         )
         assert returncode2 == 0, "Modified compilation should succeed"
@@ -114,7 +114,7 @@ class TestArtifactOverwrite:
         obj_file.unlink()
         assert not obj_file.exists(), "New .obj should be deleted"
 
-        returncode3 = quicken_instance.run(
+        _, _, returncode3 = quicken_instance.run(
             cpp_file, "cl", tool_args, [], [],
         )
         assert returncode3 == 0, "Cache hit compilation should succeed"
@@ -150,7 +150,7 @@ class TestArtifactOverwrite:
         time.sleep(0.01)
 
         # Compile - should detect and cache the NEW obj file, not the old one
-        returncode = quicken_instance.run(
+        _, _, returncode = quicken_instance.run(
             cpp_file, "cl", tool_args, [], [],
         )
         assert returncode == 0, "Compilation should succeed"
@@ -167,7 +167,7 @@ class TestArtifactOverwrite:
         # Delete and restore from cache
         obj_file.unlink()
 
-        returncode2 = quicken_instance.run(
+        _, _, returncode2 = quicken_instance.run(
             cpp_file, "cl", tool_args, [], [],
         )
         assert returncode2 == 0, "Cache hit should succeed"

@@ -92,7 +92,7 @@ def test_output_detection_does_not_scan_subdirectories(temp_dir):
     unrelated_marker.write_text("Modified during build")
 
     # Compile the source file
-    returncode = quicken.run(
+    _, _, returncode = quicken.run(
         source_file,
         "cl",
         ["/c", "/nologo", "/EHsc"],
@@ -142,7 +142,7 @@ def test_performance_with_large_directory_tree(temp_dir):
 
     # Time the compilation
     start = time.time()
-    returncode = quicken.run(
+    _, _, returncode = quicken.run(
         source_file,
         "cl",
         ["/c", "/nologo", "/EHsc"],

@@ -9,12 +9,9 @@ Verifies that:
 4. Output is byte-for-byte identical between cache miss and hit
 """
 
-import io
 import json
-import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -70,26 +67,14 @@ def quicken_instance(quicken_with_persistent_cache, test_cpp_file):
 
 def capture_output(func, *args, **kwargs):
     """
-    Call quicken.run() or quicken.run_repo_tool() and capture its output.
+    Call quicken.run() and return its output.
 
-    The Quicken API returns just an integer and writes to stdout/stderr as side effects.
-    This function captures those side effects using StringIO.
+    The Quicken API returns a tuple of (stdout, stderr, returncode).
 
     Returns:
         Tuple of (returncode, stdout, stderr) - note the order matches test expectations
     """
-    # Create StringIO objects to capture stdout and stderr
-    stdout_capture = io.StringIO()
-    stderr_capture = io.StringIO()
-
-    # Redirect stdout and stderr to our StringIO objects
-    with patch('sys.stdout', stdout_capture), patch('sys.stderr', stderr_capture):
-        returncode = func(*args, **kwargs)
-
-    # Get the captured output
-    stdout = stdout_capture.getvalue()
-    stderr = stderr_capture.getvalue()
-
+    stdout, stderr, returncode = func(*args, **kwargs)
     return returncode, stdout, stderr
 
 
@@ -160,20 +145,8 @@ class TestStdoutStderrCapture:
         # Delete output file
         output_file.unlink()
 
-        # Restore from cache - capture output
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
-
-        try:
-            restored_returncode = cache.restore(cache_entry, temp_dir)
-            restored_stdout = sys.stdout.getvalue()
-            restored_stderr = sys.stderr.getvalue()
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
-
+        # Restore from cache
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
 
         # Verify exact match
         assert restored_stdout == original_stdout
@@ -200,19 +173,8 @@ class TestStdoutStderrCapture:
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], "", "", 0))
 
-        # Restore - capture output
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
-
-        try:
-            restored_returncode = cache.restore(cache_entry, temp_dir)
-            restored_stdout = sys.stdout.getvalue()
-            restored_stderr = sys.stderr.getvalue()
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+        # Restore
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
 
         # Verify empty strings are preserved
         assert restored_stdout == ""
@@ -242,19 +204,8 @@ class TestStdoutStderrCapture:
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0))
 
-        # Restore and verify exact preservation - capture output
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
-
-        try:
-            restored_returncode = cache.restore(cache_entry, temp_dir)
-            restored_stdout = sys.stdout.getvalue()
-            restored_stderr = sys.stderr.getvalue()
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+        # Restore and verify exact preservation
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
 
         assert restored_stdout == original_stdout
         assert restored_stderr == original_stderr
@@ -284,19 +235,8 @@ class TestStdoutStderrCapture:
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0))
 
-        # Restore and verify - capture output
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
-
-        try:
-            restored_returncode = cache.restore(cache_entry, temp_dir)
-            restored_stdout = sys.stdout.getvalue()
-            restored_stderr = sys.stderr.getvalue()
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+        # Restore and verify
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
 
         assert restored_stdout == original_stdout
         assert restored_stderr == original_stderr
@@ -589,19 +529,8 @@ class TestErrorCases:
         cache_key = CacheKey(source_repo_path, tool_name, tool_args, [], temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([], stdout, stderr, returncode))
 
-        # Restore - capture output
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
-
-        try:
-            restored_returncode = cache.restore(cache_entry, temp_dir)
-            restored_stdout = sys.stdout.getvalue()
-            restored_stderr = sys.stderr.getvalue()
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+        # Restore
+        restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
 
         # Verify error information is preserved
         assert restored_returncode == 2

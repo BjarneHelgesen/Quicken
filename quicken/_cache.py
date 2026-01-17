@@ -10,7 +10,6 @@ import json
 import msvcrt
 import os
 import shutil
-import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
@@ -686,13 +685,12 @@ class QuickenCache:
 
         return result
 
-    def restore(self, cache_entry_dir: Path, repo_dir: Path) -> int:
+    def restore(self, cache_entry_dir: Path, repo_dir: Path) -> Tuple[str, str, int]:
         """Restore cached files to repository with parallel copy.
         Each file is copied on a separate thread for maximum parallelism (up to 8 concurrent).
-        This method translates paths and prints output while files copy in background.
         Handles both flat files and directory trees using relative paths.
         Translates absolute paths in stdout/stderr from cached repo location to current location.
-        Returns: returncode"""
+        Returns: Tuple of (stdout, stderr, returncode)"""
         metadata = CacheMetadata.from_file(cache_entry_dir / "metadata.json", repo_dir)
 
         # Collect all unique parent directories
@@ -721,14 +719,11 @@ class QuickenCache:
             stderr = self._translate_paths(stderr, metadata.repo_dir, new_repo_dir,
                                            metadata.main_file_path, metadata.dependencies, metadata.files)
 
-        print(stdout, end='')
-        print(stderr, end='', file=sys.stderr)
-
         # Wait for all copy operations to complete
         for future in futures:
             future.result(timeout=60)
 
-        return metadata.returncode
+        return stdout, stderr, metadata.returncode
 
     def clear(self):
         """Clear all cached entries."""
