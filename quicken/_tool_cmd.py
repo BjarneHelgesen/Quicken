@@ -412,6 +412,42 @@ class ClangTidyCmd(ToolCmd):
         # Return empty list if no --export-fixes found
         return patterns
 
+class MocCmd(ToolCmd):
+    """Qt Meta-Object Compiler command wrapper.
+    MOC reads C++ header files containing Q_OBJECT macro and generates
+    meta-object source code (typically moc_*.cpp files)."""
+    supports_optimization = False
+    optimization_flags = []
+    needs_vcvars = False
+
+    def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
+        """Return patterns for files MOC will create.
+        Parses -o argument or defaults to moc_<stem>.cpp naming."""
+        patterns = []
+        stem = source_file.stem
+        all_args = self.arguments + self.output_args
+
+        # Check for -o (explicit output path)
+        output_path = None
+        for i, arg in enumerate(all_args):
+            if arg == "-o" and i + 1 < len(all_args):
+                output_path = all_args[i + 1]
+                break
+            if arg.startswith("-o"):
+                output_path = arg[2:]
+                break
+
+        if output_path:
+            patterns.append(output_path)
+            patterns.append(f"**/{Path(output_path).name}")
+        else:
+            # Default MOC output naming convention
+            patterns.append(f"moc_{stem}.cpp")
+            patterns.append(f"**/moc_{stem}.cpp")
+
+        return patterns
+
+
 class DoxygenCmd(ToolCmd):
     supports_optimization = False
     optimization_flags = []

@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 from ._cache import QuickenCache, CacheKey
 from ._logger import QuickenLogger
 from ._repo_path import RepoPath
-from ._tool_cmd import ToolCmd, ClCmd, ClangCmd, ClangTidyCmd, DoxygenCmd
+from ._tool_cmd import ToolCmd, ClCmd, ClangCmd, ClangTidyCmd, DoxygenCmd, MocCmd
 from ._type_check import typecheck_methods
 
 
@@ -47,6 +47,10 @@ class Quicken:
     def doxygen(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable doxygen command."""
         return DoxygenCmd("doxygen", tool_args, self.logger, output_args, input_args, None)
+
+    def moc(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
+        """Create a reusable Qt MOC (Meta-Object Compiler) command."""
+        return MocCmd("moc", tool_args, self.logger, output_args, input_args, None)
 
     def run(self, file: Path, tool_cmd: ToolCmd) -> Tuple[str, str, int]:
         """Main execution: optimized cache lookup, or get dependencies and run tool.
