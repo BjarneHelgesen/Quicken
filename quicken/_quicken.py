@@ -47,9 +47,6 @@ class Quicken:
         if not source_repo_path:
             raise ValueError(f"Source file {source_file} is outside repository {self.repo_dir}")
 
-        # Convert RepoPath back to absolute path for tool execution
-        abs_source_file = source_repo_path.to_absolute_path(self.repo_dir)
-
         tool = ToolCmdFactory.create(tool_name, tool_args, self.logger, output_args, input_args, optimization)
         modified_args = tool.add_optimization_flags(tool_args)
 
@@ -64,7 +61,7 @@ class Quicken:
             return self.cache.restore(cache_entry, self.repo_dir)
 
         # Execute tool and get dependencies
-        result, dependencies = tool.run(abs_source_file, self.repo_dir)
+        result, dependencies = tool.run(source_repo_path, self.repo_dir)
 
         # Store artifacts in cache if it was successful
         if result.returncode == 0:

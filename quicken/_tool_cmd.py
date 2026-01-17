@@ -251,17 +251,18 @@ class ToolCmd(ABC):
 
         return file_timestamps
 
-    def run(self, source_file: Path, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoPath]]:
+    def run(self, source_file: RepoPath, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoPath]]:
         """Run the tool and detect output files.
-        Args:    source_file: Path to file to process (C++ file for compilers, Doxyfile for Doxygen)
+        Args:    source_file: RepoPath to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
         Returns: Tuple of (ToolRunResult, dependencies)"""
-        dependencies = self.get_dependencies(source_file, repo_dir)
+        abs_source_file = source_file.to_absolute_path(repo_dir)
+        dependencies = self.get_dependencies(abs_source_file, repo_dir)
 
-        patterns = self.get_output_patterns(source_file, repo_dir)
+        patterns = self.get_output_patterns(abs_source_file, repo_dir)
         files_before = self._get_file_timestamps(repo_dir, patterns)
 
-        cmd = self.build_execution_command(source_file)
+        cmd = self.build_execution_command(abs_source_file)
 
         result = subprocess.run(
             cmd,
