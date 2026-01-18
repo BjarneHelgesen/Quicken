@@ -4,6 +4,7 @@ Cache management for Quicken.
 Provides FileMetadata and QuickenCache classes for managing
 cached tool outputs based on source file and dependency metadata.
 """
+from __future__ import annotations
 
 import hashlib
 import json
@@ -11,14 +12,18 @@ import msvcrt
 import os
 import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
 from ._cpp_normalizer import hash_cpp_source
 from ._repo_path import RepoPath
-from ._tool_cmd import ToolRunResult
+from ._type_check import typecheck_methods
+
+if TYPE_CHECKING:
+    from ._tool_cmd import ToolRunResult
 
 
+@typecheck_methods
 class FileMetadata:
     """Metadata for a single file in the cache.
 
@@ -130,6 +135,7 @@ class FileMetadata:
         return f"FileMetadata({self.path!r}, hash={self.hash[:8]}..., size={self.size})"
 
 
+@typecheck_methods
 class CacheMetadata:
     """Metadata for a cached tool execution result stored in metadata.json."""
 
@@ -195,6 +201,7 @@ class CacheMetadata:
             json.dump(self.to_dict(), f, indent=2)
 
 
+@typecheck_methods
 class CacheEntry:
     """A single entry in the folder index mapping cache_key to dependencies."""
 
@@ -218,6 +225,7 @@ class CacheEntry:
         }
 
 
+@typecheck_methods
 class FolderIndex:
     """Index tracking cache entries within a compound cache folder."""
 
@@ -304,6 +312,7 @@ def make_args_repo_relative(args: List[str], repo_dir: Path) -> List[str]:
     return result
 
 
+@typecheck_methods
 class CacheKey:
     """Identifies a cache entry by source file, tool, and arguments.
 
@@ -345,6 +354,7 @@ class CacheKey:
         return f"{sanitized_filename}_{self.tool_name}_{compound_hash}"
 
 
+@typecheck_methods
 class QuickenCache:
     """Manages caching of tool outputs based on source file and dependency metadata."""
 

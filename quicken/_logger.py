@@ -3,7 +3,10 @@
 import logging
 from pathlib import Path
 
+from ._type_check import typecheck_methods
 
+
+@typecheck_methods
 class QuickenLogger(logging.Logger):
     """Logger for Quicken operations."""
 

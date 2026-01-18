@@ -14,11 +14,13 @@ from abc import ABC
 
 from ._repo_path import RepoPath
 from ._cache import CacheKey
+from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
     from ._cache import QuickenCache
 
 
+@typecheck_methods
 class ToolRunResult:
     """Result of running a tool command."""
 
@@ -29,6 +31,7 @@ class ToolRunResult:
         self.returncode = returncode
 
 
+@typecheck_methods
 class ToolCmd(ABC):
     """Base class for tool command wrappers.
 
@@ -308,6 +311,7 @@ class ToolCmd(ABC):
         return result.stdout, result.stderr, result.returncode
 
 
+@typecheck_methods
 class ClCmd(ToolCmd):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path, optimization: int = None):
@@ -367,6 +371,7 @@ class ClCmd(ToolCmd):
 
         return patterns
 
+@typecheck_methods
 class ClangCmd(ToolCmd):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path, optimization: int = None):
@@ -414,6 +419,7 @@ class ClangCmd(ToolCmd):
 
         return patterns
 
+@typecheck_methods
 class ClangTidyCmd(ToolCmd):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
@@ -438,6 +444,7 @@ class ClangTidyCmd(ToolCmd):
         # Return empty list if no --export-fixes found
         return patterns
 
+@typecheck_methods
 class MocCmd(ToolCmd):
     """Qt Meta-Object Compiler command wrapper.
     MOC reads C++ header files containing Q_OBJECT macro and generates
@@ -476,6 +483,7 @@ class MocCmd(ToolCmd):
         return patterns
 
 
+@typecheck_methods
 class UicCmd(ToolCmd):
     """Qt User Interface Compiler command wrapper.
     UIC reads .ui files (XML from Qt Designer) and generates C++ header files
@@ -521,6 +529,7 @@ class UicCmd(ToolCmd):
         return [RepoPath(repo_dir, main_file)]
 
 
+@typecheck_methods
 class DoxygenCmd(ToolCmd):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):

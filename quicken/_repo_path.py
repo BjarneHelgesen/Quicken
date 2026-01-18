@@ -7,7 +7,10 @@ Provides RepoPath class for managing file paths relative to a repository root.
 import os
 from pathlib import Path
 
+from ._type_check import typecheck_methods
 
+
+@typecheck_methods
 class RepoPath:
     """Stores a path to a file in the repo, relative to the repo. The file does not have to exist.
 
