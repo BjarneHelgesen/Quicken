@@ -52,7 +52,7 @@ Initialize Quicken instance.
 quicken = Quicken(repo_dir=Path.cwd())
 ```
 
-`Quicken.cl(tool_args, output_args, input_args, optimization=None) -> ToolCmd`
+`Quicken.cl(tool_args, output_args, input_args, optimization=None) -> CmdTool`
 
 Create a reusable MSVC cl compiler command.
 
@@ -63,11 +63,11 @@ Create a reusable MSVC cl compiler command.
 - `optimization` (int, optional): Optimization level (0-3), or None to accept any cached level
 
 **Returns:**
-- `ToolCmd`: Reusable tool command object
+- `CmdTool`: Reusable tool command object
 
 ---
 
-`Quicken.clang(tool_args, output_args, input_args, optimization=None) -> ToolCmd`
+`Quicken.clang(tool_args, output_args, input_args, optimization=None) -> CmdTool`
 
 Create a reusable clang++ compiler command.
 
@@ -75,7 +75,7 @@ Create a reusable clang++ compiler command.
 
 ---
 
-`Quicken.clang_tidy(tool_args, output_args, input_args) -> ToolCmd`
+`Quicken.clang_tidy(tool_args, output_args, input_args) -> CmdTool`
 
 Create a reusable clang-tidy command.
 
@@ -86,7 +86,7 @@ Create a reusable clang-tidy command.
 
 ---
 
-`Quicken.doxygen(tool_args, output_args, input_args) -> ToolCmd`
+`Quicken.doxygen(tool_args, output_args, input_args) -> CmdTool`
 
 Create a reusable doxygen command.
 
@@ -100,7 +100,7 @@ Execute a tool on a file (with caching).
 
 **Parameters:**
 - `file` (Path): File to process (C++ file for compilers, Doxyfile for Doxygen)
-- `tool_cmd` (ToolCmd): Tool command created by `cl()`, `clang()`, `clang_tidy()`, or `doxygen()`
+- `tool_cmd` (CmdTool): Tool command created by `cl()`, `clang()`, `clang_tidy()`, or `doxygen()`
 
 **Returns:**
 - `Tuple[str, str, int]`: (stdout, stderr, returncode)

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
-from ._tool_cmd import ToolCmd
+from ._cmd_tool import CmdTool
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 @typecheck_methods
-class MocCmd(ToolCmd):
+class CmdMoc(CmdTool):
     """Qt Meta-Object Compiler command wrapper.
     MOC reads C++ header files containing Q_OBJECT macro and generates
     meta-object source code (typically moc_*.cpp files)."""

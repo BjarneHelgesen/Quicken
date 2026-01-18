@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
-from ._tool_cmd import ToolCmd
+from ._cmd_tool import CmdTool
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 @typecheck_methods
-class ClangTidyCmd(ToolCmd):
+class CmdClangTidy(CmdTool):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("clang-tidy", False, [], False,

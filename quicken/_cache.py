@@ -20,7 +20,7 @@ from ._repo_file import CachedRepoFile, RepoFile, ValidatedRepoFile
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
-    from ._tool_cmd import ToolRunResult
+    from ._cmd_tool import CmdCmdToolRunResult
 
 
 @typecheck_methods
@@ -492,11 +492,11 @@ class QuickenCache:
         return None
 
     def store(self, cache_key: CacheKey, dependency_repo_paths: List[RepoFile],
-              result: ToolRunResult, repo_dir: Path) -> Optional[Path]:
+              result: CmdToolRunResult, repo_dir: Path) -> Optional[Path]:
         """Store tool output in cache with dependency hashes.
         Args:    cache_key: CacheKey identifying the cache entry
                  dependency_repo_paths: List of RepoFile instances for dependencies
-                 result: ToolRunResult containing output files, stdout, stderr, returncode
+                 result: CmdToolRunResult containing output files, stdout, stderr, returncode
                  repo_dir: Repository root directory
         Returns: Path to cache entry directory, or None if lock couldn't be acquired"""
 
@@ -512,7 +512,7 @@ class QuickenCache:
             self._release_folder_lock(lock_handle)
 
     def _store_locked(self, cache_key: CacheKey, dependency_repo_paths: List[RepoFile],
-                      result: ToolRunResult, folder_path: Path, repo_dir: Path) -> Path:
+                      result: CmdToolRunResult, folder_path: Path, repo_dir: Path) -> Path:
         """Internal store implementation, called while holding folder lock."""
         source_key = str(cache_key.source_repo_path)  # repo-relative path
 

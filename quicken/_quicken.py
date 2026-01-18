@@ -5,13 +5,13 @@ from typing import List, Optional
 
 from ._cache import QuickenCache
 from ._logger import QuickenLogger
-from ._tool_cmd import ToolCmd
-from ._cl_cmd import ClCmd
-from ._clang_cmd import ClangCmd
-from ._clang_tidy_cmd import ClangTidyCmd
-from ._doxygen_cmd import DoxygenCmd
-from ._moc_cmd import MocCmd
-from ._uic_cmd import UicCmd
+from ._cmd_tool import CmdTool
+from ._cmd_cl import CmdCl
+from ._cmd_clang import CmdClang
+from ._cmd_clang_tidy import CmdClangTidy
+from ._cmd_doxygen import CmdDoxygen
+from ._cmd_moc import CmdMoc
+from ._cmd_uic import CmdUic
 from ._type_check import typecheck_methods
 
 
@@ -37,30 +37,30 @@ class Quicken:
         self.logger = QuickenLogger(self._data_dir)
 
     def cl(self, tool_args: List[str], output_args: List[str], input_args: List[str],
-           optimization: Optional[int] = None) -> ToolCmd:
+           optimization: Optional[int] = None) -> CmdTool:
         """Create a reusable MSVC cl compiler command."""
-        return ClCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
+        return CmdCl(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
 
     def clang(self, tool_args: List[str], output_args: List[str], input_args: List[str],
-              optimization: Optional[int] = None) -> ToolCmd:
+              optimization: Optional[int] = None) -> CmdTool:
         """Create a reusable clang++ compiler command."""
-        return ClangCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
+        return CmdClang(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
 
-    def clang_tidy(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
+    def clang_tidy(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
         """Create a reusable clang-tidy command."""
-        return ClangTidyCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
+        return CmdClangTidy(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def doxygen(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
+    def doxygen(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
         """Create a reusable doxygen command."""
-        return DoxygenCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
+        return CmdDoxygen(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def moc(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
+    def moc(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
         """Create a reusable Qt MOC (Meta-Object Compiler) command."""
-        return MocCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
+        return CmdMoc(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def uic(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
+    def uic(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
         """Create a reusable Qt UIC (User Interface Compiler) command."""
-        return UicCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
+        return CmdUic(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
     def clear_cache(self):
         """Clear the entire cache."""

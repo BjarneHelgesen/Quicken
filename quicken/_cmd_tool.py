@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 @typecheck_methods
-class ToolRunResult:
+class CmdToolRunResult:
     """Result of running a tool command."""
 
     def __init__(self, output_files: List[Path], stdout: str, stderr: str, returncode: int):
@@ -32,7 +32,7 @@ class ToolRunResult:
 
 
 @typecheck_methods
-class ToolCmd(ABC):
+class CmdTool(ABC):
     """Base class for tool command wrappers.
 
     Subclasses define tool-specific behavior including optimization flags.
@@ -80,7 +80,7 @@ class ToolCmd(ABC):
     def msvc_env(self) -> Dict:
         """Get MSVC environment, loading it lazily when first accessed."""
         if self._msvc_env is None:
-            self._msvc_env = ToolCmd._get_msvc_environment()
+            self._msvc_env = CmdTool._get_msvc_environment()
         return self._msvc_env
 
     def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoFile]:
@@ -262,7 +262,7 @@ class ToolCmd(ABC):
 
         return file_timestamps
 
-    def run(self, repo_file: RepoFile, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoFile]]:
+    def run(self, repo_file: RepoFile, repo_dir: Path) -> Tuple[CmdToolRunResult, List[RepoFile]]:
         """Run the tool and detect output files.
         Args:    source_file: RepoFile to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
@@ -291,7 +291,7 @@ class ToolCmd(ABC):
             if f not in files_before or mtime > files_before[f]
         ]
 
-        return ToolRunResult(output_files, result.stdout, result.stderr, result.returncode), dependencies
+        return CmdToolRunResult(output_files, result.stdout, result.stderr, result.returncode), dependencies
 
     def __call__(self, file: Path) -> Tuple[str, str, int]:
         """Execute the tool with caching.

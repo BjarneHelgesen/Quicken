@@ -17,7 +17,7 @@ import pytest
 from quicken import Quicken
 from quicken._cache import QuickenCache, FolderIndex, CacheKey
 from quicken._repo_file import ValidatedRepoFile
-from quicken._tool_cmd import ToolRunResult
+from quicken._cmd_tool import CmdToolRunResult
 
 
 class MockToolCmd:
@@ -107,7 +107,7 @@ class TestQuickenCache:
         source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         cache_key = CacheKey(source_repo_path, MockToolCmd("cl", ["/c"]), temp_dir)
-        cache_entry_dir = cache.store(cache_key, dep_repo_paths, ToolRunResult([], "", "", 0), temp_dir)
+        cache_entry_dir = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([], "", "", 0), temp_dir)
 
         # Check folder_index.json
         folder_path = cache_entry_dir.parent
@@ -136,7 +136,7 @@ class TestQuickenCache:
 
         # Store in cache
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
         assert cache_entry.exists()
 
         # Lookup should find it
@@ -173,7 +173,7 @@ class TestQuickenCache:
         returncode = 0
 
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Delete the original file
         output_file.unlink()

@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
-from ._tool_cmd import ToolCmd
+from ._cmd_tool import CmdTool
 from ._repo_file import RepoFile, ValidatedRepoFile
 from ._type_check import typecheck_methods
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 @typecheck_methods
-class UicCmd(ToolCmd):
+class CmdUic(CmdTool):
     """Qt User Interface Compiler command wrapper.
     UIC reads .ui files (XML from Qt Designer) and generates C++ header files
     (typically ui_*.h)."""

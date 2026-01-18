@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 
-from ._tool_cmd import ToolCmd
+from ._cmd_tool import CmdTool
 from ._repo_file import RepoFile, ValidatedRepoFile
 from ._type_check import typecheck_methods
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 @typecheck_methods
-class DoxygenCmd(ToolCmd):
+class CmdDoxygen(CmdTool):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("doxygen", False, [], False,

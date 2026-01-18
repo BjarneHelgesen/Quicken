@@ -18,7 +18,7 @@ import pytest
 from quicken import Quicken
 from quicken._cache import QuickenCache, CacheKey
 from quicken._repo_file import ValidatedRepoFile
-from quicken._tool_cmd import ToolRunResult
+from quicken._cmd_tool import CmdToolRunResult
 
 
 class MockToolCmd:
@@ -116,7 +116,7 @@ class TestStdoutStderrCapture:
 
         # Store in cache
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Verify metadata.json contains stdout and stderr
         metadata_file = cache_entry / "metadata.json"
@@ -152,7 +152,7 @@ class TestStdoutStderrCapture:
 
         # Store in cache
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, returncode), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], original_stdout, original_stderr, returncode), temp_dir)
 
         # Delete output file
         output_file.unlink()
@@ -183,7 +183,7 @@ class TestStdoutStderrCapture:
 
         # Store with empty stdout and stderr
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], "", "", 0), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], "", "", 0), temp_dir)
 
         # Restore
         restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
@@ -214,7 +214,7 @@ class TestStdoutStderrCapture:
         original_stderr = "Error on line 10\nError on line 20\n"
 
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
 
         # Restore and verify exact preservation
         restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
@@ -245,7 +245,7 @@ class TestStdoutStderrCapture:
         original_stderr = "Warning: '\t' tab and \"quotes\"\n"
 
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
 
         # Restore and verify
         restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
@@ -475,7 +475,7 @@ class TestRepoToolStdoutStderr:
 
         # Store cache entry
         cache_key = CacheKey(main_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Verify metadata contains stdout/stderr
         metadata_file = cache_entry / "metadata.json"
@@ -510,7 +510,7 @@ class TestErrorCases:
 
         # Store error result (no output files created)
         cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
-        cache_entry = cache.store(cache_key, dep_repo_paths, ToolRunResult([], stdout, stderr, returncode), temp_dir)
+        cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([], stdout, stderr, returncode), temp_dir)
 
         # Restore
         restored_stdout, restored_stderr, restored_returncode = cache.restore(cache_entry, temp_dir)
