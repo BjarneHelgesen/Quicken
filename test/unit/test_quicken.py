@@ -16,7 +16,7 @@ import pytest
 
 from quicken import Quicken
 from quicken._cache import QuickenCache, FolderIndex, CacheKey
-from quicken._repo_file import RepoFile
+from quicken._repo_file import ValidatedRepoFile
 from quicken._tool_cmd import ToolRunResult
 
 
@@ -104,7 +104,7 @@ class TestQuickenCache:
         # After storing an entry, folder should have entry_000001 and next_entry_id should be 2
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         cache_key = CacheKey(source_repo_path, MockToolCmd("cl", ["/c"]), temp_dir)
         cache_entry_dir = cache.store(cache_key, dep_repo_paths, ToolRunResult([], "", "", 0), temp_dir)
@@ -126,7 +126,7 @@ class TestQuickenCache:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -164,7 +164,7 @@ class TestQuickenCache:
         output_content = "fake object file content"
         output_file.write_text(output_content)
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]

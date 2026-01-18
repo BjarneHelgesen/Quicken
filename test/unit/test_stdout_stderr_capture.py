@@ -17,7 +17,7 @@ import pytest
 
 from quicken import Quicken
 from quicken._cache import QuickenCache, CacheKey
-from quicken._repo_file import RepoFile
+from quicken._repo_file import ValidatedRepoFile
 from quicken._tool_cmd import ToolRunResult
 
 
@@ -106,7 +106,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -142,7 +142,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -176,7 +176,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c", "/nologo"]
@@ -204,7 +204,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -235,7 +235,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -464,8 +464,8 @@ class TestRepoToolStdoutStderr:
         output_file = output_dir / "index.html"
         output_file.write_text("<html></html>")
 
-        main_repo_path = RepoFile(temp_dir, main_file.resolve())
-        cpp_repo_path = RepoFile(temp_dir, cpp_file.resolve())
+        main_repo_path = ValidatedRepoFile(temp_dir, main_file.resolve())
+        cpp_repo_path = ValidatedRepoFile(temp_dir, cpp_file.resolve())
         dep_repo_paths = [main_repo_path, cpp_repo_path]
         tool_name = "doxygen"
         tool_args = []
@@ -498,7 +498,7 @@ class TestErrorCases:
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
 
-        source_repo_path = RepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]

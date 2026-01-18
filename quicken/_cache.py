@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
 from ._cpp_normalizer import hash_cpp_source
-from ._repo_file import CachedRepoFile, RepoFile
+from ._repo_file import CachedRepoFile, RepoFile, ValidatedRepoFile
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
@@ -45,13 +45,13 @@ class FileMetadata:
 
         return hash_cpp_source(file_path)
 
-    def __init__(self, path: RepoFile, file_hash: str, mtime_ns: int, size: int):
+    def __init__(self, repo_file: RepoFile, file_hash: str, mtime_ns: int, size: int):
         """Initialize file metadata.
-        Args:    path: RepoFile instance for the file
+        Args:    repo_file: RepoFile instance for the file
                  file_hash: 16-character hex string (64-bit BLAKE2b hash)
                  mtime_ns: Modification time in nanoseconds
                  size: File size in bytes"""
-        self.path = path
+        self.repo_file = repo_file
         self.file_hash = file_hash
         self.mtime_ns = mtime_ns
         self.size = size
@@ -59,22 +59,22 @@ class FileMetadata:
     @classmethod
     def from_dict(cls, data: Dict) -> 'FileMetadata':
         """Load from JSON dictionary.
-        Args:    data: Dictionary with 'path', 'hash', 'mtime_ns', 'size' keys
+        Args:    data: Dictionary with 'repo_file', 'file_hash', 'mtime_ns', 'size' keys
         Returns: FileMetadata instance"""
-        repo_path = CachedRepoFile(data["path"])
+        repo_file = CachedRepoFile(data["repo_file"])
         return cls(
-            path=repo_path,
-            file_hash=data["hash"],
+            repo_file=repo_file,
+            file_hash=data["file_hash"],
             mtime_ns=data["mtime_ns"],
             size=data["size"]
         )
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization.
-        Returns: Dictionary with 'path', 'hash', 'mtime_ns', 'size' keys"""
+        Returns: Dictionary with 'repo_file', 'file_hash', 'mtime_ns', 'size' keys"""
         return {
-            "path": str(self.path),
-            "hash": self.file_hash,
+            "repo_file": str(self.repo_file),
+            "file_hash": self.file_hash,
             "mtime_ns": self.mtime_ns,
             "size": self.size
         }
@@ -88,51 +88,14 @@ class FileMetadata:
         file_path = repo_file.to_absolute_path(repo_dir)
         stat = file_path.stat()
         return cls(
-            path=repo_file,
+            repo_file=repo_file,
             file_hash=cls.calculate_hash(repo_file, repo_dir),
             mtime_ns=stat.st_mtime_ns,
             size=stat.st_size
         )
 
-    def matches_current_file(self, repo_dir: Path) -> Tuple[bool, Optional['FileMetadata']]:
-        """Check if metadata matches current file state.
-
-        Fast path: Check mtime_ns+size first, only hash if mtime changed.
-
-        Args:    repo_dir: Repository root directory
-        Returns: Tuple of (matches, updated_metadata) where:
-                 - matches: True if file content matches cached hash
-                 - updated_metadata: FileMetadata with current mtime if hash matches,
-                                    None if no match or file doesn't exist"""
-        if not self.path:
-            return False, None
-
-        file_path = self.path.to_absolute_path(repo_dir)
-        try:
-            stat = os.stat(file_path)
-        except (FileNotFoundError, OSError):
-            return False, None
-        current_mtime_ns = stat.st_mtime_ns
-        current_size = stat.st_size
-
-        # Fast path: unchanged
-        if current_mtime_ns == self.mtime_ns and current_size == self.size:
-            return True, self
-
-        # Size changed = different file
-        if current_size != self.size:
-            return False, None
-
-        # Mtime changed - verify hash
-        current_hash = FileMetadata.calculate_hash(self.path, repo_dir)
-        if current_hash != self.file_hash:
-            return False, None
-
-        # Hash matches - return updated metadata
-        return True, FileMetadata(self.path, self.file_hash, current_mtime_ns, current_size)
-
     def __repr__(self):
-        return f"FileMetadata({self.path!r}, hash={self.file_hash[:8]}..., size={self.size})"
+        return f"FileMetadata({self.repo_file!r}, file_hash={self.file_hash[:8]}..., size={self.size})"
 
 
 @typecheck_methods
@@ -275,13 +238,6 @@ class FolderIndex:
         self.next_entry_id += 1
         return cache_key
 
-    def find_entry_by_cache_key(self, cache_key: str) -> Optional[CacheEntry]:
-        """Find entry by cache_key."""
-        for entry in self.entries:
-            if entry.cache_key == cache_key:
-                return entry
-        return None
-
     def add_entry(self, cache_key: str, dependencies: List[FileMetadata]):
         """Add a new cache entry."""
         self.entries.append(CacheEntry(cache_key, dependencies))
@@ -303,7 +259,7 @@ def make_args_repo_relative(args: List[str], repo_dir: Path) -> List[str]:
             continue
 
         try:
-            repo_file = RepoFile(repo_dir, Path(arg))
+            repo_file = ValidatedRepoFile(repo_dir, Path(arg))
             result.append(str(repo_file))
         except (ValueError, OSError):
             # Path outside repo or can't parse as path - keep as-is
@@ -394,8 +350,8 @@ class QuickenCache:
         Returns: 16-character hex string (64-bit hash of all dependency hashes)"""
         hash_obj = hashlib.blake2b(digest_size=8)
         for dep in dependencies:
-            # Hash combination of path and content hash for uniqueness
-            dep_str = f"{str(dep.path)}:{dep.file_hash}"
+            # Hash combination of repo_file and content hash for uniqueness
+            dep_str = f"{str(dep.repo_file)}:{dep.file_hash}"
             hash_obj.update(dep_str.encode('utf-8'))
         return hash_obj.hexdigest()
 
@@ -405,10 +361,10 @@ class QuickenCache:
                  repo_dir: Repository root directory
         Returns: True if all dependencies match by mtime+size, False otherwise"""
         for cached_dep in cached_deps:
-            if not cached_dep.path:
+            if not cached_dep.repo_file:
                 return False
 
-            file_path = cached_dep.path.to_absolute_path(repo_dir)
+            file_path = cached_dep.repo_file.to_absolute_path(repo_dir)
             try:
                 stat = file_path.stat()
             except (FileNotFoundError, OSError):
@@ -433,10 +389,10 @@ class QuickenCache:
         updated_deps = []
 
         for cached_dep in cached_deps:
-            if not cached_dep.path:
+            if not cached_dep.repo_file:
                 return None
 
-            file_path = cached_dep.path.to_absolute_path(repo_dir)
+            file_path = cached_dep.repo_file.to_absolute_path(repo_dir)
             if not file_path.is_file():
                 return None
 
@@ -450,12 +406,12 @@ class QuickenCache:
                 continue
 
             # Check if we've already hashed this file
-            cache_key = (str(cached_dep.path), current_mtime_ns, current_size)
+            cache_key = (str(cached_dep.repo_file), current_mtime_ns, current_size)
             current_hash = hash_cache.get(cache_key)
 
             if current_hash is None:
                 # Mtime or size changed -> hash this file and cache result
-                current_hash = FileMetadata.calculate_hash(cached_dep.path, repo_dir)
+                current_hash = FileMetadata.calculate_hash(cached_dep.repo_file, repo_dir)
                 hash_cache[cache_key] = current_hash
 
             if current_hash != cached_dep.file_hash:
@@ -463,7 +419,7 @@ class QuickenCache:
 
             # Hash matches -> create updated metadata with new mtime and size
             updated_deps.append(FileMetadata(
-                cached_dep.path,
+                cached_dep.repo_file,
                 cached_dep.file_hash,  # Same hash
                 current_mtime_ns,  # Updated mtime
                 current_size  # Updated size (may differ from cached)
@@ -671,7 +627,7 @@ class QuickenCache:
 
         # Add all dependencies
         for dep in dependencies:
-            dep_rel_path = str(dep.path)
+            dep_rel_path = str(dep.repo_file)
             old_dep = str(Path(old_repo_dir) / dep_rel_path)
             new_dep = str(Path(new_repo_dir) / dep_rel_path)
             path_mappings.append((old_dep, new_dep))

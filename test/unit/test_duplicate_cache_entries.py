@@ -83,7 +83,7 @@ int add(int a, int b) {
     first_metadata_file = first_entry_dir / "metadata.json"
     with open(first_metadata_file) as f:
         first_metadata = json.load(f)
-    first_content_hash = first_metadata['dependencies'][0]['hash']
+    first_content_hash = first_metadata['dependencies'][0]['file_hash']
 
     # Second compilation from dir2 with IDENTICAL content - create Quicken instance for dir2
     quicken2 = Quicken(dir2, cache_dir=cache_dir)
@@ -104,7 +104,7 @@ int add(int a, int b) {
             if metadata_file.exists():
                 with open(metadata_file) as f:
                     metadata = json.load(f)
-                    content_hash = metadata['dependencies'][0]['hash']
+                    content_hash = metadata['dependencies'][0]['file_hash']
                     all_hashes.append((entry_dir.name, content_hash))
 
     # Find duplicate hashes

@@ -14,19 +14,9 @@ from ._type_check import typecheck_methods
 class RepoFile:
     """Stores a path to a file in the repo, relative to the repo. The file does not have to exist.
 
-    Raises ValueError if the path is outside the repo.
     """
-
-    def __init__(self, repo: Path, path: Path):
-        """Initialize RepoFile.
-        Args:    repo: Repository root (must be an absolute path)
-                 path: Path to convert (absolute or relative to repo)
-        Raises:  ValueError if path is outside repo"""
-        if not path.is_absolute():
-            path = repo / path
-
-        path = Path(os.path.normpath(path))  # Normalize to remove .. and .
-        self.path = path.relative_to(repo)  # Raises ValueError if outside repo
+    def __init__(self, repo_file): 
+        self.path = repo_file 
 
     def to_absolute_path(self, repo: Path) -> Path:
         """Convert this repo-relative path to an absolute path.
@@ -40,6 +30,25 @@ class RepoFile:
         return self.path.as_posix()
 
 
+@typecheck_methods
+class ValidatedRepoFile(RepoFile):
+    """Stores a path to a file in the repo, relative to the repo. The file does not have to exist.
+
+    Raises ValueError if the path is outside the repo.
+    """
+    def __init__(self, repo: Path, path: Path):
+        """Initialize RepoFile.
+        Args:    repo: Repository root (must be an absolute path)
+                 path: Path to convert (absolute or relative to repo)
+        Raises:  ValueError if path is outside repo"""
+        if not path.is_absolute():
+            path = repo / path
+
+        path = Path(os.path.normpath(path))  # Normalize to remove .. and .
+        super().__init__(path.relative_to(repo))   # Raises ValueError if outside repo
+
+
+@typecheck_methods
 class CachedRepoFile(RepoFile):
     """RepoFile created from a known-valid repo-relative path string (e.g., from cache).
     Skips validation since cached paths are already normalized and relative."""
