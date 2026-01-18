@@ -16,8 +16,8 @@ class CmdClang(CmdTool):
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("clang++", False, arguments, logger, output_args, input_args, cache, repo_dir)
 
-    def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
-        """Return patterns for files clang++ will create.
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+        """Return absolute patterns for files clang++ will create.
         Parses arguments to find output paths or uses defaults based on source stem."""
         patterns = []
         stem = source_file.stem
@@ -40,19 +40,19 @@ class CmdClang(CmdTool):
         compile_only = "-c" in all_args
 
         if output_path:
-            patterns.append(output_path)
-            patterns.append(f"**/{output_path}")
+            patterns.append(str(repo_dir / output_path))
+            patterns.append(str(repo_dir / "**" / output_path))
         elif generates_asm:
-            patterns.append(f"{stem}.s")
-            patterns.append(f"**/{stem}.s")
+            patterns.append(str(repo_dir / f"{stem}.s"))
+            patterns.append(str(repo_dir / "**" / f"{stem}.s"))
         elif compile_only:
-            patterns.append(f"{stem}.o")
-            patterns.append(f"**/{stem}.o")
+            patterns.append(str(repo_dir / f"{stem}.o"))
+            patterns.append(str(repo_dir / "**" / f"{stem}.o"))
         else:
             # Linking, creates executable (a.out or stem)
-            patterns.append(f"{stem}")
-            patterns.append("a.out")
-            patterns.append(f"**/{stem}")
-            patterns.append("**/a.out")
+            patterns.append(str(repo_dir / stem))
+            patterns.append(str(repo_dir / "a.out"))
+            patterns.append(str(repo_dir / "**" / stem))
+            patterns.append(str(repo_dir / "**" / "a.out"))
 
         return patterns

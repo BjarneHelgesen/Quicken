@@ -16,8 +16,8 @@ class CmdClangTidy(CmdTool):
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("clang-tidy", False, arguments, logger, output_args, input_args, cache, repo_dir)
 
-    def get_output_patterns(self, _source_file: Path, _repo_dir: Path) -> List[str]:
-        """Return patterns for files clang-tidy will create.
+    def get_output_patterns(self, _source_file: Path, repo_dir: Path) -> List[str]:
+        """Return absolute patterns for files clang-tidy will create.
         clang-tidy typically doesn't create files, but can with --export-fixes."""
         patterns = []
         all_args = self.arguments + self.output_args
@@ -26,8 +26,8 @@ class CmdClangTidy(CmdTool):
         for arg in all_args:
             if arg.startswith("--export-fixes="):
                 fixes_file = arg[len("--export-fixes="):]
-                patterns.append(fixes_file)
-                patterns.append(f"**/{fixes_file}")
+                patterns.append(str(repo_dir / fixes_file))
+                patterns.append(str(repo_dir / "**" / fixes_file))
                 break
 
         # clang-tidy doesn't create output files in normal operation

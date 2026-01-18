@@ -21,8 +21,8 @@ class CmdUic(CmdTool):
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("uic", False, arguments, logger, output_args, input_args, cache, repo_dir)
 
-    def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
-        """Return patterns for files UIC will create.
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+        """Return absolute patterns for files UIC will create.
         Parses -o/--output argument or defaults to ui_<stem>.h naming."""
         patterns = []
         stem = source_file.stem
@@ -42,11 +42,11 @@ class CmdUic(CmdTool):
                 break
 
         if output_path:
-            patterns.append(output_path)
-            patterns.append(f"**/{Path(output_path).name}")
+            patterns.append(str(repo_dir / output_path))
+            patterns.append(str(repo_dir / "**" / Path(output_path).name))
         else:
-            patterns.append(f"ui_{stem}.h")
-            patterns.append(f"**/ui_{stem}.h")
+            patterns.append(str(repo_dir / f"ui_{stem}.h"))
+            patterns.append(str(repo_dir / "**" / f"ui_{stem}.h"))
 
         return patterns
 

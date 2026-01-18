@@ -5,6 +5,7 @@ Provides ToolCmd base class and tool-specific subclasses with
 dependency tracking.
 """
 
+import glob
 import json
 import os
 import subprocess
@@ -186,41 +187,29 @@ class CmdTool(ABC):
 
         return cmd
 
-    def get_output_patterns(self, _source_file: Path, _repo_dir: Path) -> List[str]:
-        """Return patterns for files this tool will create.
-        Patterns are relative to repo_dir and can use glob wildcards.
+    def get_output_patterns(self, _source_file: Path, repo_dir: Path) -> List[str]:
+        """Return absolute patterns for files this tool will create.
+        Patterns can include glob wildcards (*, **, ?).
         Args:    _source_file: Path to source file (used by subclasses)
-                 _repo_dir: Repository root directory (used by subclasses)
-        Returns: List of glob patterns (relative to repo_dir)"""
-        return ["**/*"]  # Default: scan everything (override in subclasses)
+                 repo_dir: Repository root directory
+        Returns: List of absolute glob patterns"""
+        return [str(repo_dir / "**" / "*")]  # Default: scan everything (override in subclasses)
 
     @staticmethod
-    def _get_file_timestamps(directory: Path, patterns: List[str]) -> Dict[Path, int]:
+    def _get_file_timestamps(patterns: List[str]) -> Dict[Path, int]:
         """Get dictionary of file paths to their modification timestamps for files matching patterns.
-        Args:    directory: Directory to scan
-                 patterns: List of glob patterns (relative to directory) or absolute paths
+        Args:    patterns: List of absolute glob patterns (can include wildcards)
         Returns: Dictionary mapping file paths to st_mtime_ns timestamps"""
-        if not directory.exists():
-            return {}
-
         file_timestamps = {}
         for pattern in patterns:
-            pattern_path = Path(pattern)
-            if pattern_path.is_absolute():
-                # Handle absolute path directly
-                if pattern_path.is_file():
+            # Use glob.glob which handles absolute paths with wildcards
+            for f_str in glob.glob(pattern, recursive=True):
+                f = Path(f_str)
+                if f.is_file():
                     try:
-                        file_timestamps[pattern_path] = pattern_path.stat().st_mtime_ns
+                        file_timestamps[f] = f.stat().st_mtime_ns
                     except (OSError, FileNotFoundError):
                         pass
-            else:
-                # Relative pattern - use glob
-                for f in directory.glob(pattern):
-                    if f.is_file():
-                        try:
-                            file_timestamps[f] = f.stat().st_mtime_ns
-                        except (OSError, FileNotFoundError):
-                            pass
 
         return file_timestamps
 
@@ -233,7 +222,7 @@ class CmdTool(ABC):
         dependencies = self.get_dependencies(abs_source_file, repo_dir)
 
         patterns = self.get_output_patterns(abs_source_file, repo_dir)
-        files_before = self._get_file_timestamps(repo_dir, patterns)
+        files_before = self._get_file_timestamps(patterns)
 
         cmd = self.build_execution_command(abs_source_file)
 
@@ -245,7 +234,7 @@ class CmdTool(ABC):
             env=self.msvc_env if self.needs_vcvars else None
         )
 
-        files_after = self._get_file_timestamps(repo_dir, patterns)
+        files_after = self._get_file_timestamps(patterns)
 
         # Detect output files: new files OR files with updated timestamps
         output_files = [

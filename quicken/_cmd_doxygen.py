@@ -18,7 +18,7 @@ class CmdDoxygen(CmdTool):
         super().__init__("doxygen", False, arguments, logger, output_args, input_args, cache, repo_dir)
 
     def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
-        """Return patterns for files doxygen will create.
+        """Return absolute patterns for files doxygen will create.
         Parses Doxyfile to find OUTPUT_DIRECTORY and returns patterns for that directory."""
         patterns = []
         doxyfile_path = repo_dir / source_file if not source_file.is_absolute() else source_file
@@ -41,12 +41,12 @@ class CmdDoxygen(CmdTool):
 
         if output_dir:
             # Add pattern for all files in output directory
-            patterns.append(f"{output_dir}/**/*")
+            patterns.append(str(repo_dir / output_dir / "**" / "*"))
         else:
             # Default doxygen output locations
-            patterns.append("xml/**/*")
-            patterns.append("html/**/*")
-            patterns.append("latex/**/*")
+            patterns.append(str(repo_dir / "xml" / "**" / "*"))
+            patterns.append(str(repo_dir / "html" / "**" / "*"))
+            patterns.append(str(repo_dir / "latex" / "**" / "*"))
 
         return patterns
 
