@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
 from ._cpp_normalizer import hash_cpp_source
-from ._repo_path import RepoPath
+from ._repo_path import CachedRepoPath, RepoPath
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
@@ -61,7 +61,7 @@ class FileMetadata:
         """Load from JSON dictionary.
         Args:    data: Dictionary with 'path', 'hash', 'mtime_ns', 'size' keys
         Returns: FileMetadata instance"""
-        repo_path = RepoPath.from_relative_string(data["path"])
+        repo_path = CachedRepoPath(data["path"])
         return cls(
             path=repo_path,
             file_hash=data["hash"],

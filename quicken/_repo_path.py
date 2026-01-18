@@ -17,14 +17,6 @@ class RepoPath:
     Raises ValueError if the path is outside the repo.
     """
 
-    @classmethod
-    def from_relative_string(cls, path_str: str) -> 'RepoPath':
-        """Create from known-valid repo-relative path (e.g., from cache).
-        Skips validation since cached paths are already normalized and relative."""
-        obj = object.__new__(cls)
-        obj.path = Path(path_str)
-        return obj
-
     def __init__(self, repo: Path, path: Path):
         """Initialize RepoPath.
         Args:    repo: Repository root (must be an absolute path)
@@ -46,3 +38,11 @@ class RepoPath:
         """Return POSIX-style string representation for serialization.
         Uses forward slashes for cross-platform compatibility in JSON."""
         return self.path.as_posix()
+
+
+class CachedRepoPath(RepoPath):
+    """RepoPath created from a known-valid repo-relative path string (e.g., from cache).
+    Skips validation since cached paths are already normalized and relative."""
+
+    def __init__(self, path_str: str):
+        self.path = Path(path_str)
