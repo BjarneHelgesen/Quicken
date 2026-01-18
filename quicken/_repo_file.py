@@ -1,7 +1,7 @@
 """
 Repository path handling for Quicken.
 
-Provides RepoPath class for managing file paths relative to a repository root.
+Provides RepoFile class for managing file paths relative to a repository root.
 """
 
 import os
@@ -11,14 +11,14 @@ from ._type_check import typecheck_methods
 
 
 @typecheck_methods
-class RepoPath:
+class RepoFile:
     """Stores a path to a file in the repo, relative to the repo. The file does not have to exist.
 
     Raises ValueError if the path is outside the repo.
     """
 
     def __init__(self, repo: Path, path: Path):
-        """Initialize RepoPath.
+        """Initialize RepoFile.
         Args:    repo: Repository root (must be an absolute path)
                  path: Path to convert (absolute or relative to repo)
         Raises:  ValueError if path is outside repo"""
@@ -40,8 +40,8 @@ class RepoPath:
         return self.path.as_posix()
 
 
-class CachedRepoPath(RepoPath):
-    """RepoPath created from a known-valid repo-relative path string (e.g., from cache).
+class CachedRepoFile(RepoFile):
+    """RepoFile created from a known-valid repo-relative path string (e.g., from cache).
     Skips validation since cached paths are already normalized and relative."""
 
     def __init__(self, path_str: str):

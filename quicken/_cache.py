@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
 from ._cpp_normalizer import hash_cpp_source
-from ._repo_file import CachedRepoPath, RepoPath
+from ._repo_file import CachedRepoFile, RepoFile
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
@@ -32,11 +32,11 @@ class FileMetadata:
     """
 
     @staticmethod
-    def calculate_hash(repo_file: RepoPath, repo_dir: Path) -> str:
+    def calculate_hash(repo_file: RepoFile, repo_dir: Path) -> str:
         """Calculate 64-bit hash of the file at the given repo path.
         Uses whitespace and comment-insensitive hashing to maximize
         cache hits on formatting changes.
-        Args:    repo_file: RepoPath instance for the file
+        Args:    repo_file: RepoFile instance for the file
                  repo_dir: Repository root directory
         Returns: 16-character hex string (64-bit BLAKE2b hash), or None if invalid path"""
         if not repo_file:
@@ -45,9 +45,9 @@ class FileMetadata:
 
         return hash_cpp_source(file_path)
 
-    def __init__(self, path: RepoPath, file_hash: str, mtime_ns: int, size: int):
+    def __init__(self, path: RepoFile, file_hash: str, mtime_ns: int, size: int):
         """Initialize file metadata.
-        Args:    path: RepoPath instance for the file
+        Args:    path: RepoFile instance for the file
                  file_hash: 16-character hex string (64-bit BLAKE2b hash)
                  mtime_ns: Modification time in nanoseconds
                  size: File size in bytes"""
@@ -61,7 +61,7 @@ class FileMetadata:
         """Load from JSON dictionary.
         Args:    data: Dictionary with 'path', 'hash', 'mtime_ns', 'size' keys
         Returns: FileMetadata instance"""
-        repo_path = CachedRepoPath(data["path"])
+        repo_path = CachedRepoFile(data["path"])
         return cls(
             path=repo_path,
             file_hash=data["hash"],
@@ -80,9 +80,9 @@ class FileMetadata:
         }
 
     @classmethod
-    def from_file(cls, repo_file: RepoPath, repo_dir: Path) -> 'FileMetadata':
+    def from_file(cls, repo_file: RepoFile, repo_dir: Path) -> 'FileMetadata':
         """Create by reading file from disk.
-        Args:    repo_file: RepoPath instance for the file
+        Args:    repo_file: RepoFile instance for the file
                  repo_dir: Repository root directory
         Returns: FileMetadata instance with current file state"""
         file_path = repo_file.to_absolute_path(repo_dir)
@@ -303,7 +303,7 @@ def make_args_repo_relative(args: List[str], repo_dir: Path) -> List[str]:
             continue
 
         try:
-            repo_file = RepoPath(repo_dir, Path(arg))
+            repo_file = RepoFile(repo_dir, Path(arg))
             result.append(str(repo_file))
         except (ValueError, OSError):
             # Path outside repo or can't parse as path - keep as-is
@@ -320,7 +320,7 @@ class CacheKey:
     Takes a ToolCmd and computes modified args and repo-relative input args internally.
     """
 
-    def __init__(self, source_repo_path: RepoPath, tool_cmd, repo_dir: Path):
+    def __init__(self, source_repo_path: RepoFile, tool_cmd, repo_dir: Path):
         self.source_repo_path = source_repo_path
         self.tool_name = tool_cmd.tool_name
         self.tool_args = tool_cmd.add_optimization_flags(tool_cmd.arguments)
@@ -425,7 +425,7 @@ class QuickenCache:
         Uses hash_cache to avoid recomputing hashes for files already hashed.
         Args:    cached_deps: List of FileMetadata from cache entry
                  repo_dir: Repository root directory
-                 hash_cache: Optional dict mapping RepoPath to hash (updated in-place)
+                 hash_cache: Optional dict mapping RepoFile to hash (updated in-place)
         Returns: List of FileMetadata with updated mtimes/sizes if all match, None otherwise"""
         if hash_cache is None:
             hash_cache = {}
@@ -535,11 +535,11 @@ class QuickenCache:
 
         return None
 
-    def store(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
+    def store(self, cache_key: CacheKey, dependency_repo_paths: List[RepoFile],
               result: ToolRunResult, repo_dir: Path) -> Optional[Path]:
         """Store tool output in cache with dependency hashes.
         Args:    cache_key: CacheKey identifying the cache entry
-                 dependency_repo_paths: List of RepoPath instances for dependencies
+                 dependency_repo_paths: List of RepoFile instances for dependencies
                  result: ToolRunResult containing output files, stdout, stderr, returncode
                  repo_dir: Repository root directory
         Returns: Path to cache entry directory, or None if lock couldn't be acquired"""
@@ -555,12 +555,12 @@ class QuickenCache:
         finally:
             self._release_folder_lock(lock_handle)
 
-    def _store_locked(self, cache_key: CacheKey, dependency_repo_paths: List[RepoPath],
+    def _store_locked(self, cache_key: CacheKey, dependency_repo_paths: List[RepoFile],
                       result: ToolRunResult, folder_path: Path, repo_dir: Path) -> Path:
         """Internal store implementation, called while holding folder lock."""
         source_key = str(cache_key.source_repo_path)  # repo-relative path
 
-        # Create FileMetadata objects from RepoPath instances
+        # Create FileMetadata objects from RepoFile instances
         dep_metadata = [FileMetadata.from_file(dep, repo_dir) for dep in dependency_repo_paths]
 
         folder_index = FolderIndex.from_file(folder_path)

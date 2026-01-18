@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, TYPE_CHECKING
 from abc import ABC
 
-from ._repo_file import RepoPath
+from ._repo_file import RepoFile
 from ._cache import CacheKey
 from ._type_check import typecheck_methods
 
@@ -83,12 +83,12 @@ class ToolCmd(ABC):
             self._msvc_env = ToolCmd._get_msvc_environment()
         return self._msvc_env
 
-    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
+    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoFile]:
         """Get list of dependency paths for caching using MSVC /showIncludes.
         Default implementation for C++ tools. Can be overridden by subclasses.
         Args:    main_file: Main file being processed (source file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository root directory
-        Returns: List of RepoPath instances for all dependencies"""
+        Returns: List of RepoFile instances for all dependencies"""
         cl_path = self._get_config()["cl"]
 
         # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
@@ -101,14 +101,14 @@ class ToolCmd(ABC):
         )
 
         # Parse /showIncludes output
-        dependencies = [RepoPath(repo_dir, main_file)]  # Always include the source file itself
+        dependencies = [RepoFile(repo_dir, main_file)]  # Always include the source file itself
 
         for line in result.stderr.splitlines():  # /showIncludes outputs to stderr
             if line.startswith("Note: including file:"):
                 # Extract the file path (after "Note: including file:")
                 file_path_str = line.split(":", 2)[2].strip()
                 try:
-                    repo_file = RepoPath(repo_dir, Path(file_path_str))
+                    repo_file = RepoFile(repo_dir, Path(file_path_str))
                     dependencies.append(repo_file)
                 except ValueError:
                     pass  # Skip dependencies outside repo (e.g., system headers)
@@ -262,9 +262,9 @@ class ToolCmd(ABC):
 
         return file_timestamps
 
-    def run(self, repo_file: RepoPath, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoPath]]:
+    def run(self, repo_file: RepoFile, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoFile]]:
         """Run the tool and detect output files.
-        Args:    source_file: RepoPath to file to process (C++ file for compilers, Doxyfile for Doxygen)
+        Args:    source_file: RepoFile to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
         Returns: Tuple of (ToolRunResult, dependencies)"""
         abs_source_file = repo_file.to_absolute_path(repo_dir)
@@ -297,7 +297,7 @@ class ToolCmd(ABC):
         """Execute the tool with caching.
         Args:    file: File to process (absolute or relative path)
         Returns: Tuple of (stdout, stderr, returncode)"""
-        repo_file = RepoPath(self.repo_dir, file)
+        repo_file = RepoFile(self.repo_dir, file)
 
         # Return the cached artifacts if found
         cache_key = CacheKey(repo_file, self, self.repo_dir)
@@ -525,10 +525,10 @@ class UicCmd(ToolCmd):
 
         return patterns
 
-    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
+    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoFile]:
         """Get dependencies for UIC: just the .ui file itself.
         UI files are self-contained XML and don't have external dependencies."""
-        return [RepoPath(repo_dir, main_file)]
+        return [RepoFile(repo_dir, main_file)]
 
 
 @typecheck_methods
@@ -571,18 +571,18 @@ class DoxygenCmd(ToolCmd):
 
         return patterns
 
-    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoPath]:
+    def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoFile]:
         """Get dependencies for Doxygen: Doxyfile + all C++ source/header files.
         Args:    main_file: Path to Doxyfile
                  repo_dir: Repository root directory
-        Returns: List of RepoPath instances for Doxyfile and all C++ files"""
-        dependencies = [RepoPath(repo_dir, main_file)]  # Include Doxyfile itself
+        Returns: List of RepoFile instances for Doxyfile and all C++ files"""
+        dependencies = [RepoFile(repo_dir, main_file)]  # Include Doxyfile itself
 
         # Add all C++ source and header files in the repo
         for pattern in ['**/*.cpp', '**/*.h', '**/*.hpp']:
             for file_path in repo_dir.glob(pattern):
                 try:
-                    repo_file = RepoPath(repo_dir, file_path)
+                    repo_file = RepoFile(repo_dir, file_path)
                     dependencies.append(repo_file)
                 except ValueError:
                     pass  # Skip files outside repo
