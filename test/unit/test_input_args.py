@@ -13,7 +13,7 @@ import pytest
 
 from quicken import Quicken
 from quicken._cache import QuickenCache, FolderIndex, make_args_repo_relative
-from quicken._repo_path import RepoPath
+from quicken._repo_file import RepoPath
 
 
 # Sample C++ code for testing

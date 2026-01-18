@@ -18,7 +18,7 @@ quicken/
   _cache.py            # Cache storage and retrieval
   _tool_cmd.py         # Tool command execution
   _cpp_normalizer.py   # C++ output normalization
-  _repo_path.py        # Repository path handling
+  _repo_file.py        # Repository path handling
 test/
   unit/                # Unit tests
   regression/          # Regression tests (marked with @pytest.mark.regression_test)

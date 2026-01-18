@@ -17,7 +17,7 @@ import pytest
 
 from quicken import Quicken
 from quicken._cache import QuickenCache, CacheKey
-from quicken._repo_path import RepoPath
+from quicken._repo_file import RepoPath
 from quicken._tool_cmd import ToolRunResult
 
 

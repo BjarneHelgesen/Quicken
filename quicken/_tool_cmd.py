@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, TYPE_CHECKING
 from abc import ABC
 
-from ._repo_path import RepoPath
+from ._repo_file import RepoPath
 from ._cache import CacheKey
 from ._type_check import typecheck_methods
 
@@ -108,8 +108,8 @@ class ToolCmd(ABC):
                 # Extract the file path (after "Note: including file:")
                 file_path_str = line.split(":", 2)[2].strip()
                 try:
-                    repo_path = RepoPath(repo_dir, Path(file_path_str))
-                    dependencies.append(repo_path)
+                    repo_file = RepoPath(repo_dir, Path(file_path_str))
+                    dependencies.append(repo_file)
                 except ValueError:
                     pass  # Skip dependencies outside repo (e.g., system headers)
 
@@ -262,12 +262,12 @@ class ToolCmd(ABC):
 
         return file_timestamps
 
-    def run(self, source_file: RepoPath, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoPath]]:
+    def run(self, repo_file: RepoPath, repo_dir: Path) -> Tuple[ToolRunResult, List[RepoPath]]:
         """Run the tool and detect output files.
         Args:    source_file: RepoPath to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
         Returns: Tuple of (ToolRunResult, dependencies)"""
-        abs_source_file = source_file.to_absolute_path(repo_dir)
+        abs_source_file = repo_file.to_absolute_path(repo_dir)
         dependencies = self.get_dependencies(abs_source_file, repo_dir)
 
         patterns = self.get_output_patterns(abs_source_file, repo_dir)
@@ -299,12 +299,14 @@ class ToolCmd(ABC):
         Returns: Tuple of (stdout, stderr, returncode)"""
         repo_file = RepoPath(self.repo_dir, file)
 
+        # Return the cached artifacts if found
         cache_key = CacheKey(repo_file, self, self.repo_dir)
         cache_entry = self.cache.lookup(cache_key, self.repo_dir)
         self.logger.info(f"Cached entry found: {cache_entry}: {repo_file}, tool: {self.tool_name} source:{file}")
         if cache_entry:
             return self.cache.restore(cache_entry, self.repo_dir)
 
+        # No cached artifacts found. Execute the tool and store it in cache if successful
         result, dependencies = self.run(repo_file, self.repo_dir)
         if result.returncode == 0:
             self.cache.store(cache_key, dependencies, result, self.repo_dir)
@@ -580,8 +582,8 @@ class DoxygenCmd(ToolCmd):
         for pattern in ['**/*.cpp', '**/*.h', '**/*.hpp']:
             for file_path in repo_dir.glob(pattern):
                 try:
-                    repo_path = RepoPath(repo_dir, file_path)
-                    dependencies.append(repo_path)
+                    repo_file = RepoPath(repo_dir, file_path)
+                    dependencies.append(repo_file)
                 except ValueError:
                     pass  # Skip files outside repo
 

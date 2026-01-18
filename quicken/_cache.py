@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
 from ._cpp_normalizer import hash_cpp_source
-from ._repo_path import CachedRepoPath, RepoPath
+from ._repo_file import CachedRepoPath, RepoPath
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
@@ -32,16 +32,16 @@ class FileMetadata:
     """
 
     @staticmethod
-    def calculate_hash(repo_path: RepoPath, repo_dir: Path) -> str:
+    def calculate_hash(repo_file: RepoPath, repo_dir: Path) -> str:
         """Calculate 64-bit hash of the file at the given repo path.
         Uses whitespace and comment-insensitive hashing to maximize
         cache hits on formatting changes.
-        Args:    repo_path: RepoPath instance for the file
+        Args:    repo_file: RepoPath instance for the file
                  repo_dir: Repository root directory
         Returns: 16-character hex string (64-bit BLAKE2b hash), or None if invalid path"""
-        if not repo_path:
+        if not repo_file:
             return None
-        file_path = repo_path.to_absolute_path(repo_dir)
+        file_path = repo_file.to_absolute_path(repo_dir)
 
         return hash_cpp_source(file_path)
 
@@ -52,7 +52,7 @@ class FileMetadata:
                  mtime_ns: Modification time in nanoseconds
                  size: File size in bytes"""
         self.path = path
-        self.hash = file_hash
+        self.file_hash = file_hash
         self.mtime_ns = mtime_ns
         self.size = size
 
@@ -74,22 +74,22 @@ class FileMetadata:
         Returns: Dictionary with 'path', 'hash', 'mtime_ns', 'size' keys"""
         return {
             "path": str(self.path),
-            "hash": self.hash,
+            "hash": self.file_hash,
             "mtime_ns": self.mtime_ns,
             "size": self.size
         }
 
     @classmethod
-    def from_file(cls, repo_path: RepoPath, repo_dir: Path) -> 'FileMetadata':
+    def from_file(cls, repo_file: RepoPath, repo_dir: Path) -> 'FileMetadata':
         """Create by reading file from disk.
-        Args:    repo_path: RepoPath instance for the file
+        Args:    repo_file: RepoPath instance for the file
                  repo_dir: Repository root directory
         Returns: FileMetadata instance with current file state"""
-        file_path = repo_path.to_absolute_path(repo_dir)
+        file_path = repo_file.to_absolute_path(repo_dir)
         stat = file_path.stat()
         return cls(
-            path=repo_path,
-            file_hash=cls.calculate_hash(repo_path, repo_dir),
+            path=repo_file,
+            file_hash=cls.calculate_hash(repo_file, repo_dir),
             mtime_ns=stat.st_mtime_ns,
             size=stat.st_size
         )
@@ -125,14 +125,14 @@ class FileMetadata:
 
         # Mtime changed - verify hash
         current_hash = FileMetadata.calculate_hash(self.path, repo_dir)
-        if current_hash != self.hash:
+        if current_hash != self.file_hash:
             return False, None
 
         # Hash matches - return updated metadata
-        return True, FileMetadata(self.path, self.hash, current_mtime_ns, current_size)
+        return True, FileMetadata(self.path, self.file_hash, current_mtime_ns, current_size)
 
     def __repr__(self):
-        return f"FileMetadata({self.path!r}, hash={self.hash[:8]}..., size={self.size})"
+        return f"FileMetadata({self.path!r}, hash={self.file_hash[:8]}..., size={self.size})"
 
 
 @typecheck_methods
@@ -303,8 +303,8 @@ def make_args_repo_relative(args: List[str], repo_dir: Path) -> List[str]:
             continue
 
         try:
-            repo_path = RepoPath(repo_dir, Path(arg))
-            result.append(str(repo_path))
+            repo_file = RepoPath(repo_dir, Path(arg))
+            result.append(str(repo_file))
         except (ValueError, OSError):
             # Path outside repo or can't parse as path - keep as-is
             result.append(arg)
@@ -395,7 +395,7 @@ class QuickenCache:
         hash_obj = hashlib.blake2b(digest_size=8)
         for dep in dependencies:
             # Hash combination of path and content hash for uniqueness
-            dep_str = f"{str(dep.path)}:{dep.hash}"
+            dep_str = f"{str(dep.path)}:{dep.file_hash}"
             hash_obj.update(dep_str.encode('utf-8'))
         return hash_obj.hexdigest()
 
@@ -458,13 +458,13 @@ class QuickenCache:
                 current_hash = FileMetadata.calculate_hash(cached_dep.path, repo_dir)
                 hash_cache[cache_key] = current_hash
 
-            if current_hash != cached_dep.hash:
+            if current_hash != cached_dep.file_hash:
                 return None  # Early exit on first mismatch
 
             # Hash matches -> create updated metadata with new mtime and size
             updated_deps.append(FileMetadata(
                 cached_dep.path,
-                cached_dep.hash,  # Same hash
+                cached_dep.file_hash,  # Same hash
                 current_mtime_ns,  # Updated mtime
                 current_size  # Updated size (may differ from cached)
             ))
