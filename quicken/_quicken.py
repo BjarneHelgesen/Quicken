@@ -1,22 +1,22 @@
-"""
-Main Quicken application and tool execution.
-
-Provides the main Quicken class for managing cached tool execution.
-"""
+"""Quicken API."""
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
-from ._cache import QuickenCache, CacheKey
+from ._cache import QuickenCache
 from ._logger import QuickenLogger
-from ._repo_path import RepoPath
 from ._tool_cmd import ToolCmd, ClCmd, ClangCmd, ClangTidyCmd, DoxygenCmd, MocCmd
 from ._type_check import typecheck_methods
 
 
 @typecheck_methods
 class Quicken:
-    """Main Quicken application."""
+    """Quicken API
+    Basic usage: 
+    quicken = Quicken(repo)
+    tool = quicken.<tool>(command_line_args, [], []) # tool = cl, clang, etc.
+    stdout, stderr, returncode = tool(file)
+    """
 
     _data_dir = Path.home() / ".quicken"
 
@@ -33,46 +33,24 @@ class Quicken:
     def cl(self, tool_args: List[str], output_args: List[str], input_args: List[str],
            optimization: Optional[int] = None) -> ToolCmd:
         """Create a reusable MSVC cl compiler command."""
-        return ClCmd(tool_args, self.logger, output_args, input_args, optimization)
+        return ClCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
 
     def clang(self, tool_args: List[str], output_args: List[str], input_args: List[str],
               optimization: Optional[int] = None) -> ToolCmd:
         """Create a reusable clang++ compiler command."""
-        return ClangCmd(tool_args, self.logger, output_args, input_args, optimization)
+        return ClangCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
 
     def clang_tidy(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable clang-tidy command."""
-        return ClangTidyCmd(tool_args, self.logger, output_args, input_args)
+        return ClangTidyCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
     def doxygen(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable doxygen command."""
-        return DoxygenCmd(tool_args, self.logger, output_args, input_args)
+        return DoxygenCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
     def moc(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable Qt MOC (Meta-Object Compiler) command."""
-        return MocCmd(tool_args, self.logger, output_args, input_args)
-
-    def run(self, file: Path, tool_cmd: ToolCmd) -> Tuple[str, str, int]:
-        """Main execution: optimized cache lookup, or get dependencies and run tool.
-        Args:    file: File to process (absolute or relative path) - C++ file for compilers, Doxyfile for Doxygen
-                 tool_cmd: Tool command created by cl(), clang(), clang_tidy(), or doxygen()
-        Returns: Tuple of (stdout, stderr, returncode)"""
-
-        # Store the file path relative to the repo
-        repo_file = RepoPath(self.repo_dir, file)
-
-        # Fast path: Look up the build artifacts in the cache and return it
-        cache_key = CacheKey(repo_file, tool_cmd, self.repo_dir)
-        cache_entry = self.cache.lookup(cache_key, self.repo_dir)
-        self.logger.info(f"Cached entry found: {cache_entry}: {repo_file}, tool: {tool_cmd.tool_name} source:{file}")
-        if cache_entry:
-            return self.cache.restore(cache_entry, self.repo_dir)
-
-        # Slow path: cache lookup has failed, so we need to run the tool and update the cache.
-        result, dependencies = tool_cmd.run(repo_file, self.repo_dir)
-        if result.returncode == 0:
-            self.cache.store(cache_key, dependencies, result, self.repo_dir)
-        return result.stdout, result.stderr, result.returncode
+        return MocCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
     def clear_cache(self):
         """Clear the entire cache."""

@@ -9,10 +9,14 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, TYPE_CHECKING
 from abc import ABC
 
 from ._repo_path import RepoPath
+from ._cache import CacheKey
+
+if TYPE_CHECKING:
+    from ._cache import QuickenCache
 
 
 class ToolRunResult:
@@ -39,7 +43,7 @@ class ToolCmd(ABC):
 
     def __init__(self, tool_name: str, supports_optimization: bool, optimization_flags: List[str],
                  needs_vcvars: bool, arguments: List[str], logger, output_args: List[str],
-                 input_args: List[str], optimization=None):
+                 input_args: List[str], cache: "QuickenCache", repo_dir: Path, optimization=None):
         self.tool_name = tool_name
         self.supports_optimization = supports_optimization
         self.optimization_flags = optimization_flags
@@ -49,6 +53,8 @@ class ToolCmd(ABC):
         self.logger = logger
         self.output_args = output_args  # Output-specific arguments (not part of cache key)
         self.input_args = input_args  # Input-specific arguments (part of cache key)
+        self.cache = cache
+        self.repo_dir = repo_dir
         self._tool_path = None  # Lazy-loaded tool path
         self._msvc_env = None  # Lazy-loaded MSVC environment
 
@@ -284,11 +290,29 @@ class ToolCmd(ABC):
 
         return ToolRunResult(output_files, result.stdout, result.stderr, result.returncode), dependencies
 
+    def __call__(self, file: Path) -> Tuple[str, str, int]:
+        """Execute the tool with caching.
+        Args:    file: File to process (absolute or relative path)
+        Returns: Tuple of (stdout, stderr, returncode)"""
+        repo_file = RepoPath(self.repo_dir, file)
+
+        cache_key = CacheKey(repo_file, self, self.repo_dir)
+        cache_entry = self.cache.lookup(cache_key, self.repo_dir)
+        self.logger.info(f"Cached entry found: {cache_entry}: {repo_file}, tool: {self.tool_name} source:{file}")
+        if cache_entry:
+            return self.cache.restore(cache_entry, self.repo_dir)
+
+        result, dependencies = self.run(repo_file, self.repo_dir)
+        if result.returncode == 0:
+            self.cache.store(cache_key, dependencies, result, self.repo_dir)
+        return result.stdout, result.stderr, result.returncode
+
 
 class ClCmd(ToolCmd):
-    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str], optimization: int = None):
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
+                 cache: "QuickenCache", repo_dir: Path, optimization: int = None):
         super().__init__("cl", True, ["/Od", "/O1", "/O2", "/Ox"], True,
-                         arguments, logger, output_args, input_args, optimization)
+                         arguments, logger, output_args, input_args, cache, repo_dir, optimization)
 
     def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files MSVC cl will create.
@@ -344,9 +368,10 @@ class ClCmd(ToolCmd):
         return patterns
 
 class ClangCmd(ToolCmd):
-    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str], optimization: int = None):
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
+                 cache: "QuickenCache", repo_dir: Path, optimization: int = None):
         super().__init__("clang++", True, ["-O0", "-O1", "-O2", "-O3"], False,
-                         arguments, logger, output_args, input_args, optimization)
+                         arguments, logger, output_args, input_args, cache, repo_dir, optimization)
 
     def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files clang++ will create.
@@ -390,9 +415,10 @@ class ClangCmd(ToolCmd):
         return patterns
 
 class ClangTidyCmd(ToolCmd):
-    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str]):
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
+                 cache: "QuickenCache", repo_dir: Path):
         super().__init__("clang-tidy", False, [], False,
-                         arguments, logger, output_args, input_args, None)
+                         arguments, logger, output_args, input_args, cache, repo_dir, None)
 
     def get_output_patterns(self, _source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files clang-tidy will create.
@@ -417,9 +443,10 @@ class MocCmd(ToolCmd):
     MOC reads C++ header files containing Q_OBJECT macro and generates
     meta-object source code (typically moc_*.cpp files)."""
 
-    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str]):
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
+                 cache: "QuickenCache", repo_dir: Path):
         super().__init__("moc", False, [], False,
-                         arguments, logger, output_args, input_args, None)
+                         arguments, logger, output_args, input_args, cache, repo_dir, None)
 
     def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files MOC will create.
@@ -450,9 +477,10 @@ class MocCmd(ToolCmd):
 
 
 class DoxygenCmd(ToolCmd):
-    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str]):
+    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
+                 cache: "QuickenCache", repo_dir: Path):
         super().__init__("doxygen", False, [], False,
-                         arguments, logger, output_args, input_args, None)
+                         arguments, logger, output_args, input_args, cache, repo_dir, None)
 
     def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
         """Return patterns for files doxygen will create.
