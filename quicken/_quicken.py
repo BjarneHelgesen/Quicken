@@ -5,7 +5,13 @@ from typing import List, Optional
 
 from ._cache import QuickenCache
 from ._logger import QuickenLogger
-from ._tool_cmd import ToolCmd, ClCmd, ClangCmd, ClangTidyCmd, DoxygenCmd, MocCmd, UicCmd
+from ._tool_cmd import ToolCmd
+from ._cl_cmd import ClCmd
+from ._clang_cmd import ClangCmd
+from ._clang_tidy_cmd import ClangTidyCmd
+from ._doxygen_cmd import DoxygenCmd
+from ._moc_cmd import MocCmd
+from ._uic_cmd import UicCmd
 from ._type_check import typecheck_methods
 
 
