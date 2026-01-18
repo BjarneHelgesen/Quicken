@@ -71,7 +71,7 @@ def test_relative_path_outside_repo_rejected(temp_dir):
     # This SHOULD raise ValueError but currently doesn't (BUG)
     cl = quicken.cl(["/c", "/nologo", "/EHsc"], [], [])
     with pytest.raises(ValueError, match="(outside repository|not in the subpath)"):
-        quicken.run(relative_path_to_outside, cl)
+        cl(relative_path_to_outside)
 
 
 @pytest.mark.regression_test
@@ -100,7 +100,7 @@ def test_relative_path_inside_repo_accepted(temp_dir):
     cl = quicken.cl(["/c", "/nologo", "/EHsc"], [], [])
 
     # This SHOULD work (and currently might, but let's verify)
-    _stdout, _stderr, returncode = quicken.run(relative_path, cl)
+    _stdout, _stderr, returncode = cl(relative_path)
 
     # Should succeed (0 or whatever the compilation returns)
     assert isinstance(returncode, int), "Should complete without ValueError"
@@ -138,7 +138,7 @@ def test_relative_path_with_dotdot_inside_repo(temp_dir):
     cl = quicken.cl(["/c", "/nologo", "/EHsc"], [], [])
 
     # This SHOULD work
-    _stdout, _stderr, returncode = quicken.run(relative_path, cl)
+    _stdout, _stderr, returncode = cl(relative_path)
 
     assert isinstance(returncode, int), "Should complete without ValueError"
 
@@ -167,7 +167,7 @@ def test_absolute_path_outside_repo_rejected(temp_dir):
     # Try with absolute path to outside file
     cl = quicken.cl(["/c", "/nologo", "/EHsc"], [], [])
     with pytest.raises(ValueError, match="(outside repository|not in the subpath)"):
-        quicken.run(outside_file, cl)  # Absolute path
+        cl(outside_file)  # Absolute path
 
 
 if __name__ == "__main__":

@@ -138,11 +138,13 @@ class TestInputArgsCaching:
         input_args2 = ["-include", str(header2)]
 
         # First run with header1
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, quicken_instance.cl(tool_args, [], input_args1))
+        cl1 = quicken_instance.cl(tool_args, [], input_args1)
+        _, _, returncode1 = cl1(test_cpp_file)
         assert returncode1 == 0
 
         # Second run with header2 - should be different cache entry
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, quicken_instance.cl(tool_args, [], input_args2))
+        cl2 = quicken_instance.cl(tool_args, [], input_args2)
+        _, _, returncode2 = cl2(test_cpp_file)
         assert returncode2 == 0
 
         # Verify that both input_args created separate compound folders
@@ -181,7 +183,8 @@ class TestInputArgsCaching:
         input_args = ["-include", str(header)]
 
         # First run
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, quicken_instance.cl(tool_args, [], input_args))
+        cl = quicken_instance.cl(tool_args, [], input_args)
+        _, _, returncode1 = cl(test_cpp_file)
         assert returncode1 == 0
 
         # Delete output file
@@ -190,7 +193,7 @@ class TestInputArgsCaching:
             obj_file.unlink()
 
         # Second run with same input_args - should hit cache
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, quicken_instance.cl(tool_args, [], input_args))
+        _, _, returncode2 = cl(test_cpp_file)
         assert returncode2 == 0
 
         # File should be restored from cache
@@ -211,7 +214,7 @@ class TestInputArgsCaching:
 
         # Run compilation in first location with input_args
         cl1 = quicken1.cl(["/c", "/nologo", "/EHsc"], [], ["-include", str(header1)])
-        _, _, returncode1 = quicken1.run(cpp_file1, cl1)
+        _, _, returncode1 = cl1(cpp_file1)
         if returncode1 != 0:
             pytest.skip("MSVC compilation failed, skipping portability test")
 
@@ -228,7 +231,7 @@ class TestInputArgsCaching:
 
         # Run in second location - should hit cache because paths are repo-relative
         cl2 = quicken2.cl(["/c", "/nologo", "/EHsc"], [], ["-include", str(header2)])
-        _, _, returncode2 = quicken2.run(cpp_file2, cl2)
+        _, _, returncode2 = cl2(cpp_file2)
 
         # Should get cache hit
         assert returncode2 == returncode1
@@ -238,7 +241,8 @@ class TestInputArgsCaching:
         tool_args = ["/c", "/nologo", "/EHsc"]
 
         # Run without input_args (should work as before)
-        _, _, returncode1 = quicken_instance.run(test_cpp_file, quicken_instance.cl(tool_args, [], []))
+        cl = quicken_instance.cl(tool_args, [], [])
+        _, _, returncode1 = cl(test_cpp_file)
         assert returncode1 == 0
 
         # Delete output
@@ -247,7 +251,7 @@ class TestInputArgsCaching:
             obj_file.unlink()
 
         # Second run should hit cache
-        _, _, returncode2 = quicken_instance.run(test_cpp_file, quicken_instance.cl(tool_args, [], []))
+        _, _, returncode2 = cl(test_cpp_file)
         assert returncode2 == 0
 
         # Output should be restored
@@ -292,7 +296,7 @@ int add(int a, int b) {
         input_args = ["-include", str(header_file)]  # Multi-element: [flag, absolute_path]
 
         clang1 = quicken1.clang(tool_args, ["-o", str(repo1 / "test.s")], input_args, optimization=0)
-        _, _, returncode1 = quicken1.run(cpp_file1.relative_to(repo1), clang1)
+        _, _, returncode1 = clang1(cpp_file1.relative_to(repo1))
 
         if returncode1 != 0:
             pytest.skip("Clang++ compilation failed, skipping cache test")
@@ -309,7 +313,7 @@ int add(int a, int b) {
         # - Same input_args (with normalized absolute path to header_file)
         # - Different repo_dir (should NOT affect cache key)
         clang2 = quicken2.clang(tool_args, ["-o", str(repo2 / "test.s")], input_args, optimization=0)
-        _, _, returncode2 = quicken2.run(cpp_file2.relative_to(repo2), clang2)
+        _, _, returncode2 = clang2(cpp_file2.relative_to(repo2))
 
         assert returncode2 == 0, "Second compilation should succeed"
 
@@ -355,7 +359,7 @@ int multiply(int x, int y) {
         input_args = ["-include", str(header1), "-include", str(header2)]
         clang = quicken.clang(tool_args, ["-o", str(repo / "main.s")], input_args, optimization=0)
 
-        _, _, returncode1 = quicken.run(cpp_file.relative_to(repo), clang)
+        _, _, returncode1 = clang(cpp_file.relative_to(repo))
 
         # This SHOULD succeed but currently fails due to Quicken bug
         assert returncode1 == 0, "Compilation should succeed with multiple input_args pairs"
@@ -368,7 +372,7 @@ int multiply(int x, int y) {
         cache_entries_before = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Second run with same input_args - should HIT cache
-        _, _, returncode2 = quicken.run(cpp_file.relative_to(repo), clang)
+        _, _, returncode2 = clang(cpp_file.relative_to(repo))
 
         assert returncode2 == 0
         cache_entries_after = len([d for d in cache_dir.iterdir() if d.is_dir()])

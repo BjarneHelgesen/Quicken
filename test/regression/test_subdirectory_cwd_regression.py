@@ -93,11 +93,11 @@ def test_subdirectory_source_file_with_relative_args(temp_dir):
     # Call Quicken with ABSOLUTE path for source_file
     # and RELATIVE path in tool_args (relative to repo_dir)
     # This mirrors how LevelUp calls Quicken:
-    #   quicken.run(doxyfile_path, doxygen)
+    #   doxygen(doxyfile_path)
     doxyfile_relative = doxyfile_path.relative_to(temp_dir)
     doxygen = quicken.doxygen([str(doxyfile_relative)], [], [])
 
-    _, _, returncode = quicken.run(doxyfile_path, doxygen)  # Absolute: /repo/.doxygen/Doxyfile.xml
+    _, _, returncode = doxygen(doxyfile_path)  # Absolute: /repo/.doxygen/Doxyfile.xml
 
     # Verify Doxygen succeeded
     assert returncode == 0, \

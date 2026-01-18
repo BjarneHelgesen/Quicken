@@ -262,12 +262,10 @@ class TestMSVCStdoutStderr:
     def test_msvc_stdout_stderr_reproduction(self, quicken_instance, test_cpp_file):
         """Test that MSVC stdout/stderr is identical between cache miss and hit."""
         tool_args = ["/c", "/nologo", "/EHsc"]
+        cl = quicken_instance.cl(tool_args, [], [])
 
         # First run (cache miss) - capture output
-        returncode1, stdout1, stderr1 = capture_output(
-            quicken_instance.run,
-            test_cpp_file, quicken_instance.cl(tool_args, [], []),
-        )
+        returncode1, stdout1, stderr1 = capture_output(cl, test_cpp_file)
 
         if returncode1 != 0:
             pytest.skip("MSVC compilation failed, skipping test")
@@ -278,10 +276,7 @@ class TestMSVCStdoutStderr:
             obj_file.unlink()
 
         # Second run (cache hit) - capture output
-        returncode2, stdout2, stderr2 = capture_output(
-            quicken_instance.run,
-            test_cpp_file, quicken_instance.cl(tool_args, [], []),
-        )
+        returncode2, stdout2, stderr2 = capture_output(cl, test_cpp_file)
 
         # Verify outputs are identical
         assert returncode1 == returncode2, "Return codes should match"
@@ -296,12 +291,10 @@ class TestMSVCStdoutStderr:
         cpp_file.write_text(CPP_CODE_WITH_WARNING)
 
         tool_args = ["/c", "/W4", "/EHsc"]  # High warning level
+        cl = quicken_instance.cl(tool_args, [], [])
 
         # First run (cache miss)
-        returncode1, stdout1, stderr1 = capture_output(
-            quicken_instance.run,
-            cpp_file, quicken_instance.cl(tool_args, [], []),
-        )
+        returncode1, stdout1, stderr1 = capture_output(cl, cpp_file)
 
         # Should succeed with warnings
         if returncode1 != 0:
@@ -316,10 +309,7 @@ class TestMSVCStdoutStderr:
             obj_file.unlink()
 
         # Second run (cache hit)
-        returncode2, stdout2, stderr2 = capture_output(
-            quicken_instance.run,
-            cpp_file, quicken_instance.cl(tool_args, [], []),
-        )
+        returncode2, stdout2, stderr2 = capture_output(cl, cpp_file)
         
         # Verify exact reproduction
         assert returncode1 == returncode2
@@ -334,11 +324,9 @@ class TestMSVCStdoutStderr:
         """Test that /nologo flag properly affects stdout in cache."""
         # Without /nologo - may have banner
         tool_args_banner = ["/c", "/EHsc"]
+        cl_banner = quicken_instance.cl(tool_args_banner, [], [])
 
-        returncode1, stdout1, stderr1 = capture_output(
-            quicken_instance.run,
-            test_cpp_file, quicken_instance.cl(tool_args_banner, [], []),
-        )
+        returncode1, stdout1, stderr1 = capture_output(cl_banner, test_cpp_file)
 
         if returncode1 != 0:
             pytest.skip("MSVC compilation failed, skipping test")
@@ -349,11 +337,9 @@ class TestMSVCStdoutStderr:
             obj_file.unlink()
 
         tool_args_nologo = ["/c", "/nologo", "/EHsc"]
+        cl_nologo = quicken_instance.cl(tool_args_nologo, [], [])
 
-        returncode2, stdout2, stderr2 = capture_output(
-            quicken_instance.run,
-            test_cpp_file, quicken_instance.cl(tool_args_nologo, [], []),
-        )
+        returncode2, stdout2, stderr2 = capture_output(cl_nologo, test_cpp_file)
 
         if returncode2 != 0:
             pytest.skip("MSVC compilation with /nologo failed, skipping test")
@@ -373,12 +359,10 @@ class TestClangStdoutStderr:
     def test_clang_stdout_stderr_reproduction(self, quicken_instance, test_cpp_file):
         """Test that clang++ stdout/stderr is identical between cache miss and hit."""
         tool_args = ["-c"]
+        clang = quicken_instance.clang(tool_args, [], [])
 
         # First run (cache miss)
-        returncode1, stdout1, stderr1 = capture_output(
-            quicken_instance.run,
-            test_cpp_file, quicken_instance.clang(tool_args, [], []),
-        )
+        returncode1, stdout1, stderr1 = capture_output(clang, test_cpp_file)
 
         if returncode1 != 0:
             pytest.skip("clang++ compilation failed, skipping test")
@@ -389,10 +373,7 @@ class TestClangStdoutStderr:
             obj_file.unlink()
 
         # Second run (cache hit)
-        returncode2, stdout2, stderr2 = capture_output(
-            quicken_instance.run,
-            test_cpp_file, quicken_instance.clang(tool_args, [], []),
-        )
+        returncode2, stdout2, stderr2 = capture_output(clang, test_cpp_file)
 
         # Verify exact reproduction
         assert returncode1 == returncode2
@@ -406,12 +387,10 @@ class TestClangStdoutStderr:
         cpp_file.write_text(CPP_CODE_WITH_WARNING)
 
         tool_args = ["-c", "-Wall", "-Wextra"]
+        clang = quicken_instance.clang(tool_args, [], [])
 
         # First run (cache miss)
-        returncode1, stdout1, stderr1 = capture_output(
-            quicken_instance.run,
-            cpp_file, quicken_instance.clang(tool_args, [], []),
-        )
+        returncode1, stdout1, stderr1 = capture_output(clang, cpp_file)
 
         if returncode1 != 0:
             pytest.skip("clang++ compilation failed, skipping test")
@@ -425,10 +404,7 @@ class TestClangStdoutStderr:
             obj_file.unlink()
 
         # Second run (cache hit)
-        returncode2, stdout2, stderr2 = capture_output(
-            quicken_instance.run,
-            cpp_file, quicken_instance.clang(tool_args, [], []),
-        )
+        returncode2, stdout2, stderr2 = capture_output(clang, cpp_file)
 
         # Verify exact reproduction
         assert returncode1 == returncode2
@@ -446,13 +422,11 @@ class TestClangTidyStdoutStderr:
     def test_clang_tidy_stdout_reproduction(self, quicken_instance, test_cpp_file):
         """Test that clang-tidy output is reproduced correctly."""
         tool_args = ["--checks=readability-*"]
+        clang_tidy = quicken_instance.clang_tidy(tool_args, [], [])
 
         # First run (cache miss)
         try:
-            returncode1, stdout1, stderr1 = capture_output(
-                quicken_instance.run,
-                test_cpp_file, quicken_instance.clang_tidy(tool_args, [], []),
-            )
+            returncode1, stdout1, stderr1 = capture_output(clang_tidy, test_cpp_file)
         except Exception:
             pytest.skip("clang-tidy not available or failed")
 
@@ -461,10 +435,7 @@ class TestClangTidyStdoutStderr:
         assert isinstance(returncode1, int)
 
         # Second run (cache hit)
-        returncode2, stdout2, stderr2 = capture_output(
-            quicken_instance.run,
-            test_cpp_file, quicken_instance.clang_tidy(tool_args, [], []),
-        )
+        returncode2, stdout2, stderr2 = capture_output(clang_tidy, test_cpp_file)
 
         # Verify exact reproduction
         assert returncode1 == returncode2

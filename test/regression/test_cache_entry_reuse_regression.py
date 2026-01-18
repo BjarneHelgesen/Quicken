@@ -45,7 +45,7 @@ def test_stale_mtime(temp_dir):
 
     # Compile V1
     test_cpp.write_text(TEST_CPP_V1)
-    _, _, returncode = quicken.run(test_cpp, cl)
+    _, _, returncode = cl(test_cpp)
     assert returncode == 0
 
     # Get original mtime from metadata
@@ -65,7 +65,7 @@ def test_stale_mtime(temp_dir):
     test_cpp.write_text(TEST_CPP_V1)
 
     # Compile again - should be cache hit with mtime update
-    _, _, returncode = quicken.run(test_cpp, cl)
+    _, _, returncode = cl(test_cpp)
     assert returncode == 0
 
     # Verify mtime was updated in metadata
