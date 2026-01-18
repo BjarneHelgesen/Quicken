@@ -1,8 +1,8 @@
 """
 Tool command wrappers for Quicken.
 
-Provides ToolCmd base class and tool-specific subclasses with appropriate
-optimization flags and dependency tracking.
+Provides ToolCmd base class and tool-specific subclasses with
+dependency tracking.
 """
 
 import json
@@ -35,24 +35,18 @@ class CmdToolRunResult:
 class CmdTool(ABC):
     """Base class for tool command wrappers.
 
-    Subclasses define tool-specific behavior including optimization flags.
-    Optimization flags are hardcoded in subclasses, not read from config,
-    to ensure consistent behavior across all installations.
+    Subclasses define tool-specific behavior for dependency tracking.
     """
 
     # Shared class attributes for config
     _data_dir = Path.home() / ".quicken"
     _config = None
 
-    def __init__(self, tool_name: str, supports_optimization: bool, optimization_flags: List[str],
-                 needs_vcvars: bool, arguments: List[str], logger, output_args: List[str],
-                 input_args: List[str], cache: "QuickenCache", repo_dir: Path, optimization=None):
+    def __init__(self, tool_name: str, needs_vcvars: bool, arguments: List[str], logger,
+                 output_args: List[str], input_args: List[str], cache: "QuickenCache", repo_dir: Path):
         self.tool_name = tool_name
-        self.supports_optimization = supports_optimization
-        self.optimization_flags = optimization_flags
         self.needs_vcvars = needs_vcvars
         self.arguments = arguments
-        self.optimization = optimization
         self.logger = logger
         self.output_args = output_args  # Output-specific arguments (not part of cache key)
         self.input_args = input_args  # Input-specific arguments (part of cache key)
@@ -172,43 +166,11 @@ class CmdTool(ABC):
 
         return env
 
-    def get_optimization_flags(self, level: int) -> List[str]:
-        """Return optimization flags for the given level.
-        Args:    level: Optimization level (0-3)
-        Returns: List of flags (may be empty list, or multiple flags for space-separated)"""
-        if not self.supports_optimization:
-            return []
-
-        if level < 0 or level >= len(self.optimization_flags):
-            raise ValueError(f"Invalid optimization level {level}")
-
-        flag = self.optimization_flags[level]
-
-        # Handle space-separated flags (e.g., "-O0 -fno-inline")
-        if isinstance(flag, str) and ' ' in flag:
-            return flag.split()
-
-        return [flag] if isinstance(flag, str) else flag
-
-    def add_optimization_flags(self, args: List[str]) -> List[str]:
-        """Add optimization flags to arguments if optimization is set.
-        Args:    args: Original arguments
-        Returns: Modified arguments with optimization flags at beginning"""
-        if not self.supports_optimization:
-            return args
-
-        # Default to O0 if not specified
-        opt_level = self.optimization if self.optimization is not None else 0
-        opt_flags = self.get_optimization_flags(opt_level)
-
-        return opt_flags + args
-
     def build_execution_command(self, main_file: Path = None) -> List[str]:
         """Build complete command for execution.
         Args:    main_file: Main file path for repo-level tools (e.g., Doxyfile) or source file for file-level tools
         Returns: Complete command list for subprocess"""
-        modified_args = self.add_optimization_flags(self.arguments)
-        cmd = [self.tool_path] + modified_args
+        cmd = [self.tool_path] + self.arguments
 
         # Add input_args (these are part of the cache key). Note that they are joined as a single argument, as the called decides the spacing.
         if self.input_args:

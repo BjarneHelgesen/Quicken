@@ -295,7 +295,7 @@ int add(int a, int b) {
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
         input_args = ["-include", str(header_file)]  # Multi-element: [flag, absolute_path]
 
-        clang1 = quicken1.clang(tool_args, ["-o", str(repo1 / "test.s")], input_args, optimization=0)
+        clang1 = quicken1.clang(tool_args, ["-o", str(repo1 / "test.s")], input_args)
         _, _, returncode1 = clang1(cpp_file1.relative_to(repo1))
 
         if returncode1 != 0:
@@ -312,7 +312,7 @@ int add(int a, int b) {
         # - Same tool_args
         # - Same input_args (with normalized absolute path to header_file)
         # - Different repo_dir (should NOT affect cache key)
-        clang2 = quicken2.clang(tool_args, ["-o", str(repo2 / "test.s")], input_args, optimization=0)
+        clang2 = quicken2.clang(tool_args, ["-o", str(repo2 / "test.s")], input_args)
         _, _, returncode2 = clang2(cpp_file2.relative_to(repo2))
 
         assert returncode2 == 0, "Second compilation should succeed"
@@ -357,7 +357,7 @@ int multiply(int x, int y) {
         # Multiple input_args: [flag1, path1, flag2, path2]
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
         input_args = ["-include", str(header1), "-include", str(header2)]
-        clang = quicken.clang(tool_args, ["-o", str(repo / "main.s")], input_args, optimization=0)
+        clang = quicken.clang(tool_args, ["-o", str(repo / "main.s")], input_args)
 
         _, _, returncode1 = clang(cpp_file.relative_to(repo))
 

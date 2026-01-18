@@ -62,7 +62,7 @@ int add(int a, int b) {
     # Count initial compound folders
     initial_folder_count = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
-    clang1 = quicken1.clang(tool_args, ["-o", str(dir1 / "test.s")], [], optimization=0)
+    clang1 = quicken1.clang(tool_args, ["-o", str(dir1 / "test.s")], [])
     _, _, returncode1 = clang1(file1.relative_to(dir1))
 
     if returncode1 != 0:
@@ -87,7 +87,7 @@ int add(int a, int b) {
 
     # Second compilation from dir2 with IDENTICAL content - create Quicken instance for dir2
     quicken2 = Quicken(dir2, cache_dir=cache_dir)
-    clang2 = quicken2.clang(tool_args, ["-o", str(dir2 / "test.s")], [], optimization=0)
+    clang2 = quicken2.clang(tool_args, ["-o", str(dir2 / "test.s")], [])
 
     _, _, returncode2 = clang2(file2.relative_to(dir2))
 
@@ -165,7 +165,7 @@ int multiply(int x, int y) {
 
         # Create a new Quicken instance for each directory
         quicken = Quicken(compile_dir, cache_dir=cache_dir)
-        clang = quicken.clang(["-std=c++20", "-Wall", "-S", "-masm=intel"], ["-o", str(compile_dir / "test.s")], [], optimization=0)
+        clang = quicken.clang(["-std=c++20", "-Wall", "-S", "-masm=intel"], ["-o", str(compile_dir / "test.s")], [])
 
         _, _, returncode = clang(source_file.relative_to(compile_dir))
 

@@ -36,15 +36,13 @@ class Quicken:
         self.cache = QuickenCache(cache_path)
         self.logger = QuickenLogger(self._data_dir)
 
-    def cl(self, tool_args: List[str], output_args: List[str], input_args: List[str],
-           optimization: Optional[int] = None) -> CmdTool:
+    def cl(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
         """Create a reusable MSVC cl compiler command."""
-        return CmdCl(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
+        return CmdCl(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def clang(self, tool_args: List[str], output_args: List[str], input_args: List[str],
-              optimization: Optional[int] = None) -> CmdTool:
+    def clang(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
         """Create a reusable clang++ compiler command."""
-        return CmdClang(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir, optimization)
+        return CmdClang(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
     def clang_tidy(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
         """Create a reusable clang-tidy command."""

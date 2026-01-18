@@ -38,7 +38,7 @@ def run_happy_path_test(quicken: Quicken, main_files: list[Path], num_iterations
     """Run consecutive cache hits cycling through files to avoid output file contention."""
     for i in range(num_iterations):
         main_cpp = main_files[i % len(main_files)]
-        quicken.cl(["/c", "/nologo", "/EHsc"], [], [], optimization=0)(main_cpp)
+        quicken.cl(["/c", "/nologo", "/EHsc"], [], [])(main_cpp)
 
 
 def main ():
@@ -60,7 +60,7 @@ def main ():
 
         # First run: cache miss for each file (populates cache)
         for main_cpp in main_files:
-            quicken.cl(["/c", "/nologo", "/EHsc"], [], [], optimization=0)(main_cpp)
+            quicken.cl(["/c", "/nologo", "/EHsc"], [], [])(main_cpp)
 
         # Run the happy path test
         run_happy_path_test(quicken, main_files)

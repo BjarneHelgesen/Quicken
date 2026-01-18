@@ -28,9 +28,6 @@ class MockToolCmd:
         self.arguments = arguments
         self.input_args = input_args or []
 
-    def add_optimization_flags(self, args):
-        return args  # No optimization flags in mock
-
 
 # Sample C++ code for testing
 SIMPLE_CPP_CODE = """
@@ -317,25 +314,6 @@ class TestQuickenClang:
 
         # .o file should be restored from cache
         assert obj_file.exists()
-
-    @pytest.mark.pedantic
-    def test_clang_different_optimization_levels(self, quicken_instance, test_cpp_file):
-        """Test that different optimization levels create different cache entries."""
-        # Compile with -O0
-        clang_o0 = quicken_instance.clang(["-c"], [], [], optimization=0)
-        _, _, returncode1 = clang_o0(test_cpp_file)
-        if returncode1 != 0:
-            pytest.fail("clang++ compilation failed")
-
-        obj_file = test_cpp_file.parent / "test.o"
-        if obj_file.exists():
-            obj_file.unlink()
-
-        # Compile with -O2 - should be a cache miss
-        clang_o2 = quicken_instance.clang(["-c"], [], [], optimization=2)
-        _, _, returncode2 = clang_o2(test_cpp_file)
-        # Just check it completes, return code may vary
-        assert isinstance(returncode2, int)
 
     @pytest.mark.pedantic
     def test_clang_with_warnings(self, quicken_instance, temp_dir):

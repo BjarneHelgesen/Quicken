@@ -14,8 +14,7 @@ if TYPE_CHECKING:
 class CmdClangTidy(CmdTool):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
-        super().__init__("clang-tidy", False, [], False,
-                         arguments, logger, output_args, input_args, cache, repo_dir, None)
+        super().__init__("clang-tidy", False, arguments, logger, output_args, input_args, cache, repo_dir)
 
     def get_output_patterns(self, _source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files clang-tidy will create.

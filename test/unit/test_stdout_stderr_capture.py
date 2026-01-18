@@ -29,9 +29,6 @@ class MockToolCmd:
         self.arguments = arguments
         self.input_args = input_args or []
 
-    def add_optimization_flags(self, args):
-        return args  # No optimization flags in mock
-
 
 # Sample C++ code for testing
 SIMPLE_CPP_CODE = """

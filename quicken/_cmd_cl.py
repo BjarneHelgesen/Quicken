@@ -13,9 +13,8 @@ if TYPE_CHECKING:
 @typecheck_methods
 class CmdCl(CmdTool):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
-                 cache: "QuickenCache", repo_dir: Path, optimization: int = None):
-        super().__init__("cl", True, ["/Od", "/O1", "/O2", "/Ox"], True,
-                         arguments, logger, output_args, input_args, cache, repo_dir, optimization)
+                 cache: "QuickenCache", repo_dir: Path):
+        super().__init__("cl", True, arguments, logger, output_args, input_args, cache, repo_dir)
 
     def get_output_patterns(self, source_file: Path, _repo_dir: Path) -> List[str]:
         """Return patterns for files MSVC cl will create.

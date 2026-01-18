@@ -279,7 +279,7 @@ class CacheKey:
     def __init__(self, source_repo_path: RepoFile, tool_cmd, repo_dir: Path):
         self.source_repo_path = source_repo_path
         self.tool_name = tool_cmd.tool_name
-        self.tool_args = tool_cmd.add_optimization_flags(tool_cmd.arguments)
+        self.tool_args = tool_cmd.arguments
         self.input_args = make_args_repo_relative(tool_cmd.input_args, repo_dir)
 
         # Compute derived values eagerly (used in every lookup/store)
