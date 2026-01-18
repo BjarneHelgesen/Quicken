@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from ._cache import QuickenCache
 from ._logger import QuickenLogger
-from ._tool_cmd import ToolCmd, ClCmd, ClangCmd, ClangTidyCmd, DoxygenCmd, MocCmd
+from ._tool_cmd import ToolCmd, ClCmd, ClangCmd, ClangTidyCmd, DoxygenCmd, MocCmd, UicCmd
 from ._type_check import typecheck_methods
 
 
@@ -51,6 +51,10 @@ class Quicken:
     def moc(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
         """Create a reusable Qt MOC (Meta-Object Compiler) command."""
         return MocCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
+
+    def uic(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> ToolCmd:
+        """Create a reusable Qt UIC (User Interface Compiler) command."""
+        return UicCmd(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
     def clear_cache(self):
         """Clear the entire cache."""
