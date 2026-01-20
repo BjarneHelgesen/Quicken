@@ -7,11 +7,10 @@ dependency tracking.
 
 import glob
 import json
-import os
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple, TYPE_CHECKING
-from abc import ABC
+from abc import ABC, abstractmethod
 
 from ._repo_file import RepoFile, ValidatedRepoFile
 from ._cache import CacheKey
@@ -43,10 +42,9 @@ class CmdTool(ABC):
     _data_dir = Path.home() / ".quicken"
     _config = None
 
-    def __init__(self, tool_name: str, needs_vcvars: bool, arguments: List[str], logger,
+    def __init__(self, tool_name: str, arguments: List[str], logger,
                  output_args: List[str], input_args: List[str], cache: "QuickenCache", repo_dir: Path):
         self.tool_name = tool_name
-        self.needs_vcvars = needs_vcvars
         self.arguments = arguments
         self.logger = logger
         self.output_args = output_args  # Output-specific arguments (not part of cache key)
@@ -54,7 +52,6 @@ class CmdTool(ABC):
         self.cache = cache
         self.repo_dir = repo_dir
         self._tool_path = None  # Lazy-loaded tool path
-        self._msvc_env = None  # Lazy-loaded MSVC environment
 
     @classmethod
     def _get_config(cls) -> Dict:
@@ -71,101 +68,18 @@ class CmdTool(ABC):
             self._tool_path = self._get_config()[self.tool_name]
         return self._tool_path
 
-    @property
-    def msvc_env(self) -> Dict:
-        """Get MSVC environment, loading it lazily when first accessed."""
-        if self._msvc_env is None:
-            self._msvc_env = CmdTool._get_msvc_environment()
-        return self._msvc_env
+    @abstractmethod
+    def get_execution_env(self) -> Dict | None:
+        """Get environment for tool execution."""
+        pass
 
+    @abstractmethod
     def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoFile]:
-        """Get list of dependency paths for caching using MSVC /showIncludes.
-        Default implementation for C++ tools. Can be overridden by subclasses.
+        """Get list of dependency paths for caching.
         Args:    main_file: Main file being processed (source file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository root directory
         Returns: List of RepoFile instances for all dependencies"""
-        cl_path = self._get_config()["cl"]
-
-        # Run cl with /showIncludes and /Zs (syntax check only, no codegen)
-        result = subprocess.run(
-            [cl_path, '/showIncludes', '/Zs', str(main_file)],
-            env=self.msvc_env,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
-        # Parse /showIncludes output
-        dependencies = [ValidatedRepoFile(repo_dir, main_file)]  # Always include the source file itself
-
-        for line in result.stderr.splitlines():  # /showIncludes outputs to stderr
-            if line.startswith("Note: including file:"):
-                # Extract the file path (after "Note: including file:")
-                file_path_str = line.split(":", 2)[2].strip()
-                try:
-                    repo_file = ValidatedRepoFile(repo_dir, Path(file_path_str))
-                    dependencies.append(repo_file)
-                except ValueError:
-                    pass  # Skip dependencies outside repo (e.g., system headers)
-
-        return dependencies
-
-    @classmethod
-    def _get_msvc_environment(cls) -> Dict:
-        """Get MSVC environment variables, cached to avoid repeated vcvarsall.bat calls."""
-        config = cls._get_config()
-        vcvarsall = config["vcvarsall"]
-        msvc_arch = config.get("msvc_arch", "x64")
-
-        # Cache file location
-        cache_file = cls._data_dir / "msvc_env.json"
-
-        # Try to load from cache
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r') as f:
-                    cached_data = json.load(f)
-                    # Verify cache is for same vcvarsall and arch
-                    if (cached_data.get("vcvarsall") == vcvarsall and
-                        cached_data.get("msvc_arch") == msvc_arch):
-                        return cached_data.get("env", {})
-            except (json.JSONDecodeError, KeyError):
-                # Cache corrupted, will regenerate
-                pass
-
-        # Run vcvarsall and capture environment
-        cmd = f'"{vcvarsall}" {msvc_arch} >nul && set'
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
-        # Parse environment variables from output
-        env = os.environ.copy()
-        for line in result.stdout.splitlines():
-            if '=' in line:
-                key, _, value = line.partition('=')
-                env[key] = value
-
-        # Save to cache
-        cache_data = {
-            "vcvarsall": vcvarsall,
-            "msvc_arch": msvc_arch,
-            "env": env
-        }
-
-        try:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, 'w') as f:
-                json.dump(cache_data, f, indent=2)
-        except Exception:
-            # If caching fails, still return the environment
-            pass
-
-        return env
+        pass
 
     def build_execution_command(self, main_file: Path = None) -> List[str]:
         """Build complete command for execution.
@@ -187,13 +101,14 @@ class CmdTool(ABC):
 
         return cmd
 
-    def get_output_patterns(self, _source_file: Path, repo_dir: Path) -> List[str]:
+    @abstractmethod
+    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
         """Return absolute patterns for files this tool will create.
         Patterns can include glob wildcards (*, **, ?).
-        Args:    _source_file: Path to source file (used by subclasses)
+        Args:    source_file: Path to source file
                  repo_dir: Repository root directory
         Returns: List of absolute glob patterns"""
-        return [str(repo_dir / "**" / "*")]  # Default: scan everything (override in subclasses)
+        pass
 
     @staticmethod
     def _get_file_timestamps(patterns: List[str]) -> Dict[Path, int]:
@@ -213,10 +128,11 @@ class CmdTool(ABC):
 
         return file_timestamps
 
-    def run(self, repo_file: RepoFile, repo_dir: Path) -> Tuple[CmdToolRunResult, List[RepoFile]]:
+    def run(self, repo_file: RepoFile, repo_dir: Path, env: Dict | None = None) -> Tuple[CmdToolRunResult, List[RepoFile]]:
         """Run the tool and detect output files.
         Args:    source_file: RepoFile to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
+                 env: Environment variables for subprocess (None uses current env)
         Returns: Tuple of (ToolRunResult, dependencies)"""
         abs_source_file = repo_file.to_absolute_path(repo_dir)
         dependencies = self.get_dependencies(abs_source_file, repo_dir)
@@ -231,7 +147,7 @@ class CmdTool(ABC):
             cwd=repo_dir,
             capture_output=True,
             text=True,
-            env=self.msvc_env if self.needs_vcvars else None
+            env=env
         )
 
         files_after = self._get_file_timestamps(patterns)
@@ -258,7 +174,7 @@ class CmdTool(ABC):
             return self.cache.restore(cache_entry, self.repo_dir)
 
         # No cached artifacts found. Execute the tool and store it in cache if successful
-        result, dependencies = self.run(repo_file, self.repo_dir)
+        result, dependencies = self.run(repo_file, self.repo_dir, self.get_execution_env())
         if result.returncode == 0:
             self.cache.store(cache_key, dependencies, result, self.repo_dir)
         return result.stdout, result.stderr, result.returncode

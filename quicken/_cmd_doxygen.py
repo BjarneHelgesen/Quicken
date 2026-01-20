@@ -1,7 +1,7 @@
 """Doxygen documentation generator command wrapper."""
 
 from pathlib import Path
-from typing import List, TYPE_CHECKING
+from typing import Dict, List, TYPE_CHECKING
 
 from ._cmd_tool import CmdTool
 from ._repo_file import RepoFile, ValidatedRepoFile
@@ -15,7 +15,10 @@ if TYPE_CHECKING:
 class CmdDoxygen(CmdTool):
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
-        super().__init__("doxygen", False, arguments, logger, output_args, input_args, cache, repo_dir)
+        super().__init__("doxygen", arguments, logger, output_args, input_args, cache, repo_dir)
+
+    def get_execution_env(self) -> Dict | None:
+        return None
 
     def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
         """Return absolute patterns for files doxygen will create.
