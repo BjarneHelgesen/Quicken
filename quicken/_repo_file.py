@@ -38,7 +38,7 @@ class ValidatedRepoFile(RepoFile):
     """
     def __init__(self, repo: Path, path: Path):
         """Initialize RepoFile.
-        Args:    repo: Repository root (must be an absolute path)
+        Args:    repo: Repository root (absolute path from Quicken.repo_dir)
                  path: Path to convert (absolute or relative to repo)
         Raises:  ValueError if path is outside repo"""
         if not path.is_absolute():

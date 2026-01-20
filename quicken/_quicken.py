@@ -29,9 +29,9 @@ class Quicken:
     def __init__(self, repo_dir: Path, cache_dir: Optional[Path] = None):
         """Initialize Quicken for a specific repository.
         Tools must be configured in ~/.quicken/tools.json (created by installation).
-        Args:    repo_dir: Repository root directory (absolute path)
+        Args:    repo_dir: Repository root directory (normalized to absolute path)
                  cache_dir: Optional cache directory path (defaults to ~/.quicken/cache)"""
-        self.repo_dir = repo_dir.absolute()  # Normalize to absolute path
+        self.repo_dir = repo_dir.absolute()
         cache_path = cache_dir if cache_dir else self._data_dir / "cache"
         self.cache = QuickenCache(cache_path)
         self.logger = QuickenLogger(self._data_dir)
