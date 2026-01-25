@@ -20,7 +20,7 @@ from ._repo_file import CachedRepoFile, RepoFile, ValidatedRepoFile
 from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
-    from ._cmd_tool import CmdCmdToolRunResult
+    from ._cmd_tool import CmdToolRunResult
 
 
 @typecheck_methods
@@ -121,7 +121,7 @@ class CacheMetadata:
     @classmethod
     def from_file(cls, metadata_file: Path, repo_dir: Path) -> 'CacheMetadata':
         """Load from metadata.json file."""
-        with open(metadata_file, 'r') as f:
+        with open(metadata_file, 'r', encoding="utf-8") as f:
             data = json.load(f)
         return cls.from_dict(data, repo_dir)
 
@@ -160,7 +160,7 @@ class CacheMetadata:
 
     def save(self, metadata_file: Path):
         """Save to metadata.json file."""
-        with open(metadata_file, 'w') as f:
+        with open(metadata_file, 'w', encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
 
@@ -202,7 +202,7 @@ class FolderIndex:
         """Load from folder_index.json file."""
         index_file = folder_path / "folder_index.json"
         try:
-            with open(index_file, 'r') as f:
+            with open(index_file, 'r', encoding="utf-8") as f:
                 data = json.load(f)
             return cls.from_dict(data)
         except (FileNotFoundError, json.JSONDecodeError):
@@ -229,7 +229,7 @@ class FolderIndex:
         """Save to folder_index.json file."""
         folder_path.mkdir(parents=True, exist_ok=True)
         index_file = folder_path / "folder_index.json"
-        with open(index_file, 'w') as f:
+        with open(index_file, 'w', encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
     def allocate_entry_id(self) -> str:
@@ -277,37 +277,61 @@ class CacheKey:
     """
 
     def __init__(self, source_repo_path: RepoFile, tool_cmd, repo_dir: Path):
-        self.source_repo_path = source_repo_path
-        self.tool_name = tool_cmd.tool_name
-        self.tool_args = tool_cmd.arguments
-        self.input_args = make_args_repo_relative(tool_cmd.input_args, repo_dir)
+        self._source_repo_path = source_repo_path
+        self._tool_name = tool_cmd.tool_name
+        self._tool_args = tool_cmd.arguments
+        self._input_args = make_args_repo_relative(tool_cmd.input_args, repo_dir)
 
         # Compute derived values eagerly (used in every lookup/store)
-        self.key = self._get_key()
-        self.folder_name = self._get_folder_name()
+        self._key = self._compute_key()
+        self._folder_name = self._compute_folder_name()
 
-    def _get_key(self) -> str:
+    @property
+    def source_repo_path(self) -> RepoFile:
+        return self._source_repo_path
+
+    @property
+    def tool_name(self) -> str:
+        return self._tool_name
+
+    @property
+    def tool_args(self) -> List[str]:
+        return self._tool_args
+
+    @property
+    def input_args(self) -> List[str]:
+        return self._input_args
+
+    @property
+    def key(self) -> str:
+        return self._key
+
+    @property
+    def folder_name(self) -> str:
+        return self._folder_name
+
+    def _compute_key(self) -> str:
         """Build cache key string: 'file::tool::args::input_args'"""
-        source_key = str(self.source_repo_path)
-        args_str = json.dumps(self.tool_args, separators=(',', ':'))
-        input_args_str = json.dumps(self.input_args, separators=(',', ':'))
-        return f"{source_key}::{self.tool_name}::{args_str}::{input_args_str}"
+        source_key = str(self._source_repo_path)
+        args_str = json.dumps(self._tool_args, separators=(',', ':'))
+        input_args_str = json.dumps(self._input_args, separators=(',', ':'))
+        return f"{source_key}::{self._tool_name}::{args_str}::{input_args_str}"
 
-    def _get_folder_name(self) -> str:
+    def _compute_folder_name(self) -> str:
         """Build folder name: 'filename_toolname_hash'"""
         # Extract just filename from path (e.g., "main.cpp" from "src/main.cpp")
-        filename = Path(str(self.source_repo_path)).name
+        filename = Path(str(self._source_repo_path)).name
 
         # Sanitize filename for filesystem (replace problematic chars)
         sanitized_filename = filename.replace('\\', '_').replace('/', '_').replace(':', '_')
 
         # Hash: full_repo_path + tool_name + args + input_args
-        args_str = json.dumps(self.tool_args, separators=(',', ':'))
-        input_args_str = json.dumps(self.input_args, separators=(',', ':'))
-        hash_input = f"{str(self.source_repo_path)}::{self.tool_name}::{args_str}::{input_args_str}"
+        args_str = json.dumps(self._tool_args, separators=(',', ':'))
+        input_args_str = json.dumps(self._input_args, separators=(',', ':'))
+        hash_input = f"{str(self._source_repo_path)}::{self._tool_name}::{args_str}::{input_args_str}"
         compound_hash = hashlib.blake2b(hash_input.encode('utf-8'), digest_size=8).hexdigest()
 
-        return f"{sanitized_filename}_{self.tool_name}_{compound_hash}"
+        return f"{sanitized_filename}_{self._tool_name}_{compound_hash}"
 
 
 @typecheck_methods

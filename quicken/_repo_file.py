@@ -15,8 +15,8 @@ class RepoFile:
     """Stores a path to a file in the repo, relative to the repo. The file does not have to exist.
 
     """
-    def __init__(self, repo_file): 
-        self.path = repo_file 
+    def __init__(self, repo_file):
+        self.path = repo_file
 
     def to_absolute_path(self, repo: Path) -> Path:
         """Convert this repo-relative path to an absolute path.
@@ -54,4 +54,4 @@ class CachedRepoFile(RepoFile):
     Skips validation since cached paths are already normalized and relative."""
 
     def __init__(self, path_str: str):
-        self.path = Path(path_str)
+        super().__init__(Path(path_str))

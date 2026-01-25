@@ -23,7 +23,7 @@ def _check_type(value, expected_type, param_name: str):
             args = get_args(expected_type)
             if type(None) in args:
                 return  # None is valid for Optional
-        if expected_type is type(None):
+        if expected_type is type(None):  # pylint: disable=unidiomatic-typecheck
             return
         raise TypeError(f"Parameter '{param_name}' expected {expected_type}, got None")
 
@@ -58,7 +58,7 @@ def _check_type(value, expected_type, param_name: str):
         # Optional[X] or Union[X, Y, ...]
         args = get_args(expected_type)
         for arg in args:
-            if arg is type(None):
+            if arg is type(None):  # pylint: disable=unidiomatic-typecheck
                 continue
             try:
                 _check_type(value, arg, param_name)
@@ -66,7 +66,7 @@ def _check_type(value, expected_type, param_name: str):
             except TypeError:
                 continue
         # None of the types matched
-        type_names = [getattr(a, '__name__', str(a)) for a in args if a is not type(None)]
+        type_names = [getattr(a, '__name__', str(a)) for a in args if a is not type(None)]  # pylint: disable=unidiomatic-typecheck
         raise TypeError(
             f"Parameter '{param_name}' expected one of {type_names}, got {type(value).__name__}"
         )

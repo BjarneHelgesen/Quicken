@@ -29,15 +29,15 @@ class MsvcEnv:
         return cls._env
 
     @classmethod
-    def _get_config(cls) -> Dict:
+    def get_config(cls) -> Dict:
         """Load configuration from tools.json."""
-        with open(cls._data_dir / "tools.json", 'r') as f:
+        with open(cls._data_dir / "tools.json", 'r', encoding="utf-8") as f:
             return json.load(f)
 
     @classmethod
     def _load_environment(cls) -> Dict[str, str]:
         """Load MSVC environment, using disk cache if available."""
-        config = cls._get_config()
+        config = cls.get_config()
         vcvarsall = config["vcvarsall"]
         msvc_arch = config.get("msvc_arch", "x64")
 
@@ -46,7 +46,7 @@ class MsvcEnv:
         # Try to load from cache
         if cache_file.exists():
             try:
-                with open(cache_file, 'r') as f:
+                with open(cache_file, 'r', encoding="utf-8") as f:
                     cached_data = json.load(f)
                     if (cached_data.get("vcvarsall") == vcvarsall and
                         cached_data.get("msvc_arch") == msvc_arch):
@@ -80,7 +80,7 @@ class MsvcEnv:
 
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, 'w') as f:
+            with open(cache_file, 'w', encoding="utf-8") as f:
                 json.dump(cache_data, f, indent=2)
         except Exception:
             pass
@@ -95,7 +95,7 @@ def get_dependencies_showincludes(main_file: Path, repo_dir: Path) -> List[RepoF
              repo_dir: Repository root directory
     Returns: List of RepoFile instances for all dependencies (including main_file)
     """
-    config = MsvcEnv._get_config()
+    config = MsvcEnv.get_config()
     cl_path = config["cl"]
 
     result = subprocess.run(

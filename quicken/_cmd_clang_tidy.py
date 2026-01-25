@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 @typecheck_methods
 class CmdClangTidy(CmdTool):
+    """Clang-tidy static analyzer command."""
+
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("clang-tidy", arguments, logger, output_args, input_args, cache, repo_dir)

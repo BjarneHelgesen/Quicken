@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 @typecheck_methods
 class CmdCl(CmdTool):
+    """MSVC cl.exe compiler command."""
+
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("cl", arguments, logger, output_args, input_args, cache, repo_dir)

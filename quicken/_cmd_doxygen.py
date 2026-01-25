@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 @typecheck_methods
 class CmdDoxygen(CmdTool):
+    """Doxygen documentation generator command."""
+
     def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("doxygen", arguments, logger, output_args, input_args, cache, repo_dir)
@@ -30,7 +32,7 @@ class CmdDoxygen(CmdTool):
         output_dir = ""
         if doxyfile_path.exists():
             try:
-                with open(doxyfile_path, 'r') as f:
+                with open(doxyfile_path, 'r', encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if line.startswith("OUTPUT_DIRECTORY"):

@@ -57,7 +57,7 @@ class CmdTool(ABC):
     def _get_config(cls) -> Dict:
         """Load configuration from tools.json (lazy, cached)."""
         if cls._config is None:
-            with open(cls._data_dir / "tools.json", 'r') as f:
+            with open(cls._data_dir / "tools.json", 'r', encoding="utf-8") as f:
                 cls._config = json.load(f)
         return cls._config
 
@@ -71,7 +71,6 @@ class CmdTool(ABC):
     @abstractmethod
     def get_execution_env(self) -> Dict | None:
         """Get environment for tool execution."""
-        pass
 
     @abstractmethod
     def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoFile]:
@@ -79,7 +78,6 @@ class CmdTool(ABC):
         Args:    main_file: Main file being processed (source file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository root directory
         Returns: List of RepoFile instances for all dependencies"""
-        pass
 
     def build_execution_command(self, main_file: Path = None) -> List[str]:
         """Build complete command for execution.
@@ -108,7 +106,6 @@ class CmdTool(ABC):
         Args:    source_file: Path to source file
                  repo_dir: Repository root directory
         Returns: List of absolute glob patterns"""
-        pass
 
     @staticmethod
     def _get_file_timestamps(patterns: List[str]) -> Dict[Path, int]:
@@ -178,4 +175,3 @@ class CmdTool(ABC):
         if result.returncode == 0:
             self.cache.store(cache_key, dependencies, result, self.repo_dir)
         return result.stdout, result.stderr, result.returncode
-
