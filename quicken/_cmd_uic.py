@@ -34,7 +34,7 @@ class CmdUic(CmdTool):
         # Check for -o or --output (explicit output path)
         output_path = None
         for i, arg in enumerate(all_args):
-            if (arg == "-o" or arg == "--output") and i + 1 < len(all_args):
+            if arg in ('-o', '--output') and i + 1 < len(all_args):
                 output_path = all_args[i + 1]
                 break
             if arg.startswith("-o"):

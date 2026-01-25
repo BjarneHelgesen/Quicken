@@ -72,7 +72,7 @@ class CmdCl(CmdTool):
         # Add executable pattern if /Fe is used
         if fe_path:
             patterns.append(str(repo_dir / fe_path))
-        elif not any(arg == "/c" or arg == "-c" for arg in all_args):
+        elif not any(arg in ('/c', '-c') for arg in all_args):
             # No /c flag means linking, so .exe may be created
             patterns.append(str(repo_dir / f"{stem}.exe"))
             patterns.append(str(repo_dir / "**" / f"{stem}.exe"))

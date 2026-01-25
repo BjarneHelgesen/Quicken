@@ -143,9 +143,9 @@ def hash_cpp_source(path: Path) -> str:
                     continue
 
                 # Handle spaces/tabs: only keep if between two identifier characters
-                if c == " " or c == "\t":
+                if c in (' ', '\t'):
                     # Skip all consecutive spaces/tabs
-                    while i < len(line) and (line[i] == " " or line[i] == "\t"):
+                    while i < len(line) and line[i] in (' ', '\t'):
                         i += 1
 
                     # Check if we need to keep a space
