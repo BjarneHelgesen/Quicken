@@ -4,10 +4,7 @@
 
 Quicken is an **independent, standalone** Python library that provides caching for C++ build tools. It dramatically speeds up repeated compilation and analysis by caching tool outputs based on local file dependencies and file hashes.
 
-**IMPORTANT: Independence**
-- Standalone library: `from quicken import Quicken`
-- Maintains its own configuration (`tools.json`)
-- Requires high-accuracy file system (local NTFS, not containerized/network drives)
+Quicken works best on a file system with high resolution mtime (e.g. local NTFS, not traditional FAT or containerized/network drives)
 
 ## Package Structure
 
@@ -19,6 +16,7 @@ quicken/
   _tool_cmd.py         # Tool command execution
   _cpp_normalizer.py   # C++ output normalization
   _repo_file.py        # Repository path handling
+cleanup.py             # Cache management CLI
 test/
   unit/                # Unit tests
   regression/          # Regression tests (marked with @pytest.mark.regression_test)
@@ -65,6 +63,18 @@ stdout, stderr, returncode = quicken.run(Path("main.cpp"), cl)
   "msvc_arch": "x64"
 }
 ```
+
+## Cache Cleanup
+
+`cleanup.py` - standalone CLI, Nuitka-compilable
+
+```
+Main arguments: 
+--stats                  
+--clear                  
+```
+
+--clear accepts filters for what to clear. Run --help for full syntax
 
 ## Testing
 
