@@ -243,27 +243,30 @@ class FolderIndex:
         self.entries.append(CacheEntry(cache_key, dependencies))
 
 
-def make_args_repo_relative(args: List[str], repo_dir: Path) -> List[str]:
-    """Convert file/folder paths in args to repo-relative paths.
-    Converts absolute paths inside the repo to repo-relative paths.
-    Keeps paths outside the repo as absolute paths.
-    Preserves flag arguments (starting with - or /) and non-path arguments as-is.
-    Args:    args: Arguments that may contain file paths
+def make_path_args_repo_relative(path_args: List[Tuple[str, str, Path]], repo_dir: Path, cwd: Path) -> List[str]:
+    """Convert PathArg tuples to repo-relative strings for cache key.
+    Only includes paths inside the repo. Paths outside the repo are excluded from cache key.
+    Args:    path_args: List of (prefix, separator, path) tuples
              repo_dir: Repository root directory
-    Returns: List of arguments with repo paths made relative"""
+             cwd: Current working directory for resolving relative paths
+    Returns: List of "prefix:repo_relative_path" strings for in-repo paths only"""
     result = []
-    for arg in args:
-        # Skip obvious flag arguments
-        if arg.startswith('-') or arg.startswith('/'):
-            result.append(arg)
-            continue
+    for prefix, separator, path in path_args:
+        # Resolve relative paths against CWD
+        if not path.is_absolute():
+            resolved = cwd / path
+        else:
+            resolved = path
+        resolved = Path(os.path.normpath(resolved))
 
+        # Only include paths inside the repo in cache key
         try:
-            repo_file = ValidatedRepoFile(repo_dir, Path(arg))
-            result.append(str(repo_file))
-        except (ValueError, OSError):
-            # Path outside repo or can't parse as path - keep as-is
-            result.append(arg)
+            repo_relative = resolved.relative_to(repo_dir)
+            # Use prefix:path format for cache key (separator not needed for key)
+            result.append(f"{prefix}:{repo_relative.as_posix()}")
+        except ValueError:
+            # Path outside repo - exclude from cache key
+            pass
 
     return result
 
@@ -274,13 +277,14 @@ class CacheKey:
 
     Computes the cache key string and folder name from the parameters.
     Takes a ToolCmd and computes modified args and repo-relative input args internally.
+    Only in-repo input paths are included in the cache key.
     """
 
-    def __init__(self, source_repo_path: RepoFile, tool_cmd, repo_dir: Path):
+    def __init__(self, source_repo_path: RepoFile, tool_cmd, repo_dir: Path, cwd: Path):
         self._source_repo_path = source_repo_path
         self._tool_name = tool_cmd.tool_name
         self._tool_args = tool_cmd.arguments
-        self._input_args = make_args_repo_relative(tool_cmd.input_args, repo_dir)
+        self._input_args = make_path_args_repo_relative(tool_cmd.input_args, repo_dir, cwd)
 
         # Compute derived values eagerly (used in every lookup/store)
         self._key = self._compute_key()

@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from quicken import Quicken
-from quicken._cache import QuickenCache, FolderIndex, make_args_repo_relative
+from quicken import Quicken, PathArg
+from quicken._cache import QuickenCache, FolderIndex, make_path_args_repo_relative
 from quicken._repo_file import RepoFile
 
 
@@ -51,44 +51,31 @@ def quicken_instance(quicken_with_persistent_cache, test_cpp_file):
 
 
 class TestInputArgsPathTranslation:
-    """Test path translation for input_args."""
+    """Test path translation for input_args using PathArg tuples."""
 
     def test_translate_input_args_repo_relative(self, cache_dir, temp_dir):
-        """Test that absolute paths in repo are converted to repo-relative."""
+        """Test that paths in repo are converted to repo-relative."""
         # Create a file in the repo
         header_file = temp_dir / "default_header.h"
         header_file.write_text("#pragma once\n")
 
-        # Test with absolute path to file in repo
-        input_args = ["-include", str(header_file)]
-        translated = make_args_repo_relative(input_args, temp_dir)
+        # Test with PathArg tuple for file in repo
+        input_args = [("-include", " ", header_file)]
+        translated = make_path_args_repo_relative(input_args, temp_dir, temp_dir)
 
-        # Should translate absolute path to repo-relative
-        assert translated == ["-include", "default_header.h"]
+        # Should translate to repo-relative format: "prefix:repo_relative_path"
+        assert translated == ["-include:default_header.h"]
 
     def test_translate_input_args_outside_repo(self, cache_dir, temp_dir):
-        """Test that absolute paths outside repo remain absolute."""
+        """Test that paths outside repo are excluded from cache key."""
         # Use a path outside the repo (system path)
         outside_path = Path("C:\\Windows\\System32\\config.ini")
 
-        input_args = ["-include", str(outside_path)]
-        translated = make_args_repo_relative(input_args, temp_dir)
+        input_args = [("-include", " ", outside_path)]
+        translated = make_path_args_repo_relative(input_args, temp_dir, temp_dir)
 
-        # Should keep absolute path (normalized)
-        assert translated == ["-include", str(outside_path.resolve())]
-
-    def test_translate_input_args_with_flags(self, cache_dir, temp_dir):
-        """Test that flag arguments are preserved."""
-        # Create a file in the repo
-        header_file = temp_dir / "header.h"
-        header_file.write_text("#pragma once\n")
-
-        # Test with flags and file paths
-        input_args = ["-include", str(header_file), "-DDEBUG"]
-        translated = make_args_repo_relative(input_args, temp_dir)
-
-        # Flags should be preserved, paths translated
-        assert translated == ["-include", "header.h", "-DDEBUG"]
+        # Paths outside repo should be excluded from cache key
+        assert translated == []
 
     def test_translate_input_args_relative_path(self, cache_dir, temp_dir):
         """Test that relative paths are converted to repo-relative."""
@@ -98,12 +85,12 @@ class TestInputArgsPathTranslation:
         header_file = subdir / "config.h"
         header_file.write_text("#pragma once\n")
 
-        # Test with relative path
-        input_args = ["-include", "include/config.h"]
-        translated = make_args_repo_relative(input_args, temp_dir)
+        # Test with relative path (relative to cwd=temp_dir)
+        input_args = [("-include", " ", Path("include/config.h"))]
+        translated = make_path_args_repo_relative(input_args, temp_dir, temp_dir)
 
         # Should normalize to repo-relative
-        assert translated == ["-include", "include/config.h"]
+        assert translated == ["-include:include/config.h"]
 
     def test_translate_input_args_with_parent_refs(self, cache_dir, temp_dir):
         """Test that relative paths with .. are resolved correctly."""
@@ -112,12 +99,11 @@ class TestInputArgsPathTranslation:
         header_file.write_text("#pragma once\n")
 
         # Test with relative path containing ..
-        # From temp_dir/subdir, reference ../header.h
-        input_args = ["-include", "subdir/../header.h"]
-        translated = make_args_repo_relative(input_args, temp_dir)
+        input_args = [("-include", " ", Path("subdir/../header.h"))]
+        translated = make_path_args_repo_relative(input_args, temp_dir, temp_dir)
 
         # Should resolve to just header.h
-        assert translated == ["-include", "header.h"]
+        assert translated == ["-include:header.h"]
 
 
 class TestInputArgsCaching:
@@ -134,8 +120,8 @@ class TestInputArgsCaching:
         header2.write_text("#define VALUE2 2\n")
 
         tool_args = ["/c", "/nologo", "/EHsc"]
-        input_args1 = ["-include", str(header1)]
-        input_args2 = ["-include", str(header2)]
+        input_args1 = [("-include", " ", header1)]
+        input_args2 = [("-include", " ", header2)]
 
         # First run with header1
         cl1 = quicken_instance.cl(tool_args, [], input_args1)
@@ -180,7 +166,7 @@ class TestInputArgsCaching:
         header.write_text("#pragma once\n")
 
         tool_args = ["/c", "/nologo", "/EHsc"]
-        input_args = ["-include", str(header)]
+        input_args = [("-include", " ", header)]
 
         # First run
         cl = quicken_instance.cl(tool_args, [], input_args)
@@ -213,7 +199,7 @@ class TestInputArgsCaching:
         quicken1 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Run compilation in first location with input_args
-        cl1 = quicken1.cl(["/c", "/nologo", "/EHsc"], [], ["-include", str(header1)])
+        cl1 = quicken1.cl(["/c", "/nologo", "/EHsc"], [], [("-include", " ", header1)])
         _, _, returncode1 = cl1(cpp_file1)
         if returncode1 != 0:
             pytest.skip("MSVC compilation failed, skipping portability test")
@@ -230,17 +216,17 @@ class TestInputArgsCaching:
         quicken2 = Quicken(temp_dir, cache_dir=cache_dir)
 
         # Run in second location - should hit cache because paths are repo-relative
-        cl2 = quicken2.cl(["/c", "/nologo", "/EHsc"], [], ["-include", str(header2)])
+        cl2 = quicken2.cl(["/c", "/nologo", "/EHsc"], [], [("-include", " ", header2)])
         _, _, returncode2 = cl2(cpp_file2)
 
         # Should get cache hit
         assert returncode2 == returncode1
 
     def test_no_input_args_backward_compatibility(self, quicken_instance, test_cpp_file):
-        """Test that omitting input_args works (backward compatibility)."""
+        """Test that omitting input_args works."""
         tool_args = ["/c", "/nologo", "/EHsc"]
 
-        # Run without input_args (should work as before)
+        # Run without input_args
         cl = quicken_instance.cl(tool_args, [], [])
         _, _, returncode1 = cl(test_cpp_file)
         assert returncode1 == 0
@@ -259,10 +245,10 @@ class TestInputArgsCaching:
 
 
 class TestMultiElementInputArgs:
-    """Test multi-element input_args with flag and path pairs."""
+    """Test multiple PathArg tuples in input_args."""
 
     def test_multi_element_input_args_cache_hit(self, cache_dir, temp_dir):
-        """Test that multi-element input_args [flag, path] produce cache hits across different repo_dirs."""
+        """Test that PathArg input_args produce cache hits across different repo_dirs."""
 
         # Create two separate repos with identical source content
         repo1 = temp_dir / "repo1"
@@ -291,12 +277,12 @@ int add(int a, int b) {
         # Create Quicken instance for repo1
         quicken1 = Quicken(repo1, cache_dir=cache_dir)
 
-        # Compile in repo1 with multi-element input_args
+        # Compile in repo1 with PathArg input_args
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
-        input_args = ["-include", str(header_file)]  # Multi-element: [flag, absolute_path]
+        input_args = [("-include", " ", header_file)]  # PathArg tuple
 
-        clang1 = quicken1.clang(tool_args, ["-o", str(repo1 / "test.s")], input_args)
-        _, _, returncode1 = clang1(cpp_file1.relative_to(repo1))
+        clang1 = quicken1.clang(tool_args, [("-o", " ", repo1 / "test.s")], input_args)
+        _, _, returncode1 = clang1(cpp_file1)
 
         if returncode1 != 0:
             pytest.skip("Clang++ compilation failed, skipping cache test")
@@ -310,10 +296,10 @@ int add(int a, int b) {
         # Compile in repo2 - should HIT cache because:
         # - Same source content
         # - Same tool_args
-        # - Same input_args (with normalized absolute path to header_file)
+        # - Same input_args (outside-repo path excluded from cache key)
         # - Different repo_dir (should NOT affect cache key)
-        clang2 = quicken2.clang(tool_args, ["-o", str(repo2 / "test.s")], input_args)
-        _, _, returncode2 = clang2(cpp_file2.relative_to(repo2))
+        clang2 = quicken2.clang(tool_args, [("-o", " ", repo2 / "test.s")], input_args)
+        _, _, returncode2 = clang2(cpp_file2)
 
         assert returncode2 == 0, "Second compilation should succeed"
 
@@ -325,14 +311,7 @@ int add(int a, int b) {
             f"Cache HIT expected: entries should remain {cache_entries_before}, but got {cache_entries_after}"
 
     def test_multiple_input_args_pairs(self, cache_dir, temp_dir):
-        """Test multiple flag-path pairs in input_args.
-
-        KNOWN BUG: Quicken incorrectly concatenates multiple pairs like:
-        ["-include", "path1", "-include", "path2"]
-        into a single malformed path: "path1-includepath2"
-
-        This causes compilation to fail looking for a non-existent file.
-        """
+        """Test multiple PathArg tuples in input_args."""
 
         repo = temp_dir / "test_repo"
         repo.mkdir()
@@ -354,15 +333,14 @@ int multiply(int x, int y) {
         # Create Quicken instance for the repo
         quicken = Quicken(repo, cache_dir=cache_dir)
 
-        # Multiple input_args: [flag1, path1, flag2, path2]
+        # Multiple PathArg tuples
         tool_args = ["-std=c++20", "-Wall", "-S", "-masm=intel"]
-        input_args = ["-include", str(header1), "-include", str(header2)]
-        clang = quicken.clang(tool_args, ["-o", str(repo / "main.s")], input_args)
+        input_args = [("-include", " ", header1), ("-include", " ", header2)]
+        clang = quicken.clang(tool_args, [("-o", " ", repo / "main.s")], input_args)
 
-        _, _, returncode1 = clang(cpp_file.relative_to(repo))
+        _, _, returncode1 = clang(cpp_file)
 
-        # This SHOULD succeed but currently fails due to Quicken bug
-        assert returncode1 == 0, "Compilation should succeed with multiple input_args pairs"
+        assert returncode1 == 0, "Compilation should succeed with multiple input_args"
 
         # Delete output file
         output_file = repo / "main.s"
@@ -372,14 +350,14 @@ int multiply(int x, int y) {
         cache_entries_before = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Second run with same input_args - should HIT cache
-        _, _, returncode2 = clang(cpp_file.relative_to(repo))
+        _, _, returncode2 = clang(cpp_file)
 
         assert returncode2 == 0
         cache_entries_after = len([d for d in cache_dir.iterdir() if d.is_dir()])
 
         # Verify cache hit
         assert cache_entries_before == cache_entries_after, \
-            "Multiple input_args pairs should produce cache hit on second run"
+            "Multiple input_args should produce cache hit on second run"
 
         # Output file should be restored from cache
         assert output_file.exists(), "Cache hit should restore output file"

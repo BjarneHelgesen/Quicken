@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from ._cache import QuickenCache
 from ._logger import QuickenLogger
-from ._cmd_tool import CmdTool
+from ._cmd_tool import CmdTool, PathArg
 from ._cmd_cl import CmdCl
 from ._cmd_clang import CmdClang
 from ._cmd_clang_tidy import CmdClangTidy
@@ -18,10 +18,16 @@ from ._type_check import typecheck_methods
 @typecheck_methods
 class Quicken:
     """Quicken API
-    Basic usage: 
+    Basic usage:
     quicken = Quicken(repo)
-    tool = quicken.<tool>(command_line_args, [], []) # tool = cl, clang, etc.
+    tool = quicken.<tool>(tool_args, output_args, input_args)
     stdout, stderr, returncode = tool(file)
+
+    Path arguments (input_args, output_args) use tuple format: (prefix, separator, Path)
+    Examples:
+        ("/Fo", "", Path("build/out.obj"))      -> /Fobuild/out.obj
+        ("-o", " ", Path("build/out.obj"))      -> -o build/out.obj
+        ("--output", "=", Path("build/out.obj")) -> --output=build/out.obj
     """
 
     _data_dir = Path.home() / ".quicken"
@@ -36,27 +42,27 @@ class Quicken:
         self.cache = QuickenCache(cache_path)
         self.logger = QuickenLogger(self._data_dir)
 
-    def cl(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
+    def cl(self, tool_args: List[str], output_args: List[PathArg], input_args: List[PathArg]) -> CmdTool:
         """Create a reusable MSVC cl compiler command."""
         return CmdCl(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def clang(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
+    def clang(self, tool_args: List[str], output_args: List[PathArg], input_args: List[PathArg]) -> CmdTool:
         """Create a reusable clang++ compiler command."""
         return CmdClang(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def clang_tidy(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
+    def clang_tidy(self, tool_args: List[str], output_args: List[PathArg], input_args: List[PathArg]) -> CmdTool:
         """Create a reusable clang-tidy command."""
         return CmdClangTidy(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def doxygen(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
+    def doxygen(self, tool_args: List[str], output_args: List[PathArg], input_args: List[PathArg]) -> CmdTool:
         """Create a reusable doxygen command."""
         return CmdDoxygen(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def moc(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
+    def moc(self, tool_args: List[str], output_args: List[PathArg], input_args: List[PathArg]) -> CmdTool:
         """Create a reusable Qt MOC (Meta-Object Compiler) command."""
         return CmdMoc(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 
-    def uic(self, tool_args: List[str], output_args: List[str], input_args: List[str]) -> CmdTool:
+    def uic(self, tool_args: List[str], output_args: List[PathArg], input_args: List[PathArg]) -> CmdTool:
         """Create a reusable Qt UIC (User Interface Compiler) command."""
         return CmdUic(tool_args, self.logger, output_args, input_args, self.cache, self.repo_dir)
 

@@ -7,6 +7,7 @@ dependency tracking.
 
 import glob
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple, TYPE_CHECKING
@@ -18,6 +19,13 @@ from ._type_check import typecheck_methods
 
 if TYPE_CHECKING:
     from ._cache import QuickenCache
+
+# Type alias for path arguments: (prefix, separator, path)
+# Examples:
+#   ("/Fo", "", Path("build/out.obj"))     -> /Fobuild/out.obj
+#   ("-o", " ", Path("build/out.obj"))     -> -o build/out.obj
+#   ("--output", "=", Path("build/out.obj")) -> --output=build/out.obj
+PathArg = Tuple[str, str, Path]
 
 
 @typecheck_methods
@@ -43,12 +51,12 @@ class CmdTool(ABC):
     _config = None
 
     def __init__(self, tool_name: str, arguments: List[str], logger,
-                 output_args: List[str], input_args: List[str], cache: "QuickenCache", repo_dir: Path):
+                 output_args: List[PathArg], input_args: List[PathArg], cache: "QuickenCache", repo_dir: Path):
         self.tool_name = tool_name
         self.arguments = arguments
         self.logger = logger
-        self.output_args = output_args  # Output-specific arguments (not part of cache key)
-        self.input_args = input_args  # Input-specific arguments (part of cache key)
+        self.output_args = output_args  # Output path arguments (not part of cache key)
+        self.input_args = input_args  # Input path arguments (in-repo paths part of cache key)
         self.cache = cache
         self.repo_dir = repo_dir
         self._tool_path = None  # Lazy-loaded tool path
@@ -79,32 +87,67 @@ class CmdTool(ABC):
                  repo_dir: Repository root directory
         Returns: List of RepoFile instances for all dependencies"""
 
-    def build_execution_command(self, main_file: Path = None) -> List[str]:
+    def _resolve_path_args(self, path_args: List[PathArg], cwd: Path) -> Tuple[List[str], List[Path]]:
+        """Resolve PathArg tuples to command-line arguments and absolute paths.
+        Args:    path_args: List of (prefix, separator, path) tuples
+                 cwd: Current working directory for resolving relative paths
+        Returns: Tuple of (command_args, resolved_paths)
+                 command_args: List of strings to extend command with
+                 resolved_paths: List of resolved absolute paths"""
+        cmd_args = []
+        resolved_paths = []
+
+        for prefix, separator, path in path_args:
+            # Resolve relative paths against CWD
+            if not path.is_absolute():
+                resolved = cwd / path
+            else:
+                resolved = path
+            resolved = Path(os.path.normpath(resolved))
+            resolved_paths.append(resolved)
+
+            # Build command argument based on separator
+            if separator == " ":
+                # Space separator: two separate command-line arguments
+                cmd_args.append(prefix)
+                cmd_args.append(str(resolved))
+            else:
+                # Concatenated (empty or other separator like '=')
+                cmd_args.append(f"{prefix}{separator}{resolved}")
+
+        return cmd_args, resolved_paths
+
+    def build_execution_command(self, main_file: Path = None,
+                                resolved_input_args: List[str] = None,
+                                resolved_output_args: List[str] = None) -> List[str]:
         """Build complete command for execution.
         Args:    main_file: Main file path for repo-level tools (e.g., Doxyfile) or source file for file-level tools
+                 resolved_input_args: Pre-resolved input arguments (if None, not added)
+                 resolved_output_args: Pre-resolved output arguments (if None, not added)
         Returns: Complete command list for subprocess"""
         cmd = [self.tool_path] + self.arguments
 
-        # Add input_args (these are part of the cache key). Note that they are joined as a single argument, as the called decides the spacing.
-        if self.input_args:
-            cmd.extend(self.input_args)
+        # Add resolved input_args
+        if resolved_input_args:
+            cmd.extend(resolved_input_args)
 
         # Add main file before output args (some tools expect source file before -o)
         if main_file:
             cmd.append(str(main_file))
 
-        # Append output_args at the end (these are not part of the cache key)
-        if self.output_args:
-            cmd.extend(self.output_args)
+        # Append resolved output_args at the end
+        if resolved_output_args:
+            cmd.extend(resolved_output_args)
 
         return cmd
 
     @abstractmethod
-    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+    def get_output_patterns(self, source_file: Path, repo_dir: Path, resolved_output_paths: List[Path] = None) -> List[str]:
         """Return absolute patterns for files this tool will create.
         Patterns can include glob wildcards (*, **, ?).
         Args:    source_file: Path to source file
                  repo_dir: Repository root directory
+                 resolved_output_paths: Resolved absolute paths from output_args (optional)
         Returns: List of absolute glob patterns"""
 
     @staticmethod
@@ -125,19 +168,24 @@ class CmdTool(ABC):
 
         return file_timestamps
 
-    def run(self, repo_file: RepoFile, repo_dir: Path, env: Dict | None = None) -> Tuple[CmdToolRunResult, List[RepoFile]]:
+    def run(self, repo_file: RepoFile, repo_dir: Path, env: Dict | None = None,
+            resolved_input_args: List[str] = None, resolved_output_args: List[str] = None,
+            resolved_output_paths: List[Path] = None) -> Tuple[CmdToolRunResult, List[RepoFile]]:
         """Run the tool and detect output files.
         Args:    source_file: RepoFile to file to process (C++ file for compilers, Doxyfile for Doxygen)
                  repo_dir: Repository directory (scan location for output files)
                  env: Environment variables for subprocess (None uses current env)
+                 resolved_input_args: Pre-resolved input command arguments
+                 resolved_output_args: Pre-resolved output command arguments
+                 resolved_output_paths: Resolved absolute paths from output_args
         Returns: Tuple of (ToolRunResult, dependencies)"""
         abs_source_file = repo_file.to_absolute_path(repo_dir)
         dependencies = self.get_dependencies(abs_source_file, repo_dir)
 
-        patterns = self.get_output_patterns(abs_source_file, repo_dir)
+        patterns = self.get_output_patterns(abs_source_file, repo_dir, resolved_output_paths)
         files_before = self._get_file_timestamps(patterns)
 
-        cmd = self.build_execution_command(abs_source_file)
+        cmd = self.build_execution_command(abs_source_file, resolved_input_args, resolved_output_args)
 
         result = subprocess.run(
             cmd,
@@ -159,19 +207,25 @@ class CmdTool(ABC):
 
     def __call__(self, file: Path) -> Tuple[str, str, int]:
         """Execute the tool with caching.
-        Args:    file: File to process (absolute or relative path)
+        Args:    file: File to process (absolute or CWD-relative path)
         Returns: Tuple of (stdout, stderr, returncode)"""
-        repo_file = ValidatedRepoFile(self.repo_dir, file)
+        cwd = Path.cwd()
+        repo_file = ValidatedRepoFile(self.repo_dir, file, cwd=cwd)
+
+        # Resolve path arguments against CWD
+        resolved_input_args, _ = self._resolve_path_args(self.input_args, cwd)
+        resolved_output_args, resolved_output_paths = self._resolve_path_args(self.output_args, cwd)
 
         # Return the cached artifacts if found
-        cache_key = CacheKey(repo_file, self, self.repo_dir)
+        cache_key = CacheKey(repo_file, self, self.repo_dir, cwd)
         cache_entry = self.cache.lookup(cache_key, self.repo_dir)
         self.logger.info(f"Cached entry found: {cache_entry}: {repo_file}, tool: {self.tool_name} source:{file}")
         if cache_entry:
             return self.cache.restore(cache_entry, self.repo_dir)
 
         # No cached artifacts found. Execute the tool and store it in cache if successful
-        result, dependencies = self.run(repo_file, self.repo_dir, self.get_execution_env())
+        result, dependencies = self.run(repo_file, self.repo_dir, self.get_execution_env(),
+                                        resolved_input_args, resolved_output_args, resolved_output_paths)
         if result.returncode == 0:
             self.cache.store(cache_key, dependencies, result, self.repo_dir)
         return result.stdout, result.stderr, result.returncode

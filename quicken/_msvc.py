@@ -106,13 +106,13 @@ def get_dependencies_showincludes(main_file: Path, repo_dir: Path) -> List[RepoF
         check=False
     )
 
-    dependencies = [ValidatedRepoFile(repo_dir, main_file)]
+    dependencies = [ValidatedRepoFile(repo_dir, main_file, repo_dir)]
 
     for line in result.stderr.splitlines():
         if line.startswith("Note: including file:"):
             file_path_str = line.split(":", 2)[2].strip()
             try:
-                repo_file = ValidatedRepoFile(repo_dir, Path(file_path_str))
+                repo_file = ValidatedRepoFile(repo_dir, Path(file_path_str), repo_dir)
                 dependencies.append(repo_file)
             except ValueError:
                 pass  # Skip dependencies outside repo

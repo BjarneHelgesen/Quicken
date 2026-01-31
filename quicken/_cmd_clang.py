@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Dict, List, TYPE_CHECKING
 
-from ._cmd_tool import CmdTool
+from ._cmd_tool import CmdTool, PathArg
 from ._msvc import get_dependencies_showincludes
 from ._repo_file import RepoFile
 from ._type_check import typecheck_methods
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 class CmdClang(CmdTool):
     """Clang++ compiler command."""
 
-    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
+    def __init__(self, arguments: List[str], logger, output_args: List[PathArg], input_args: List[PathArg],
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("clang++", arguments, logger, output_args, input_args, cache, repo_dir)
 
@@ -26,32 +26,21 @@ class CmdClang(CmdTool):
     def get_dependencies(self, main_file: Path, repo_dir: Path) -> List[RepoFile]:
         return get_dependencies_showincludes(main_file, repo_dir)
 
-    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+    def get_output_patterns(self, source_file: Path, repo_dir: Path, resolved_output_paths: List[Path] = None) -> List[str]:
         """Return absolute patterns for files clang++ will create.
-        Parses arguments to find output paths or uses defaults based on source stem."""
+        Uses resolved_output_paths from output_args or defaults based on source stem."""
         patterns = []
         stem = source_file.stem
-        all_args = self.arguments + self.output_args
 
-        # Check for -o (explicit output path)
-        output_path = None
-        for i, arg in enumerate(all_args):
-            if arg == "-o" and i + 1 < len(all_args):
-                output_path = all_args[i + 1]
-                break
-            if arg.startswith("-o"):
-                output_path = arg[2:]
-                break
+        # Check for -S (assembly output) and -c (compile only) in tool_args
+        generates_asm = "-S" in self.arguments
+        compile_only = "-c" in self.arguments
 
-        # Check for -S (assembly output)
-        generates_asm = "-S" in all_args
-
-        # Check for -c (object file output, no linking)
-        compile_only = "-c" in all_args
-
-        if output_path:
-            patterns.append(str(repo_dir / output_path))
-            patterns.append(str(repo_dir / "**" / output_path))
+        # Use resolved output paths if provided
+        if resolved_output_paths:
+            for output_path in resolved_output_paths:
+                patterns.append(str(output_path))
+                patterns.append(str(output_path.parent / "**" / output_path.name))
         elif generates_asm:
             patterns.append(str(repo_dir / f"{stem}.s"))
             patterns.append(str(repo_dir / "**" / f"{stem}.s"))

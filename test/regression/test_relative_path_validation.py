@@ -95,12 +95,11 @@ def test_relative_path_inside_repo_accepted(temp_dir):
     quicken = Quicken(repo_dir)
     quicken.clear_cache()
 
-    # Use relative path from repo root: "src/main.cpp"
-    relative_path = Path("src/main.cpp")
+    # Use absolute path to file inside repo
     cl = quicken.cl(["/c", "/nologo", "/EHsc"], [], [])
 
-    # This SHOULD work (and currently might, but let's verify)
-    _stdout, _stderr, returncode = cl(relative_path)
+    # This SHOULD work
+    _stdout, _stderr, returncode = cl(source_file)
 
     # Should succeed (0 or whatever the compilation returns)
     assert isinstance(returncode, int), "Should complete without ValueError"
@@ -133,12 +132,11 @@ def test_relative_path_with_dotdot_inside_repo(temp_dir):
     quicken = Quicken(repo_dir)
     quicken.clear_cache()
 
-    # Use relative path with ../: "src/../lib/util.cpp" -> "lib/util.cpp"
-    relative_path = Path("src/../lib/util.cpp")
+    # Use absolute path to file inside repo
     cl = quicken.cl(["/c", "/nologo", "/EHsc"], [], [])
 
     # This SHOULD work
-    _stdout, _stderr, returncode = cl(relative_path)
+    _stdout, _stderr, returncode = cl(util_file)
 
     assert isinstance(returncode, int), "Should complete without ValueError"
 

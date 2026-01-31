@@ -103,7 +103,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -112,7 +112,7 @@ class TestStdoutStderrCapture:
         returncode = 0
 
         # Store in cache
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Verify metadata.json contains stdout and stderr
@@ -139,7 +139,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -148,7 +148,7 @@ class TestStdoutStderrCapture:
         returncode = 0
 
         # Store in cache
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], original_stdout, original_stderr, returncode), temp_dir)
 
         # Delete output file
@@ -173,13 +173,13 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c", "/nologo"]
 
         # Store with empty stdout and stderr
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], "", "", 0), temp_dir)
 
         # Restore
@@ -201,7 +201,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -210,7 +210,7 @@ class TestStdoutStderrCapture:
         original_stdout = "Line 1\nLine 2\nLine 3\n"
         original_stderr = "Error on line 10\nError on line 20\n"
 
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
 
         # Restore and verify exact preservation
@@ -232,7 +232,7 @@ class TestStdoutStderrCapture:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -241,7 +241,7 @@ class TestStdoutStderrCapture:
         original_stdout = "C:\\Path\\To\\File.cpp\nTest: 100% complete\n"
         original_stderr = "Warning: '\t' tab and \"quotes\"\n"
 
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], original_stdout, original_stderr, 0), temp_dir)
 
         # Restore and verify
@@ -461,8 +461,8 @@ class TestRepoToolStdoutStderr:
         output_file = output_dir / "index.html"
         output_file.write_text("<html></html>")
 
-        main_repo_path = ValidatedRepoFile(temp_dir, main_file.resolve())
-        cpp_repo_path = ValidatedRepoFile(temp_dir, cpp_file.resolve())
+        main_repo_path = ValidatedRepoFile(temp_dir, main_file.resolve(), temp_dir)
+        cpp_repo_path = ValidatedRepoFile(temp_dir, cpp_file.resolve(), temp_dir)
         dep_repo_paths = [main_repo_path, cpp_repo_path]
         tool_name = "doxygen"
         tool_args = []
@@ -471,7 +471,7 @@ class TestRepoToolStdoutStderr:
         returncode = 0
 
         # Store cache entry
-        cache_key = CacheKey(main_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(main_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Verify metadata contains stdout/stderr
@@ -495,7 +495,7 @@ class TestErrorCases:
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -506,7 +506,7 @@ class TestErrorCases:
         returncode = 2
 
         # Store error result (no output files created)
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([], stdout, stderr, returncode), temp_dir)
 
         # Restore

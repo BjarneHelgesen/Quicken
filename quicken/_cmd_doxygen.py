@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Dict, List, TYPE_CHECKING
 
-from ._cmd_tool import CmdTool
+from ._cmd_tool import CmdTool, PathArg
 from ._repo_file import RepoFile, ValidatedRepoFile
 from ._type_check import typecheck_methods
 
@@ -15,14 +15,14 @@ if TYPE_CHECKING:
 class CmdDoxygen(CmdTool):
     """Doxygen documentation generator command."""
 
-    def __init__(self, arguments: List[str], logger, output_args: List[str], input_args: List[str],
+    def __init__(self, arguments: List[str], logger, output_args: List[PathArg], input_args: List[PathArg],
                  cache: "QuickenCache", repo_dir: Path):
         super().__init__("doxygen", arguments, logger, output_args, input_args, cache, repo_dir)
 
     def get_execution_env(self) -> Dict | None:
         return None
 
-    def get_output_patterns(self, source_file: Path, repo_dir: Path) -> List[str]:
+    def get_output_patterns(self, source_file: Path, repo_dir: Path, resolved_output_paths: List[Path] = None) -> List[str]:
         """Return absolute patterns for files doxygen will create.
         Parses Doxyfile to find OUTPUT_DIRECTORY and returns patterns for that directory."""
         patterns = []
@@ -60,13 +60,13 @@ class CmdDoxygen(CmdTool):
         Args:    main_file: Path to Doxyfile
                  repo_dir: Repository root directory
         Returns: List of RepoFile instances for Doxyfile and all C++ files"""
-        dependencies = [ValidatedRepoFile(repo_dir, main_file)]  # Include Doxyfile itself
+        dependencies = [ValidatedRepoFile(repo_dir, main_file, repo_dir)]  # Include Doxyfile itself
 
         # Add all C++ source and header files in the repo
         for pattern in ['**/*.cpp', '**/*.h', '**/*.hpp']:
             for file_path in repo_dir.glob(pattern):
                 try:
-                    repo_file = ValidatedRepoFile(repo_dir, file_path)
+                    repo_file = ValidatedRepoFile(repo_dir, file_path, repo_dir)
                     dependencies.append(repo_file)
                 except ValueError:
                     pass  # Skip files outside repo

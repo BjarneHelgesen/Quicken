@@ -101,9 +101,9 @@ class TestQuickenCache:
         # After storing an entry, folder should have entry_000001 and next_entry_id should be 2
         source_file = temp_dir / "test.cpp"
         source_file.write_text("int main() { return 0; }")
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
-        cache_key = CacheKey(source_repo_path, MockToolCmd("cl", ["/c"]), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd("cl", ["/c"]), temp_dir, temp_dir)
         cache_entry_dir = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([], "", "", 0), temp_dir)
 
         # Check folder_index.json
@@ -123,7 +123,7 @@ class TestQuickenCache:
         output_file = temp_dir / "test.obj"
         output_file.write_text("fake object file")
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -132,7 +132,7 @@ class TestQuickenCache:
         returncode = 0
 
         # Store in cache
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
         assert cache_entry.exists()
 
@@ -142,7 +142,7 @@ class TestQuickenCache:
         assert found == cache_entry
 
         # Different command should not find it
-        different_key = CacheKey(source_repo_path, MockToolCmd(tool_name, ["/c", "/W4"]), temp_dir)
+        different_key = CacheKey(source_repo_path, MockToolCmd(tool_name, ["/c", "/W4"]), temp_dir, temp_dir)
         not_found = cache.lookup(different_key, temp_dir)
         assert not_found is None
 
@@ -161,7 +161,7 @@ class TestQuickenCache:
         output_content = "fake object file content"
         output_file.write_text(output_content)
 
-        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve())
+        source_repo_path = ValidatedRepoFile(temp_dir, source_file.resolve(), temp_dir)
         dep_repo_paths = [source_repo_path]
         tool_name = "cl"
         tool_args = ["/c"]
@@ -169,7 +169,7 @@ class TestQuickenCache:
         stderr = "No warnings"
         returncode = 0
 
-        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir)
+        cache_key = CacheKey(source_repo_path, MockToolCmd(tool_name, tool_args), temp_dir, temp_dir)
         cache_entry = cache.store(cache_key, dep_repo_paths, CmdToolRunResult([output_file], stdout, stderr, returncode), temp_dir)
 
         # Delete the original file
